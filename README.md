@@ -408,6 +408,9 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 ### *Critical Issues*
 
 ### **Known Issues**
+
+- [ ] Anime added via Toonami Checker and not cut will cause issues with the lineup
+  - [ ] This is because multibump reorderd added the bump assumeing the Anime will exist. This will cause the multibump to be added but no anime will follow it. It does continue to work but it's annoying. We are working on a fix for this.
   
 ## **Ongoing Tasks**
 
