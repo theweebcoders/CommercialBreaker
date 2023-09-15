@@ -10,9 +10,7 @@ So, who's the bigger otaku here? The person adding commercials back into their a
 
 Until next time, stay gold.
 
-#What it does
-
-What does it do?
+# What it does
 
 CommercialBreaker & Toonami Tools ingeniously automate a chain-reactive Toonami marathon:
 
