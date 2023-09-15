@@ -159,6 +159,8 @@ You will notice the "Don't move my anime (not recommended)" checkbox at the top.
 
 You will get a pop-up window that says "Select Shows". This is a list of all the shows in your Anime Library that we have confirmed were on Toonami. You can click "Continue" on the right side to use all of them. Alternatively, you can unselect shows that you don't want to use on your channel. This will also prevent these shows from being moved.
 
+Due to an error later on for now if you are going to make a cut lineup, you need to uncheck Anime you don't intend to cut.
+
 Afterwards, this will move your Anime and Bumps to the new folders and then it will move the Anime that will be used by the lineup to it's own folder called "toonami_filtered".
 
 When this completes, you will get a pop-up window that says "Your Anime is ready to be cut!" 
