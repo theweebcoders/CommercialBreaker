@@ -15,10 +15,15 @@ Until next time, stay gold.
 CommercialBreaker & Toonami Tools ingeniously automate a chain-reactive Toonami marathon:
 
   You supply a directory filled with your multi-lineup bumps, transitional bumps and shows.
+  
   The tools commence with an initial lineup bump, say, "Toonami 2.0: Now Bleach, Next Naruto, Later One Piece."
+  
   "Bleach" plays, including transitional bumps leading to and returning from commercials. The good ol Bleach will be right back, and now back to Bleach.
+  
   Following "Bleach", "Naruto" takes the stage, with its respective commercial transitions.
+  
   As "Naruto" concludes, the tools astutely identify the next lineup bump that starts with "One Piece", ensuring a smooth handover. This could be something like, "Toonami 2.0: Now One Piece, Next Blue Exorcist, Later Black Lagoon."
+  
   This cascading mechanism continues, with the end of one multi-lineup bump dictating the beginning of the next, enveloping each show segment in the iconic Toonami transitions.
 
 The brilliance of these tools lies in their ability to create an unbroken Toonami marathon, using the multi-lineup bumps to define the sequence, and seamlessly connecting the end of one lineup to the beginning of another.
