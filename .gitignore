@@ -1,3 +1,8 @@
 config.py
 __pycache__
 toonami.db
+Tools/ffmpeg.exe
+Tools/ffprobe.exe
+Tools/mkvmerge.exe
+Tools/fpcalc.exe
+Tools/ffplay.exe
