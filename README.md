@@ -12,19 +12,18 @@ Until next time, stay gold.
 
 # What it does
 
-CommercialBreaker & Toonami Tools ingeniously automate a chain-reactive Toonami marathon:
+Toonami Tools and CommercialBreaker automate a continuous Toonami marathon.
 
-  You supply a directory filled with your multi-lineup bumps, transitional bumps and shows.
-  
-  The tools commence with an initial lineup bump, say, "Toonami 2.0: Now Bleach, Next Naruto, Later One Piece."
-  
-  "Bleach" plays, including transitional bumps leading to and returning from commercials. The good ol Bleach will be right back, and now back to Bleach.
-  
-  Following "Bleach", "Naruto" takes the stage, with its respective commercial transitions.
-  
-  As "Naruto" concludes, the tools astutely identify the next lineup bump that starts with "One Piece", ensuring a smooth handover. This could be something like, "Toonami 2.0: Now One Piece, Next Blue Exorcist, Later Black Lagoon."
-  
-  This cascading mechanism continues, with the end of one multi-lineup bump dictating the beginning of the next, enveloping each show segment in the iconic Toonami transitions.
+Here's how it works:
+
+  Provide a directory with multi-lineup bumps, transitional bumps, and shows.
+  The marathon starts with a lineup bump, like "Toonami 2.0: Now Bleach, Next Naruto, Later One Piece."
+  "Bleach" airs, with transitional bumps for commercials. AKA Bleach will be right back & Now more bleach
+  After "Bleach," "Naruto" airs with its commercial transitions.
+  The tools then select the next lineup bump starting with "One Piece," such as "Toonami 2.0: Now One Piece, Next Blue Exorcist, Later Black Lagoon."
+  This pattern continues, using the end of one bump to determine the start of the next.
+
+The result is an unbroken Toonami marathon, where multi-lineup bumps set the sequence and transitions connect each lineup smoothly.
 
 The brilliance of these tools lies in their ability to create an unbroken Toonami marathon, using the multi-lineup bumps to define the sequence, and seamlessly connecting the end of one lineup to the beginning of another.
 
