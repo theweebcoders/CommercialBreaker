@@ -5,7 +5,7 @@ from config import *
 import re
 
 class ShowScheduler:
-    def __init__(self, reuse_episode_blocks=True, continue_from_last_used_episode_block=False, apply_ns3_logic=False):
+    def __init__(self, reuse_episode_blocks=True, continue_from_last_used_episode_block=False, apply_ns3_logic=False, uncut=False):
         self.conn = sqlite3.connect('toonami.db')
         if continue_from_last_used_episode_block == True:
             query = "SELECT name FROM sqlite_master WHERE type='table' AND name='last_used_episode_block';"
@@ -29,6 +29,7 @@ class ShowScheduler:
         self.continue_from_last_used_episode_block = continue_from_last_used_episode_block
         self.ns3_special_indices = []  # Initialize the list to store specific indices for NS3 bumps that follow NS2 bumps and flow
         self.apply_ns3_logic = apply_ns3_logic
+        self.uncut = uncut
 
     def set_paths(self, encoder_table, commercial_table):
         print("Setting file paths...")
@@ -336,6 +337,12 @@ class ShowScheduler:
 
         print("Running the show scheduler...")
         self.set_paths(encoder_table, commercial_table)
+        if not self.encoder_df['Code'].str.contains('-NS2').any() or self.uncut:
+            self.apply_ns3_logic = False
+            print("No NS2 bumps found. Skipping NS3 logic.")
+        else:
+            self.apply_ns3_logic = True
+            print("NS2 bumps found. Applying NS3 logic.")
         final_df = self.generate_schedule()
         
         # Adjust the final_df based on the special -NS3 indices
