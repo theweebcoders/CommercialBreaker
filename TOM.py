@@ -567,6 +567,7 @@ class Page8(ttk.Frame):
         ssh_pass_label.pack(pady=3)
         self.ssh_pass_entry = ttk.Entry(self)
         self.ssh_pass_entry.insert(0, "eg. password")
+        self.ssh_pass_entry = ttk.Entry(self, show="*")
         self.ssh_pass_entry.pack(pady=3)
 
         self.dizquetv_docker_name_label = ttk.Label(self, text="Enter the name of your dizqueTV docker container:")
