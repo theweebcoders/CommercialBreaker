@@ -35,7 +35,7 @@ class DizqueTVManager:
         return output
         
     def is_flex_target(self, title):
-        target_keywords = ['To Ads', 'Back', 'Generic']
+        target_keywords = ['To Ads', 'Back', 'Generic', 'Clydes', 'Toonami Robot']
         return any(keyword in title for keyword in target_keywords)
 
     def insert_flex(self, json_data):
