@@ -428,7 +428,7 @@ class Page6(ttk.Frame):
         commercial_injector_prep = AnimeFileOrganizer(cut_folder)
         commercial_injector = LineupLogic()
         BIC = BlockIDCreator()
-        merger = ShowScheduler(apply_ns3_logic=True)
+        merger = ShowScheduler(apply_ns3_logic=False)
         commercial_injector_prep.organize_files()
         commercial_injector.generate_lineup()
         BIC.run()
