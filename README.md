@@ -32,6 +32,12 @@ The result is an unbroken Toonami marathon, where multi-lineup bumps set the seq
 
 The brilliance of these tools lies in their ability to create an unbroken Toonami marathon, using the multi-lineup bumps to define the sequence, and seamlessly connecting the end of one lineup to the beginning of another.
 
+Here is what it will look like
+
+![SampleLineup1](https://github.com/tim000x3/CommercialBreaker/assets/30919168/12c1ec40-b6dc-4b1f-9b6a-2abff97491ab)
+
+![SampleLineup2](https://github.com/tim000x3/CommercialBreaker/assets/30919168/50a52cff-868c-4053-8b52-c6ff77e95804)
+
 ## The Lineup
 
 **CommercialBreaker:** Just like alchemy, the science of deconstructing and reconstructing matter, CommercialBreaker is a Python application that works on your anime videos. It breaks down videos at points traditionally reserved for commercial breaks and reconstructs them, ready for your custom commercials. It's a true equivalent exchange, providing you with a transmutation circle for content management, especially for those who love a good old broadcast-style viewing experience. No philosopher's stone required!
