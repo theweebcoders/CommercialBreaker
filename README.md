@@ -17,10 +17,15 @@ Toonami Tools and CommercialBreaker automate a continuous Toonami marathon.
 Here's how it works:
 
   Provide a directory with multi-lineup bumps, transitional bumps, and shows.
+  
   The marathon starts with a lineup bump, like "Toonami 2.0: Now Bleach, Next Naruto, Later One Piece."
+  
   "Bleach" airs, with transitional bumps for commercials. AKA Bleach will be right back & Now more bleach
+  
   After "Bleach," "Naruto" airs with its commercial transitions.
+  
   The tools then select the next lineup bump starting with "One Piece," such as "Toonami 2.0: Now One Piece, Next Blue Exorcist, Later Black Lagoon."
+  
   This pattern continues, using the end of one bump to determine the start of the next.
 
 The result is an unbroken Toonami marathon, where multi-lineup bumps set the sequence and transitions connect each lineup smoothly.
