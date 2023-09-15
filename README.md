@@ -559,9 +559,9 @@ Until next time, Space Cowboy!
 
 ### tim000x3 - Executive Producer, Creator of CommercialBreaker, ToonamiTools UI, File Mover, and Toonami Encoder and the README.md file any pretty much everything else not already credited.
 
-### mugiwaraluffy - Creator of LineupPrep, Lineup Merger
+### mugiwaralufy - Creator of LineupPrep, Lineup Merger
 
-### lazydeadsnail - Creator of TooanmiChecker
+### lazydeadsnail - Creator of ToonamiChecker
 
 ### aislynne - Bringer of tea and snacks
 
