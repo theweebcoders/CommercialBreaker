@@ -6,7 +6,7 @@ Welcome aboard the Absolution, where we're on a mission to boldly put the commer
 
 We've got two Python apps in our hyperdrive: CommercialBreaker and Toonami Tools. They'll slice up your anime and make room for those memory-ridden ads you secretly miss. Want your Plex server to feel like a marathon Toonami night? We got you. Got DizqueTV all set up? Even better.
 
-So, who's the bigger otaku here? The person adding commercials back into their anime, or the mad scientist who spent six months in the coding mines to make it happen? No matter, we're all in this giant robot together.
+So, who's the bigger otaku here? The person adding commercials back into their anime, or the mad scientist who spent a year and six months in the coding mines to make it happen? No matter, we're all in this giant robot together.
 
 Until next time, stay gold.
 
