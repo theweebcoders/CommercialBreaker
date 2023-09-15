@@ -53,7 +53,7 @@ class ToonamiChecker(IMDBScraper):
         selected_shows = []
 
         def on_continue():
-            for show, var in zip(unique_show_names, checkboxes):
+            for show, var in zip(sorted_unique_show_names, checkboxes):
                 if var.get():
                     selected_shows.append(show)
             selection_window.destroy()
@@ -81,8 +81,11 @@ class ToonamiChecker(IMDBScraper):
         checkbox_frame = tk.Frame(canvas)
         canvas.create_window((0, 0), window=checkbox_frame, anchor="nw")
 
-        checkboxes = [tk.IntVar(value=1) for _ in unique_show_names]
-        for show, var in zip(unique_show_names, checkboxes):
+        # Sort the unique_show_names
+        sorted_unique_show_names = sorted(unique_show_names)
+
+        checkboxes = [tk.IntVar(value=1) for _ in sorted_unique_show_names]
+        for show, var in zip(sorted_unique_show_names, checkboxes):
             ttk.Checkbutton(checkbox_frame, text=show, variable=var).pack(anchor="w")
 
         ttk.Button(selection_window, text="Continue", command=on_continue).pack()
