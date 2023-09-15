@@ -3,6 +3,8 @@
 
 import os
 import re
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
 
 
 current_dir = os.path.dirname(os.path.realpath(__file__))
@@ -13,6 +15,22 @@ ffprobe_path = os.path.join(tools_dir, "ffprobe.exe")
 ffplay_path = os.path.join(tools_dir, "ffplay.exe")
 fpcalc_path = os.path.join(tools_dir, "fpcalc.exe")
 mkvmerge_path = os.path.join(tools_dir, "mkvmerge.exe")
+
+def check_executable_path(path, name, missing_list):
+    if not os.path.exists(path) or not os.path.isfile(path) or not path.endswith('.exe'):
+        missing_list.append(name)
+
+missing_executables = []
+
+check_executable_path(ffmpeg_path, "ffmpeg", missing_executables)
+check_executable_path(ffprobe_path, "ffprobe", missing_executables)
+
+if missing_executables:
+    root = tk.Tk()
+    root.withdraw()  # Hide the main window
+    message = "The following executables are missing or invalid: " + ", ".join(missing_executables) + ". Please place them in the Tools folder or edit the config to specify there location and restart the program."
+    messagebox.showwarning("Executables Not Found", message)
+    root.destroy()
 
 ENGLISH_VARIATIONS = ['eng', 'english', 'english dub', 'inglês', 'en', 'en-us', '英語', 'anglais']
 
