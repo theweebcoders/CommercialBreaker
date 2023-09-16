@@ -209,13 +209,12 @@ class ShowScheduler:
                 current_ns3_show = shows[0]
                 if previous_ns2_show == current_ns3_show:
                     skip_first_show = True
+                else:
+                    skip_first_show = False
 
             if all(show not in self.shows_with_no_more_blocks for show in shows):
                 if "-NS3" in row["Code"]:
                     final_df = pd.concat([final_df, pd.DataFrame([row[["FULL_FILE_PATH", "Code"]].to_dict()])], ignore_index=True)
-                    if skip_first_show:
-                        special_index = final_df.index[-1] 
-                        self.ns3_special_indices.append(special_index)  # Append the index to the list
                     # Set delete_intro flag to True for NS3, unless specific scenario is matched
                     if not skip_first_show:
                         delete_intro = True
@@ -284,17 +283,38 @@ class ShowScheduler:
         print("Schedule generation complete.")
         return final_df
 
-    def get_ns3_special_indices(self):  # Method to retrieve the list
-        return self.ns3_special_indices
+    def get_ns3_special_indices(self, final_df):
+        ns3_special_indices = []
+
+        # Step 1: Create a list of rows that have a non-empty "Code" and their original indices
+        rows_with_codes = [(idx, row["Code"]) for idx, row in final_df.iterrows() if row["Code"] and row["Code"].strip() != ""]
+
+        # Step 2: Iterate through this new list, checking for the `-NS2` and `-NS3` conditions
+        for i in range(len(rows_with_codes) - 1):
+            idx, current_code = rows_with_codes[i]
+            next_idx, next_code = rows_with_codes[i + 1]
+
+            # Check if codes end with -NS2 and -NS3 respectively
+            if current_code.endswith("-NS2") and next_code.endswith("-NS3"):
+                # Extract show names from the codes
+                current_show = re.search(r'-S1:(\w+)-', current_code)
+                next_show = re.search(r'-S1:(\w+)-', next_code)
+                
+                # Check if the shows match
+                if current_show and next_show and current_show.group(1) == next_show.group(1):
+                    # Step 3: Store the original index of the `-NS3` entry
+                    ns3_special_indices.append(next_idx)
+        return ns3_special_indices
+
     
     def adjust_final_df_based_on_ns3_indices(self, final_df):
         if not self.apply_ns3_logic:
             return final_df
-
+        self.ns3_special_indices = self.get_ns3_special_indices(final_df)
         for index in self.ns3_special_indices:
             # Ensure that we're not accessing a row less than 0.
             if index >= 2 and index < len(final_df):
-                final_df.iloc[index - 2] = final_df.iloc[index].copy()
+                final_df.iloc[index - 2], final_df.iloc[index] = final_df.iloc[index].copy(), final_df.iloc[index - 2].copy()
             else:
                 print(f"Skipping index {index} as it leads to out-of-bounds index {index - 2}")
 
