@@ -291,22 +291,24 @@ class ShowScheduler:
         if not self.apply_ns3_logic:
             return final_df
 
-        # Step 1: Copy the rows
         for index in self.ns3_special_indices:
-            if index >= 2:  # Boundary check
+            # Ensure that we're not accessing a row less than 0.
+            if index >= 2 and index < len(final_df):
                 final_df.iloc[index - 2] = final_df.iloc[index].copy()
             else:
                 print(f"Skipping index {index} as it leads to out-of-bounds index {index - 2}")
 
-        # Step 2: Delete the rows in reverse order to avoid index complications
+        # Delete rows while avoiding index complications
         for index in sorted(self.ns3_special_indices, reverse=True):
-            if index < len(final_df):  # Boundary check
+            # Ensure that we're not accessing a row beyond the length of the dataframe.
+            if index < len(final_df):
                 final_df.drop(index, inplace=True)
             else:
                 print(f"Skipping index {index} as it is out-of-bounds")
 
         final_df.reset_index(drop=True, inplace=True)
         return final_df
+
 
     def set_reuse_episode_blocks(self, reuse):
         self.reuse_episode_blocks = reuse
