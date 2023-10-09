@@ -419,6 +419,7 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
     - This is because multibump reorderd added the bump assumeing the Anime will exist. This will cause the multibump to be added but no anime will follow it. It also can cause issues with NS2 to NS3 logic causing disorganized bump structure.
     - **Possible Fixes**
     - When Running cut rerun multibump reorderd based on cut anime?
+- [ ] Still a lot of broken connections
   
 ## **Ongoing Tasks**
 
@@ -436,6 +437,10 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 ### Generalized Improvements
 
 - [ ] Find an alternative to DizqueTV that allows for mid episode flex or add it to DizqueTV myself
+- [ ] Add episode descriptions to cut Anime
+- [ ] Add boolean "Allow Disjointed Lineup" set to False by default
+  - [ ] If False, when you reach a bump that does not connect to another bump, rollback, try again, and add to "Broken Connections" table.
+    - [ ] When no bumps can be added stop there and write the "Broken Connections" table to database
 
 ### GUI Enhancements
 

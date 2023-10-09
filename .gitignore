@@ -6,3 +6,5 @@ Tools/ffprobe.exe
 Tools/mkvmerge.exe
 Tools/fpcalc.exe
 Tools/ffplay.exe
+temp.py
+logs
