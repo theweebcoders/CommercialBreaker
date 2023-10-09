@@ -73,6 +73,8 @@ Create a folder in your home directory called "Tools."
 
 Download ffmpeg, ffplay, and ffprobe from https://www.ffmpeg.org/ and put them in the Tools folder. The program calls the ffmpeg, ffplay, and ffprobe executables directly, so they need to be in the same folder as the program. (See FAQ)
 
+**Note** If updateing from a previous version please delete config.py and run cp example-config.py config.py again
+
 # How to Run
 
 In the terminal window, type the following command:
