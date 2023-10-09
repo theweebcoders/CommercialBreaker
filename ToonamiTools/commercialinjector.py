@@ -22,7 +22,10 @@ class LineupLogic:
         df_bumps_sanitized['FULL_FILE_PATH'] = df_bumps_sanitized['FULL_FILE_PATH'].apply(lambda x: x.split('Θ')[0])
 
         def apply_show_name_mapping(show_name):
-            return show_name_mapping.get(show_name, show_name)
+            show_name = show_name_mapping.get(show_name, show_name)
+            show_name = show_name_mapping_2.get(show_name, show_name)
+            show_name = show_name_mapping_3.get(show_name, show_name)
+            return show_name
 
         df_parts['SHOW_NAME_1'] = df_parts['SHOW_NAME_1'].str.lower().apply(apply_show_name_mapping)
         df_bumps['SHOW_NAME_1'] = df_bumps['SHOW_NAME_1'].str.lower().apply(apply_show_name_mapping)

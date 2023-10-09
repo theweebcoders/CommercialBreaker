@@ -13,6 +13,8 @@ class MediaProcessor:
         self.columns = ['ORIGINAL_FILE_PATH', 'FULL_FILE_PATH', 'TOONAMI_VERSION', 'PLACEMENT_1', 'SHOW_NAME_1', 'PLACEMENT_2', 'SHOW_NAME_2', 'PLACEMENT_3', 'SHOW_NAME_3', 'PLACEMENT_4', 'AD_VERSION', 'COLOR', 'Status']
         self.show_name_mappings_lower = None
         self.show_name_mapping = show_name_mapping
+        self.show_name_mapping_2 = show_name_mapping_2  # Add this line
+        self.show_name_mapping_3 = show_name_mapping_3  # Add this line
         self.colors = colors
 
     def generate_dynamic_regex(self, count, shows):
@@ -99,15 +101,19 @@ class MediaProcessor:
 
     def _apply_show_name_mapping(self, bump):
         # Sort keys by length, in descending order, to handle multi-word mappings first
-        sorted_keys = sorted(self.show_name_mapping.keys(), key=len, reverse=True)
+        for mapping in [self.show_name_mapping, self.show_name_mapping_2, self.show_name_mapping_3]:  # Loop over mappings
+            sorted_keys = sorted(mapping.keys(), key=len, reverse=True)
+            
+            # Transform to lowercase for easier matching
+            transformed_bump = bump.lower()
 
-        # Transform to lowercase for easier matching
-        transformed_bump = bump.lower()
-
-        # Replace mapped words
-        for key in sorted_keys:
-            value = self.show_name_mapping[key]
-            transformed_bump = transformed_bump.replace(key.lower(), value.lower())
+            # Replace mapped words
+            for key in sorted_keys:
+                value = mapping[key]
+                transformed_bump = transformed_bump.replace(key.lower(), value.lower())
+                
+            # Update bump for next mapping
+            bump = transformed_bump
 
         # Clean the transformed bump
         transformed_bump = self._clean_show_name(transformed_bump)
@@ -198,7 +204,8 @@ class MediaProcessor:
         print("Database connection established.")
         
         # Initialize the show name mappings to lowercase
-        self.show_name_mappings_lower = {k.lower(): v.lower() for k, v in self.show_name_mapping.items()}
+        all_mappings = [self.show_name_mapping, self.show_name_mapping_2, self.show_name_mapping_3]
+        self.show_name_mappings_lower = {k.lower(): v.lower() for mapping in all_mappings for k, v in mapping.items()}
         
         print("Retrieving Toonami Shows from the database...")
         shows_df = pd.read_sql_query("SELECT * FROM Toonami_Shows", conn)

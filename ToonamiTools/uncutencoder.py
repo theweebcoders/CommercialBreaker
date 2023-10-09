@@ -17,11 +17,16 @@ class UncutEncoder:
         self.default_bump_cycle = None  # Cycling default bumps
         db_path = 'toonami.db'
         self.conn = sqlite3.connect(db_path)
+        
+    def apply_show_name_mappings(self, show_name):
+        show_name = show_name_mapping.get(show_name, show_name)
+        show_name = show_name_mapping_2.get(show_name, show_name)
+        show_name = show_name_mapping_3.get(show_name, show_name)
+        return show_name
 
     def load_bumps_data(self):
         self.bumps_df = pd.read_sql('SELECT * FROM singles_data', self.conn)
-        self.bumps_df['SHOW_NAME_1'] = self.bumps_df['SHOW_NAME_1'].str.lower().apply(lambda x: show_name_mapping.get(x, x))
-
+        self.bumps_df['SHOW_NAME_1'] = self.bumps_df['SHOW_NAME_1'].str.lower().apply(self.apply_show_name_mappings)
         if default_bumps := self.bumps_df[
             (self.bumps_df['SHOW_NAME_1'].str.contains('clydes', case=False))
             | (self.bumps_df['SHOW_NAME_1'].str.contains('robot', case=False))
@@ -53,8 +58,7 @@ class UncutEncoder:
             show_name = show_name.replace('_', ' ')
             show_name = re.sub(r'[^a-z0-9\s]', '', show_name)
             show_name = re.sub(r'\s+', ' ', show_name).strip()
-            show_name = show_name_mapping.get(show_name, show_name)
-
+            show_name = self.apply_show_name_mappings(show_name)
             if intro_bumps := self.bumps_df[
                 (self.bumps_df['SHOW_NAME_1'].str.lower() == show_name)
                 & (self.bumps_df['PLACEMENT_2'].str.contains('Intro', case=False))
