@@ -43,57 +43,10 @@ class IMDBScraper:
 
 class ToonamiChecker(IMDBScraper):
 
-    def __init__(self, root, anime_folder):
+    def __init__(self, anime_folder):
         urls = URLS
         super().__init__(urls)
-        self.root_window = root
         self.anime_folder = anime_folder
-
-    def display_show_selection(self, unique_show_names):
-        selected_shows = []
-
-        def on_continue():
-            for show, var in zip(sorted_unique_show_names, checkboxes):
-                if var.get():
-                    selected_shows.append(show)
-            selection_window.destroy()
-
-        selection_window = tk.Toplevel(self.root_window)
-        selection_window.title("Select Shows")
-
-        # Create a frame to contain the checkboxes and a scrollbar
-        frame = tk.Frame(selection_window)
-        frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        # Create a canvas to host the frame with the checkboxes
-        canvas = tk.Canvas(frame)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        # Add a scrollbar to the canvas
-        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        # Configure the canvas to use the scrollbar
-        canvas.configure(yscrollcommand=scrollbar.set)
-        canvas.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-
-        # Create a frame to host the checkboxes inside the canvas
-        checkbox_frame = tk.Frame(canvas)
-        canvas.create_window((0, 0), window=checkbox_frame, anchor="nw")
-
-        # Sort the unique_show_names
-        sorted_unique_show_names = sorted(unique_show_names)
-
-        checkboxes = [tk.IntVar(value=1) for _ in sorted_unique_show_names]
-        for show, var in zip(sorted_unique_show_names, checkboxes):
-            ttk.Checkbutton(checkbox_frame, text=show, variable=var).pack(anchor="w")
-
-        ttk.Button(selection_window, text="Continue", command=on_continue).pack()
-
-        # Wait for the selection_window to close before returning the result
-        self.root_window.wait_window(selection_window)
-
-        return selected_shows
 
     def get_video_files(self):
         """
@@ -212,11 +165,14 @@ class ToonamiChecker(IMDBScraper):
         conn.close()
         print(f'Successfully wrote rows to {db_path}')
 
-    def run(self):
+    def prepare_episode_data(self):
         toonami_episodes = self.compare_shows()
         unique_show_names = {k[0] for k in toonami_episodes.keys()}
-        selected_shows = self.display_show_selection(unique_show_names)
-        filtered_episodes = {k: v for k, v in toonami_episodes.items() if k[0] in selected_shows}
 
+        return unique_show_names, toonami_episodes
+
+    def process_selected_shows(self, selected_shows, toonami_episodes):
+        selected_shows = selected_shows
+        filtered_episodes = {k: v for k, v in toonami_episodes.items() if k[0] in selected_shows}
         self.save_episodes_to_spreadsheet(filtered_episodes)
         self.save_show_names_to_spreadsheet(filtered_episodes)

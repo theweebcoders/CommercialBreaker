@@ -3,8 +3,6 @@
 
 import os
 import re
-import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
 
 
 current_dir = os.path.dirname(os.path.realpath(__file__))
@@ -15,22 +13,6 @@ ffprobe_path = os.path.join(tools_dir, "ffprobe.exe")
 ffplay_path = os.path.join(tools_dir, "ffplay.exe")
 fpcalc_path = os.path.join(tools_dir, "fpcalc.exe")
 mkvmerge_path = os.path.join(tools_dir, "mkvmerge.exe")
-
-def check_executable_path(path, name, missing_list):
-    if not os.path.exists(path) or not os.path.isfile(path) or not path.endswith('.exe'):
-        missing_list.append(name)
-
-missing_executables = []
-
-check_executable_path(ffmpeg_path, "ffmpeg", missing_executables)
-check_executable_path(ffprobe_path, "ffprobe", missing_executables)
-
-if missing_executables:
-    root = tk.Tk()
-    root.withdraw()  # Hide the main window
-    message = "The following executables are missing or invalid: " + ", ".join(missing_executables) + ". Please place them in the Tools folder or edit the config to specify there location and restart the program."
-    messagebox.showwarning("Executables Not Found", message)
-    root.destroy()
 
 ENGLISH_VARIATIONS = ['eng', 'english', 'english dub', 'inglês', 'en', 'en-us', '英語', 'anglais']
 
@@ -110,7 +92,7 @@ show_name_mapping = {
     'dbz': 'dragon ball z',
     'dbz kai': 'dragon ball z kai',
     'dbz kai the final chapters': 'dragon ball z kai the final chapters',
-    'deadman': 'deadman Wonderland',
+    'deadman': 'deadman wonderland',
     'dead man wonderland': 'deadman Wonderland',
     'dead mans wonderland': 'deadman Wonderland',
     'eurika 7': 'eureka seven',
@@ -125,6 +107,7 @@ show_name_mapping = {
     'fullmetal alchemist brotherhood': 'fullmetal alchemist - brotherhood',
     'fullmetal alchemist  brotherhood': 'fullmetal alchemist - brotherhood',
     'gitssac': 'ghost in the shell - stand alone complex',
+    'ghost in the shell standalone complex' : 'ghost in the shell - stand alone complex',
     'ghost in the shell stand alone complex': 'ghost in the shell - stand alone complex',
     'gits sac': 'ghost in the shell - stand alone complex',
     'ghost in the shell - stand alone complex': 'ghost in the shell - stand alone complex',
@@ -137,7 +120,22 @@ show_name_mapping = {
     'yu yu hakusho ghost files' : 'yu yu hakusho',
     'naruto 2002': 'naruto',
     'naturo': 'naruto',
+    'bobobobo bobobo': 'bobobo-bo bo-bobo',
+    'bobobo bo bo bobo': 'bobobo-bo bo-bobo',
+    'one punch man' : 'one-punch man',
+    'onepunch man' : 'one-punch man',
+    'food wars shokugeki no soma' : 'food wars'
         }
+show_name_mapping_2 = {
+'sword art online online' : 'sword art online',
+'the the big o' : 'the big o',
+'deadman wonderland wonderland': 'deadman wonderland',
+'neon genesis neon genesis evangelion': 'neon genesis evangelion',
+}
+
+show_name_mapping_3 = {
+
+}
 
 genric_bumps = ['clydes', 'robot', 'robots', 'robot', 'robot 1', 'robot 2', 'robot 3', 'robot 4', 'robot 5', 'robot 6', 'robot 7', 'robot 8', 'robot 9', 'robot 10']
 
