@@ -1,8 +1,5 @@
 import asyncio
-from plexauth import PlexAuth
-from plexapi.myplex import MyPlexAccount
-from plexapi.server import PlexServer
-import webbrowser 
+import webbrowser
 
 class PlexServerList:
     def __init__(self):
@@ -10,6 +7,7 @@ class PlexServerList:
         self.plex_token = None
 
     def GetPlexToken(self):
+        from plexauth import PlexAuth
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
@@ -34,6 +32,7 @@ class PlexServerList:
         loop.close()
 
     def GetPlexServerList(self):
+        from plexapi.myplex import MyPlexAccount
         self.GetPlexToken()
         try:
             account = MyPlexAccount(token=self.plex_token)
@@ -52,6 +51,7 @@ class PlexLibraryManager:
         self.plex_url = None
 
     def GetPlexDetails(self):
+        from plexapi.myplex import MyPlexAccount
         account = MyPlexAccount(token=self.plex_token)
         selected_resource = next(resource for resource in account.resources() if resource.name == self.selected_server)
         plex = selected_resource.connect()
@@ -67,6 +67,7 @@ class PlexLibraryFetcher:
         self.libraries = []
 
     def GetPlexLibraries(self):
+        from plexapi.server import PlexServer
         server = PlexServer(self.plex_url, self.plex_token)
         libraries = server.library.sections()
         self.libraries = [library.title for library in libraries]

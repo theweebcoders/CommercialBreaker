@@ -1,11 +1,11 @@
 import uuid
-from plexapi.server import PlexServer
 
 class PlexAutoSplitter:
     def __init__(self, plex_url, plex_token, library_name):
         self.plex_url = plex_url
         self.plex_token = plex_token
         self.library_name = library_name
+        from plexapi.server import PlexServer
         self.plex = PlexServer(self.plex_url, self.plex_token)
 
     def split_merged_item(self, rating_key):

@@ -1,13 +1,14 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-import ttkthemes as ttkthemes
+# import ttkthemes as ttkthemes
 import sv_ttk
 from ComBreak.CommercialBreakerLogic import CommercialBreakerLogic
 from FrontEndLogic import LogicController
-from config import *
+import config
 import threading
 import os
 import psutil
+
 
 class Page1(ttk.Frame):
     def __init__(self, parent, controller, logic):
@@ -79,7 +80,7 @@ class Page1(ttk.Frame):
         # Create the 'Continue' button but don't pack it yet
         self.continue_button = ttk.Button(button_frame, text="Continue",
                                         command=self.on_continue_button_click)
-  
+
     def update_dropdown(self):
         """Callback to update the dropdown when new server choices are announced."""
         self.plex_server_dropdown['values'] = self.logic.plex_servers
@@ -98,7 +99,7 @@ class Page1(ttk.Frame):
         if self.libraries_selected == 2:
             self.skip_button.pack_forget()
             self.continue_button.pack(side="right", padx=5, pady=5)
-    
+
 
     def add_1_to_libraries_selected(self, event):
         self.libraries_selected += 1
@@ -119,7 +120,7 @@ class Page2(ttk.Frame):
         self.controller = controller
         label = ttk.Label(self, text="Enter your details:", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
-        
+
         # Pass both the instance of Page2 and the main controller (MainApplication) to LogicController
         self.logic = logic
 
@@ -171,7 +172,7 @@ class Page2(ttk.Frame):
         dizquetv_url = self.dizquetv_url_entry.get()
         self.logic.on_continue_second(plex_url, plex_token, selected_anime_library, selected_toonami_library, dizquetv_url)
         self.controller.show_frame("Page3")
-        
+
 
 class Page3(ttk.Frame):
     def __init__(self, parent, controller, logic):
@@ -184,7 +185,7 @@ class Page3(ttk.Frame):
 
         self.anime_folder_entry = ttk.Entry(self)
         self.anime_folder_entry.pack(pady=3)
-        anime_button = ttk.Button(self, text="Browse Anime Folder", 
+        anime_button = ttk.Button(self, text="Browse Anime Folder",
                                  command=lambda: self.anime_folder_entry.insert(0, filedialog.askdirectory()))
         anime_button.pack(pady=3)
 
@@ -248,7 +249,7 @@ class Page4(ttk.Frame):
         get_plex_timestamps_button = ttk.Button(self, text="Get Plex Timestamps",
                                         command=self.logic.get_plex_timestamps)
         get_plex_timestamps_button.pack(pady=3)
-        
+
         # Create a new frame to hold the button
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
@@ -320,7 +321,7 @@ class Page5(ttk.Frame):
         self.create_widgets()
 
     def tkraise(self):
-        main_app = self.controller
+        # main_app = self.controller
         working_folder = self.TOM_logic._get_data("working_folder")
         cut_folder = working_folder + "/cut"
         toonami_filtered_folder = working_folder + "/toonami_filtered"
@@ -331,7 +332,7 @@ class Page5(ttk.Frame):
         # Call the original tkraise method to display the frame
         super().tkraise()
 
-    
+
     def create_widgets(self):
         """Create the widgets for the GUI."""
         # Create a new frame to hold the checkboxes
@@ -453,14 +454,14 @@ class Page5(ttk.Frame):
         """Exit the program."""
         main_process_pid = os.getpid() # Get the PID of the main process
         main_process = psutil.Process(main_process_pid)
-        
+
         # Iterate through child processes and terminate them
         for child_process in main_process.children(recursive=True):
             try:
                 child_process.terminate()
             except:
                 pass # Handle exceptions as needed
-        
+
         os._exit(0)
 
     def update_progress(self, current, total):
@@ -573,7 +574,7 @@ class Page7(ttk.Frame):
         what_toonami_version_label.pack(pady=3)
 
         toonami_version_dropdown = ttk.Combobox(self, textvariable=self.toonami_version)
-        toonami_version_dropdown['values'] = list(TOONAMI_CONFIG.keys())
+        toonami_version_dropdown['values'] = list(config.TOONAMI_CONFIG.keys())
         toonami_version_dropdown.pack(pady=3)
 
         channel_number_label = ttk.Label(self, text="What channel number do you want to use?")
@@ -670,7 +671,7 @@ class Page8(ttk.Frame):
         dizquetv_channel_number = self.dizquetv_channel_number_entry.get()
         dizquetv_flex_duration = self.dizquetv_flex_duration_entry.get()
         self.logic.add_flex_creds(ssh_host, ssh_user, ssh_pass, dizquetv_docker_name, dizquetv_channel_number, dizquetv_flex_duration)
-        self.logic.add_flex()        
+        self.logic.add_flex()
 
 
 
@@ -696,7 +697,7 @@ class MainApplication(tk.Tk):
 
 
         self.show_frame("Page1")
-        
+
     def set_theme(self):
         if self.dark_mode:
             sv_ttk.set_theme("dark")
@@ -719,12 +720,20 @@ class MainApplication(tk.Tk):
             "Page7": "Step 6 - Let's Make Another Channel! - Toonami's Back Bitches",
             "Page8": "Step 7 - Flex Your Toonami Channel - Commerecial Break"
         }
-        
+
         frame = self.frames[page_name]
         frame.tkraise()
         self.title(frame_titles[page_name])
 
-if __name__ == "__main__":
+
+def main():
     app = MainApplication()
-    app.iconbitmap(icon_path)
+    try:
+        app.iconbitmap(config.icon_path)
+    except Exception as ex:
+        print(f'Error showing icon: {ex!r}')
     app.mainloop()
+
+
+if __name__ == "__main__":
+    main()
