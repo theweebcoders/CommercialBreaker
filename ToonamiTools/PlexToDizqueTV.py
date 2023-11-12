@@ -4,6 +4,7 @@ from dizqueTV import API
 import sqlite3
 import re
 
+
 class PlexToDizqueTVSimplified:
     def __init__(self, plex_url, plex_token, library_name, table, dizquetv_url, channel_number):
         print("Initializing the connection to Plex and dizqueTV...")

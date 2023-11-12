@@ -1,13 +1,14 @@
 import pandas as pd
 import random
 import sqlite3
-from config import *
 import re
+import config
+
 
 class ShowScheduler:
     def __init__(self, reuse_episode_blocks=True, continue_from_last_used_episode_block=False, apply_ns3_logic=False, uncut=False):
         self.conn = sqlite3.connect('toonami.db')
-        if continue_from_last_used_episode_block == True:
+        if continue_from_last_used_episode_block:
             query = "SELECT name FROM sqlite_master WHERE type='table' AND name='last_used_episode_block';"
             if self.conn.execute(query).fetchone():
                 self.last_used_episode_block = self.load_last_used_episode_block()
@@ -16,16 +17,16 @@ class ShowScheduler:
                 self.last_used_episode_block = {}
                 print("Resetting episode tracking for the last spreadsheet.")
         else:
-                self.last_used_episode_block = {}
-                print("Resetting episode tracking for the last spreadsheet.")
+            self.last_used_episode_block = {}
+            print("Resetting episode tracking for the last spreadsheet.")
         self.last_spreadsheet = None
         self.encoder_df = None
         self.commercial_injector_df = None
         self.decoder = None
         self.decoded_df = None
         self.show_episode_blocks = None
-        self.reuse_episode_blocks = True # Step 1
-        self.shows_with_no_more_blocks = set() # Step 1
+        self.reuse_episode_blocks = True  # Step 1
+        self.shows_with_no_more_blocks = set()  # Step 1
         self.continue_from_last_used_episode_block = continue_from_last_used_episode_block
         self.ns3_special_indices = []  # Initialize the list to store specific indices for NS3 bumps that follow NS2 bumps and flow
         self.apply_ns3_logic = apply_ns3_logic
@@ -61,7 +62,7 @@ class ShowScheduler:
         self.commercial_injector_df['show_name'] = self.commercial_injector_df['show_name'].apply(self._normalize_show_name)
 
     def _normalize_show_name(self, show):
-        normalized_show = show_name_mapping.get(show.lower(), show)
+        normalized_show = config.show_name_mapping.get(show.lower(), show)
         return normalized_show
 
     def _extract_show_codes(self, code):
@@ -105,14 +106,14 @@ class ShowScheduler:
         used_shows = set()
         for idx, row in self.decoded_df.iterrows():
             used_shows.update(row["shows"])
-        
+
         # Get all unique shows in commercial_injector_df
         all_shows = set(self.commercial_injector_df['show_name'].unique())
-        
+
         # Identify and print unused shows
         unused_shows = all_shows - used_shows
 
-        # add 
+        # add
         unused_shows_df = self.commercial_injector_df[self.commercial_injector_df['show_name'].isin(unused_shows)]
         return unused_shows_df
 
@@ -128,7 +129,7 @@ class ShowScheduler:
                         start_ns_code = final_df.iloc[start_idx]['Code']
                         break
                     start_idx -= 1
-                
+
                 # Initialize and find the ending NS code
                 end_idx = idx
                 end_ns_code = None
@@ -144,38 +145,37 @@ class ShowScheduler:
                 for block_id in section_df['BLOCK_ID'].dropna():
                     if block_id not in unique_blocks:
                         unique_blocks.append(block_id)
-                
+
                 # Find the fourth unique Block_ID if it exists
                 fourth_unique_block_id = unique_blocks[3] if len(unique_blocks) >= 4 else None
-                
+
                 if fourth_unique_block_id:
                     # Find the lines (indices) where this fourth unique Block_ID appears in the section
                     lines_of_fourth_block = section_df.index[section_df['BLOCK_ID'] == fourth_unique_block_id].tolist()
-                    
+
                     if lines_of_fourth_block:
                         # Capture the row just above the first line of the fourth unique block as the anchor row
                         anchor_row = final_df.iloc[lines_of_fourth_block[0] - 1]
                         anchor_rows.append(anchor_row)
-                
-        return anchor_rows
 
+        return anchor_rows
 
     def add_unused_shows_to_schedule(self, final_df, unused_shows_df, anchor_rows):
         for anchor_row in anchor_rows:
             # Find the index of the anchor row in the current DataFrame
             anchor_idx = final_df.index[
-                (final_df['FULL_FILE_PATH'] == anchor_row['FULL_FILE_PATH']) & 
-                (final_df['Code'] == anchor_row['Code']) & 
+                (final_df['FULL_FILE_PATH'] == anchor_row['FULL_FILE_PATH']) &
+                (final_df['Code'] == anchor_row['Code']) &
                 (final_df['BLOCK_ID'] == anchor_row['BLOCK_ID'])
             ].tolist()[0]
-            
-            space = anchor_idx + 1 
+
+            space = anchor_idx + 1
             # Select an unused show randomly
             selected_show = random.choice(unused_shows_df['show_name'].unique())
-            
+
             # Use the get_next_episode_block method to get the next block for the selected show
             next_block = self.get_next_episode_block(selected_show)
-            
+
             if next_block is not None:
                 # Fetch the episode block details for the next block
                 selected_block_df = self.commercial_injector_df[
@@ -189,9 +189,8 @@ class ShowScheduler:
                     final_df.drop(columns=['Priority', 'show_name'], inplace=True)
                 else:
                     final_df.drop(columns=['show_name'], inplace=True)
-        
-        return final_df
 
+        return final_df
 
     def generate_schedule(self):
         print("Generating schedule...")
@@ -218,7 +217,7 @@ class ShowScheduler:
                     # Set delete_intro flag to True for NS3, unless specific scenario is matched
                     if not skip_first_show:
                         delete_intro = True
-                    
+
                     # If there's a next -NS3 bump, and its first show matches the current last show
                     if idx < len(self.decoded_df) - 1 and "-NS3" in self.decoded_df.iloc[idx + 1]["Code"] and self.decoded_df.iloc[idx + 1]["shows"][0] == shows[-1]:
                         shows_to_place = shows[:-1]
@@ -299,14 +298,13 @@ class ShowScheduler:
                 # Extract show names from the codes
                 current_show = re.search(r'-S1:(\w+)-', current_code)
                 next_show = re.search(r'-S1:(\w+)-', next_code)
-                
+
                 # Check if the shows match
                 if current_show and next_show and current_show.group(1) == next_show.group(1):
                     # Step 3: Store the original index of the `-NS3` entry
                     ns3_special_indices.append(next_idx)
         return ns3_special_indices
 
-    
     def adjust_final_df_based_on_ns3_indices(self, final_df):
         if not self.apply_ns3_logic:
             return final_df
@@ -329,7 +327,6 @@ class ShowScheduler:
         final_df.reset_index(drop=True, inplace=True)
         return final_df
 
-
     def set_reuse_episode_blocks(self, reuse):
         self.reuse_episode_blocks = reuse
 
@@ -342,7 +339,6 @@ class ShowScheduler:
         df.to_sql('last_used_episode_block', self.conn, index=False, if_exists='replace')
         print("Last used episode blocks have been saved.")
 
-        
     def load_last_used_episode_block(self):
         query = "SELECT name FROM sqlite_master WHERE type='table' AND name='last_used_episode_block';"
         if self.conn.execute(query).fetchone():
@@ -353,7 +349,7 @@ class ShowScheduler:
             return None
 
     def run(self, encoder_table, commercial_table, save_table):
-        if "multi" in encoder_table.lower() and self.continue_from_last_used_episode_block == False:
+        if "multi" in encoder_table.lower() and not self.continue_from_last_used_episode_block:
             self.last_used_episode_block = {}
             print("Resetting episode tracking for the last spreadsheet.")
 
@@ -366,13 +362,13 @@ class ShowScheduler:
             self.apply_ns3_logic = True
             print("NS2 bumps found. Applying NS3 logic.")
         final_df = self.generate_schedule()
-        
+
         # Adjust the final_df based on the special -NS3 indices
         final_df = self.adjust_final_df_based_on_ns3_indices(final_df)
 
-        if self.continue_from_last_used_episode_block == True:
+        if self.continue_from_last_used_episode_block:
             unused_shows_df = self.get_unused_shows()
-            
+
             # Check if the DataFrame is effectively empty
             if unused_shows_df.empty or len(unused_shows_df.index) == 0:
                 print("No unused shows available. Skipping related operations.")
@@ -381,9 +377,9 @@ class ShowScheduler:
                 final_df = self.add_unused_shows_to_schedule(final_df, unused_shows_df, anchor_rows)
 
         self.save_schedule(final_df, save_table)
-        
-        if self.continue_from_last_used_episode_block == True:
+
+        if self.continue_from_last_used_episode_block:
             self.save_last_used_episode_block()
             print("Last used episode blocks have been saved.")
-        
+
         print("Schedule successfully saved to", save_table)

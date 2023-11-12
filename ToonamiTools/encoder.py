@@ -3,6 +3,7 @@ import sqlite3
 from pandas import DataFrame
 from typing import Dict
 
+
 class ToonamiEncoder:
     def __init__(self):
         print("Initializing ToonamiEncoder...")
@@ -32,8 +33,8 @@ class ToonamiEncoder:
         return kind + str(index) + ':' + self.codes[name]
 
     def create_code(self, row):
-        placements = [self.get_abbr(row['PLACEMENT_' + str(i+1)], 'P', i+1) for i in range(3)]
-        shows = [self.get_abbr(row['SHOW_NAME_' + str(i+1)], 'S', i+1) for i in range(3)]
+        placements = [self.get_abbr(row['PLACEMENT_' + str(i + 1)], 'P', i + 1) for i in range(3)]
+        shows = [self.get_abbr(row['SHOW_NAME_' + str(i + 1)], 'S', i + 1) for i in range(3)]
 
         merged = []
         for i in range(len(shows)):
@@ -53,8 +54,8 @@ class ToonamiEncoder:
     def encode_dataframe(self, df: DataFrame) -> DataFrame:
         print("Encoding DataFrame...")
         df['Code'] = df.apply(self.create_code, axis=1)
-        df['sort_ver'] = df['Code'].str.extract('V(\d+)', expand=False).fillna('9').astype(int)
-        df['sort_ns'] = df['Code'].str.extract('NS(\d+)', expand=False).astype(int)
+        df['sort_ver'] = df['Code'].str.extract(r'V(\d+)', expand=False).fillna('9').astype(int)
+        df['sort_ns'] = df['Code'].str.extract(r'NS(\d+)', expand=False).astype(int)
         df.sort_values(['sort_ver', 'sort_ns'], inplace=True)
         print("DataFrame encoded.")
         return df
@@ -72,7 +73,7 @@ class ToonamiEncoder:
         multibumps_df = df[df['Code'].str.contains('-NS[2-9]$')]
         singles_df.drop(['sort_ver', 'sort_ns'], axis=1).to_sql('singles_data', self.conn, index=False, if_exists='replace')
         multibumps_df.drop(['sort_ver', 'sort_ns'], axis=1).to_sql('multibumps_v8_data', self.conn, index=False, if_exists='replace')
-        
+
         for ver in multibumps_df['sort_ver'].unique():
             multibumps_ver_df = multibumps_df[multibumps_df['sort_ver'] == ver]
             multibumps_ver_df.drop(['sort_ver', 'sort_ns'], axis=1).to_sql(f'multibumps_v{ver}_data', self.conn, index=False, if_exists='replace')

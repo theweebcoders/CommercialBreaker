@@ -2,16 +2,17 @@ import pandas as pd
 import sqlite3
 import random
 
+
 class Multilineup:
     def __init__(self):
         db_path = 'toonami.db'
         self.conn = sqlite3.connect(db_path)
-        
+
     def get_next_row(self, df, conditions, recent_shows):
         original_index = df.index  # Capture original index
         df = df.reset_index(drop=True)  # Reset index for alignment
         mask = pd.Series([True] * len(df))
-        
+
         for key, value in conditions.items():
             if key == "PLACEMENT_2":
                 mask &= df[key].apply(lambda x: str(x).lower() if x is not None else x) == value.lower()
@@ -19,14 +20,14 @@ class Multilineup:
                 mask &= df[key] == value
 
         df_subset = df.loc[mask]
-        
+
         if not df_subset.empty:
             # Select a row based on the recent_shows for weighting
             selected_row = self.weighted_selection(df_subset, recent_shows)
             return selected_row, original_index[df_subset.index[df_subset["SHOW_NAME_1"] == selected_row["SHOW_NAME_1"]][0]]
-        
+
         return None, None
-    
+
     def weighted_selection(self, df_subset, recent_shows):
         # Assigning weights
         weights = []

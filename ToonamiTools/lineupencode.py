@@ -3,6 +3,7 @@ import os
 import re
 import sqlite3
 
+
 class BlockIDCreator:
     def __init__(self):
         db_path = 'toonami.db'

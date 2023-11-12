@@ -1,6 +1,7 @@
 from plexapi.server import PlexServer
 import os
 
+
 class GetPlexTimestamps:
     def __init__(self, plex_url, plex_token, library_name, save_dir):
         self.plex = PlexServer(plex_url, plex_token)
@@ -28,8 +29,8 @@ class GetPlexTimestamps:
                             if marker.type == 'intro':
                                 start_time_offset = marker.start
                                 end_time_offset = marker.end
-                                start_time_converted = start_time_offset/1000
-                                end_time_converted = end_time_offset/1000
+                                start_time_converted = start_time_offset / 1000
+                                end_time_converted = end_time_offset / 1000
                                 file_path = item.media[0].parts[0].file
                                 # Get the file name from the file path by splitting on the last slash
                                 file_name = file_path.split('/')[-1]

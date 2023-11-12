@@ -7,7 +7,7 @@ class VideoFile:
 
 class VideoFilesManager:
     _instance = None
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(VideoFilesManager, cls).__new__(cls)
@@ -31,6 +31,6 @@ class VideoFilesManager:
                 (original_file is None or file.original_file == original_file) and
                 (dirpath is None or file.dirpath == dirpath) and
                 (filename is None or file.filename == filename)]
-    
+
     def clear_files(self):
         self.video_files.clear()

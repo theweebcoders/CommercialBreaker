@@ -1,5 +1,6 @@
 import os
 
+
 class FolderMaker:
     def __init__(self, dir_input):
         self.folders = ['toonami', 'nice_bumps', 'cut', 'final lineup', 'toonami_filtered']

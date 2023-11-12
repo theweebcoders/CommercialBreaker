@@ -3,6 +3,7 @@ import json
 import tempfile
 import os
 
+
 class DizqueTVManager:
     def __init__(self, ssh_host, ssh_username, ssh_password, docker_container_name, channel_number, duration):
         self.ssh_host = ssh_host
@@ -17,7 +18,7 @@ class DizqueTVManager:
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         ssh.connect(self.ssh_host, username=self.ssh_username, password=self.ssh_password)
         return ssh
-    
+
     #convert minutes:seconds to milliseconds
     def convert_to_milliseconds(self, time):
         time = time.split(":")
@@ -33,7 +34,7 @@ class DizqueTVManager:
         if error:
             raise Exception(f"Command failed with error: {error}")
         return output
-        
+
     def is_flex_target(self, title):
         target_keywords = ['Toonami']
         return any(keyword in title for keyword in target_keywords)
@@ -92,7 +93,7 @@ class DizqueTVManager:
             self.execute_command(ssh, docker_cp_command)
             # Remove the temporary file from your system
             os.unlink(temp_file.name)
-            
+
             # Remove the temporary file from the SSH server
             self.execute_command(ssh, f"rm /tmp/{self.channel_number}.json")
 

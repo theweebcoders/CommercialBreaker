@@ -4,6 +4,7 @@ from plexapi.myplex import MyPlexAccount
 from plexapi.server import PlexServer
 import webbrowser 
 
+
 class PlexServerList:
     def __init__(self):
         self.plex_servers = []
@@ -45,6 +46,7 @@ class PlexServerList:
     def run(self):
         self.GetPlexServerList()
 
+
 class PlexLibraryManager:
     def __init__(self, selected_server, plex_token):
         self.selected_server = selected_server
@@ -59,6 +61,7 @@ class PlexLibraryManager:
 
     def run(self):
         self.GetPlexDetails()
+
 
 class PlexLibraryFetcher:
     def __init__(self, plex_url, plex_token):

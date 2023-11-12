@@ -3,6 +3,7 @@ import re
 import pandas as pd
 import sqlite3
 
+
 class AnimeFileOrganizer:
     def __init__(self, anime_dir):
         self.anime_dir = anime_dir

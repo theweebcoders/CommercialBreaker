@@ -3,6 +3,7 @@ import sqlite3
 import pandas as pd
 import numpy as np
 
+
 class FileProcessor:
     def __init__(self, input_dir):
         self.input_dir = input_dir
@@ -33,7 +34,7 @@ class FileProcessor:
             for i in range(len(df)):
                 pos += np.random.randint(3, 8)
                 if pos < len(df_input):
-                    df_input = pd.concat([df_input.iloc[:pos], df.iloc[i:i+1], df_input.iloc[pos:]]).reset_index(drop=True)
+                    df_input = pd.concat([df_input.iloc[:pos], df.iloc[i:i + 1], df_input.iloc[pos:]]).reset_index(drop=True)
                 else:
                     break
 

@@ -1,10 +1,10 @@
-from config import *  # Import everything from your config file
 import os
 import re
 import pandas as pd
-import random
 import sqlite3
 from itertools import cycle
+import config
+
 
 class UncutEncoder:
     def __init__(self, toonami_folder):
@@ -17,11 +17,11 @@ class UncutEncoder:
         self.default_bump_cycle = None  # Cycling default bumps
         db_path = 'toonami.db'
         self.conn = sqlite3.connect(db_path)
-        
+
     def apply_show_name_mappings(self, show_name):
-        show_name = show_name_mapping.get(show_name, show_name)
-        show_name = show_name_mapping_2.get(show_name, show_name)
-        show_name = show_name_mapping_3.get(show_name, show_name)
+        show_name = config.show_name_mapping.get(show_name, show_name)
+        show_name = config.show_name_mapping_2.get(show_name, show_name)
+        show_name = config.show_name_mapping_3.get(show_name, show_name)
         return show_name
 
     def load_bumps_data(self):
