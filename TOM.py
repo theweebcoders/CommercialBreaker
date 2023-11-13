@@ -604,7 +604,7 @@ class Page7(ttk.Frame):
     def prepare_toonami_channel(self):
         toonami_version = self.toonami_version.get()
         start_from_last_episode = self.start_from_last_episode.get()
-        self.logic.prepare_toonami_channel(toonami_version, start_from_last_episode)
+        self.logic.prepare_toonami_channel(start_from_last_episode, toonami_version)
 
     def create_toonami_channel_cont(self):
         toonami_version = self.toonami_version.get()

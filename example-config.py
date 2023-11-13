@@ -37,25 +37,25 @@ DECIBEL_THRESHOLD = -60
 API_KEY = "PUT YOUR OPEN AI KEY HERE"
 
 TOONAMI_CONFIG = {
-    "OG": {"table": "lineup_v9", "merger_bump_list": "multibumps_v9_data_reordered", "merger_out": "lineup_v9", "encoder_in": "commercial_injector_final"},
-    "2": {"table": "lineup_v2", "merger_bump_list": "multibumps_v2_data_reordered", "merger_out": "lineup_v2", "encoder_in": "commercial_injector_final"},
-    "3": {"table": "lineup_v3", "merger_bump_list": "multibumps_v3_data_reordered", "merger_out": "lineup_v3", "encoder_in": "commercial_injector_final"},
-    "Mixed": {"table": "lineup_v8", "merger_bump_list": "multibumps_v8_data_reordered", "merger_out": "lineup_v8", "encoder_in": "commercial_injector_final"},
-    "Uncut OG": {"table": "lineup_v9_uncut", "merger_bump_list": "multibumps_v9_data_reordered", "merger_out": "lineup_v9_uncut", "encoder_in": "uncut_encoded_data"},
-    "Uncut 2": {"table": "lineup_v2_uncut", "merger_bump_list": "multibumps_v2_data_reordered", "merger_out": "lineup_v2_uncut", "encoder_in": "uncut_encoded_data"},
-    "Uncut 3": {"table": "lineup_v3_uncut", "merger_bump_list": "multibumps_v3_data_reordered", "merger_out": "lineup_v3_uncut", "encoder_in": "uncut_encoded_data"},
-    "Uncut Mixed": {"table": "lineup_v8_uncut", "merger_bump_list": "multibumps_v8_data_reordered", "merger_out": "lineup_v8_uncut", "encoder_in": "uncut_encoded_data"},
+    "OG": {"table": "lineup_v9", "merger_bump_list": "multibumps_v9_data_reordered", "merger_out": "lineup_v9", "encoder_in": "commercial_injector_final", "uncut": False},
+    "2": {"table": "lineup_v2", "merger_bump_list": "multibumps_v2_data_reordered", "merger_out": "lineup_v2", "encoder_in": "commercial_injector_final", "uncut": False},
+    "3": {"table": "lineup_v3", "merger_bump_list": "multibumps_v3_data_reordered", "merger_out": "lineup_v3", "encoder_in": "commercial_injector_final", "uncut": False},
+    "Mixed": {"table": "lineup_v8", "merger_bump_list": "multibumps_v8_data_reordered", "merger_out": "lineup_v8", "encoder_in": "commercial_injector_final", "uncut": False},
+    "Uncut OG": {"table": "lineup_v9_uncut", "merger_bump_list": "multibumps_v9_data_reordered", "merger_out": "lineup_v9_uncut", "encoder_in": "uncut_encoded_data", "uncut": True},
+    "Uncut 2": {"table": "lineup_v2_uncut", "merger_bump_list": "multibumps_v2_data_reordered", "merger_out": "lineup_v2_uncut", "encoder_in": "uncut_encoded_data", "uncut": True},
+    "Uncut 3": {"table": "lineup_v3_uncut", "merger_bump_list": "multibumps_v3_data_reordered", "merger_out": "lineup_v3_uncut", "encoder_in": "uncut_encoded_data", "uncut": True},
+    "Uncut Mixed": {"table": "lineup_v8_uncut", "merger_bump_list": "multibumps_v8_data_reordered", "merger_out": "lineup_v8_uncut", "encoder_in": "uncut_encoded_data", "uncut": True},
 }
 
 TOONAMI_CONFIG_CONT = {
-    "OG": {"table": "lineup_v9", "merger_bump_list": "multibumps_v9_data_reordered", "merger_out": "lineup_v9_cont", "encoder_in": "commercial_injector_final"},
-    "2": {"table": "lineup_v2", "merger_bump_list": "multibumps_v2_data_reordered", "merger_out": "lineup_v2_cont", "encoder_in": "commercial_injector_final"},
-    "3": {"table": "lineup_v3", "merger_bump_list": "multibumps_v3_data_reordered", "merger_out": "lineup_v3_cont", "encoder_in": "commercial_injector_final"},
-    "Mixed": {"table": "lineup_v8", "merger_bump_list": "multibumps_v8_data_reordered", "merger_out": "lineup_v8_cont", "encoder_in": "commercial_injector_final"},
-    "Uncut OG": {"table": "lineup_v9_uncut", "merger_bump_list": "multibumps_v9_data_reordered", "merger_out": "lineup_v9_uncut_cont", "encoder_in": "uncut_encoded_data"},
-    "Uncut 2": {"table": "lineup_v2_uncut", "merger_bump_list": "multibumps_v2_data_reordered", "merger_out": "lineup_v2_uncut_cont", "encoder_in": "uncut_encoded_data"},
-    "Uncut 3": {"table": "lineup_v3_uncut", "merger_bump_list": "multibumps_v3_data_reordered", "merger_out": "lineup_v3_uncut_cont", "encoder_in": "uncut_encoded_data"},
-    "Uncut Mixed": {"table": "lineup_v8_uncut", "merger_bump_list": "multibumps_v8_data_reordered", "merger_out": "lineup_v8_uncut_cont", "encoder_in": "uncut_encoded_data"},
+    "OG": {"table": "lineup_v9", "merger_bump_list": "multibumps_v9_data_reordered", "merger_out": "lineup_v9_cont", "encoder_in": "commercial_injector_final", "uncut": False},
+    "2": {"table": "lineup_v2", "merger_bump_list": "multibumps_v2_data_reordered", "merger_out": "lineup_v2_cont", "encoder_in": "commercial_injector_final", "uncut": False},
+    "3": {"table": "lineup_v3", "merger_bump_list": "multibumps_v3_data_reordered", "merger_out": "lineup_v3_cont", "encoder_in": "commercial_injector_final", "uncut": False},
+    "Mixed": {"table": "lineup_v8", "merger_bump_list": "multibumps_v8_data_reordered", "merger_out": "lineup_v8_cont", "encoder_in": "commercial_injector_final", "uncut": False},
+    "Uncut OG": {"table": "lineup_v9_uncut", "merger_bump_list": "multibumps_v9_data_reordered", "merger_out": "lineup_v9_uncut_cont", "encoder_in": "uncut_encoded_data", "uncut": True},
+    "Uncut 2": {"table": "lineup_v2_uncut", "merger_bump_list": "multibumps_v2_data_reordered", "merger_out": "lineup_v2_uncut_cont", "encoder_in": "uncut_encoded_data", "uncut": True},
+    "Uncut 3": {"table": "lineup_v3_uncut", "merger_bump_list": "multibumps_v3_data_reordered", "merger_out": "lineup_v3_uncut_cont", "encoder_in": "uncut_encoded_data", "uncut": True},
+    "Uncut Mixed": {"table": "lineup_v8_uncut", "merger_bump_list": "multibumps_v8_data_reordered", "merger_out": "lineup_v8_uncut_cont", "encoder_in": "uncut_encoded_data", "uncut": True},
 }
 
 URLS = [
