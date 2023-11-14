@@ -1,8 +1,9 @@
 import asyncio
+import webbrowser
 from plexauth import PlexAuth
 from plexapi.myplex import MyPlexAccount
 from plexapi.server import PlexServer
-import webbrowser 
+
 
 class PlexServerList:
     def __init__(self):

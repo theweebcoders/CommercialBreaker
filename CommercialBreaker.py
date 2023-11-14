@@ -1,9 +1,16 @@
 import tkinter as tk
 from ComBreak.CommercialBreakerGUI import CommercialBreakerGUI
-from config import *
+import config
 
-if __name__ == "__main__":
+
+def main():
     root = tk.Tk()
-    root.iconbitmap(icon_path)
+    try:
+        root.iconbitmap(config.icon_path)
+    except Exception as ex:
+        print(f'Error showing icon: {ex!r}')
     app = CommercialBreakerGUI(root)
     root.mainloop()
+
+if __name__ == "__main__":
+    main()

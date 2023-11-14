@@ -1,8 +1,8 @@
-from plexapi.server import PlexServer
 import os
 
 class GetPlexTimestamps:
     def __init__(self, plex_url, plex_token, library_name, save_dir):
+        from plexapi.server import PlexServer
         self.plex = PlexServer(plex_url, plex_token)
         self.library_name = library_name
         self.save_dir = save_dir

@@ -1,6 +1,7 @@
 import uuid
 from plexapi.server import PlexServer
 
+
 class PlexAutoSplitter:
     def __init__(self, plex_url, plex_token, library_name):
         self.plex_url = plex_url
