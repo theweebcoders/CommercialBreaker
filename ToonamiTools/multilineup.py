@@ -7,33 +7,14 @@ class Multilineup:
     def __init__(self):
         db_path = 'toonami.db'
         self.conn = sqlite3.connect(db_path)
-
-    def get_next_row(self, df, conditions, recent_shows):
-        original_index = df.index  # Capture original index
-        df = df.reset_index(drop=True)  # Reset index for alignment
-        mask = pd.Series([True] * len(df))
-
-        for key, value in conditions.items():
-            if key == "PLACEMENT_2":
-                mask &= df[key].apply(lambda x: str(x).lower() if x is not None else x) == value.lower()
-            else:
-                mask &= df[key] == value
-
-        df_subset = df.loc[mask]
-
-        if not df_subset.empty:
-            # Select a row based on the recent_shows for weighting
-            selected_row = self.weighted_selection(df_subset, recent_shows)
-            return selected_row, original_index[df_subset.index[df_subset["SHOW_NAME_1"] == selected_row["SHOW_NAME_1"]][0]]
-
-        return None, None
-
-    def weighted_selection(self, df_subset, recent_shows):
-        # Assigning weights
+        self.next_show_name = None
+        self.used_rows = set()
+        self.recent_shows = []
+        
+    def weighted_selection(self, df):
         weights = []
-        rows_list = list(df_subset.iterrows())
-        for _, row in rows_list:
-            if row["SHOW_NAME_1"] in recent_shows or row["SHOW_NAME_2"] in recent_shows:
+        for _, row in df.iterrows():
+            if row["SHOW_NAME_1"] in self.recent_shows or row["SHOW_NAME_2"] in self.recent_shows:
                 weights.append(0.5)  # Lower weight if show is in recent_shows
             else:
                 weights.append(1)
@@ -42,52 +23,130 @@ class Multilineup:
         total_weight = sum(weights)
         normalized_weights = [w / total_weight for w in weights]
 
-        return random.choices(rows_list, weights=normalized_weights, k=1)[0][1]
+        return df.sample(n=1, weights=normalized_weights)
 
-    def reorder_table(self, table_name):
+    def unused_bumps(self, table_name):
         df = pd.read_sql_query(f"SELECT * FROM {table_name}", self.conn)
 
-        reordered_rows = []
-        used_rows = []
-        recent_shows = []  # To keep track of recently used shows
-
-        # Initialize first show
-        SHOW_C = None
-
-        while len(used_rows) < len(df):
-            next_row, original_row_index = self.get_next_row(df.drop(used_rows), {"PLACEMENT_2": "next", "SHOW_NAME_1": SHOW_C}, recent_shows)
-
+        unused_df = df.drop(self.used_rows, errors='ignore')
+        return unused_df
+    
+    def get_next_row(self, table_name):
+        df = self.unused_bumps(table_name)
+        next_row = None
+        last_resort_row = None
+        if self.next_show_name:
+            # Get all possible next rows
+            possible_next_rows = df[(df['PLACEMENT_2'] == 'next') & (df['SHOW_NAME_1'] == self.next_show_name)]
+            if not possible_next_rows.empty:
+                # Get the count of SHOW_NAME_3 for each possible next row
+                show_name_3_counts = possible_next_rows['SHOW_NAME_3'].value_counts()
+                if not show_name_3_counts.empty:
+                    # Sort SHOW_NAME_3 by count
+                    sorted_show_name_3 = show_name_3_counts.sort_values().index.tolist()
+                    for show_name_3 in sorted_show_name_3:
+                        # Check if there is at least one bump with SHOW_NAME_1 in the remaining bumps
+                        if df[df['SHOW_NAME_1'] == show_name_3].shape[0] > 0:
+                            next_row = possible_next_rows[possible_next_rows['SHOW_NAME_3'] == show_name_3]
+                            if not next_row.empty:
+                                next_row = self.weighted_selection(next_row)
+                                break
+                        elif last_resort_row is None:
+                            # Store the first available bump as a last resort
+                            last_resort_row = pd.DataFrame(possible_next_rows[possible_next_rows['SHOW_NAME_3'] == show_name_3].iloc[0]).transpose()
             if next_row is None:
-                next_row, original_row_index = self.get_next_row(df.drop(used_rows), {"SHOW_NAME_2": SHOW_C, "PLACEMENT_2": "next from"}, recent_shows)
-
+                possible_next_rows = df[(df['PLACEMENT_2'] == 'next from') & (df['SHOW_NAME_2'] == self.next_show_name)]
+                if not possible_next_rows.empty:
+                    next_row = self.weighted_selection(possible_next_rows)
             if next_row is None:
-                next_row, original_row_index = self.get_next_row(df.drop(used_rows), {"SHOW_NAME_2": SHOW_C, "PLACEMENT_2": "from"}, recent_shows)
+                possible_next_rows = df[(df['PLACEMENT_2'] == 'from') & (df['SHOW_NAME_2'] == self.next_show_name)]
+                if not possible_next_rows.empty:
+                    next_row = self.weighted_selection(possible_next_rows)
+        if next_row is None or next_row.empty:
+            if last_resort_row is not None:
+                # Use the last resort row if no better bump was found
+                next_row = last_resort_row
 
-            if next_row is None:
-                # Randomly select an unused row
-                next_row, original_row_index = self.get_next_row(df.drop(used_rows).sample(n=1), {}, recent_shows)
-                SHOW_C = next_row["SHOW_NAME_1"]
+            else:
+                next_row = self.weighted_selection(df.sample(n=1))
+        index = next_row.index[0]
+        if next_row['PLACEMENT_2'].values[0] == 'next':
+            self.next_show_name = next_row['SHOW_NAME_3'].values[0]
+        else:
+            self.next_show_name = next_row['SHOW_NAME_1'].values[0]
+        self.used_rows.add(index)
+        return next_row, index
 
-            # Append matched row and update recent shows
-            reordered_rows.append(next_row)
-            used_rows.append(original_row_index)
-            recent_shows.append(SHOW_C)
-            if len(recent_shows) > 5:  # Limit the recent shows to last 5
-                recent_shows.pop(0)
+    def write_to_table(self, next_row, table_name):
+        next_row.to_sql(table_name, self.conn, if_exists='append')
 
-            if next_row["PLACEMENT_2"] == "next":
-                SHOW_C = next_row["SHOW_NAME_3"]
-            elif next_row["PLACEMENT_2"] in ["next from", "from"]:
-                SHOW_C = next_row["SHOW_NAME_1"]
+        if next_row['PLACEMENT_2'].values[0] == 'next':
+            self.next_show_name = next_row['SHOW_NAME_3'].values[0]
+        else:
+            self.next_show_name = next_row['SHOW_NAME_1'].values[0]
 
-        # Create and write reordered DataFrame
-        reordered_df = pd.DataFrame(reordered_rows)
-        reordered_df.to_sql(table_name + "_reordered", self.conn, index=False, if_exists='replace')
+        self.recent_shows.append(self.next_show_name)
+        if len(self.recent_shows) > 5:  # Limit the recent shows to last 5
+            self.recent_shows.pop(0)
+
+    def find_optimal_first_bump(self, df):
+        show_name_1_counts = df['SHOW_NAME_1'].value_counts()
+        show_name_3_counts = df['SHOW_NAME_3'].value_counts()
+        optimal_first_bump = None
+
+        # Situation 1: SHOW_NAME_1 is no other bump's SHOW_NAME_3 and SHOW_NAME_3 is another bump's SHOW_NAME_1
+        for _, row in df.iterrows():
+            if pd.isna(row['SHOW_NAME_3']):  # Skip rows where SHOW_NAME_3 is None
+                continue
+            if show_name_3_counts.get(row['SHOW_NAME_1'], 0) == 0 and show_name_1_counts.get(row['SHOW_NAME_3'], 0) > 0:
+                optimal_first_bump = df.loc[[row.name]]  # Get a DataFrame containing only this row
+                break
+
+        # Situation 2: SHOW_NAME_1 is one more than bumps with that SHOW_NAME_3 and SHOW_NAME_3 is another bump's SHOW_NAME_1
+        if optimal_first_bump is None:
+            for _, row in df.iterrows():
+                if pd.isna(row['SHOW_NAME_3']):  # Skip rows where SHOW_NAME_3 is None
+                    continue
+                if show_name_3_counts.get(row['SHOW_NAME_1'], 0) + 1 == show_name_1_counts.get(row['SHOW_NAME_1'], 0) and show_name_1_counts.get(row['SHOW_NAME_3'], 0) > 0:
+                    optimal_first_bump = df.loc[[row.name]]  # Get a DataFrame containing only this row
+                    break
+
+        # Situation 3: No such bump as in situation 1 or new situation exists, but a bump where SHOW_NAME_1 is multiple other bump's SHOW_NAME_3
+        if optimal_first_bump is None:
+            for _, row in df.iterrows():
+                if pd.isna(row['SHOW_NAME_3']):  # Skip rows where SHOW_NAME_3 is None
+                    continue
+                if show_name_3_counts.get(row['SHOW_NAME_1'], 0) > 1:
+                    optimal_first_bump = df.loc[[row.name]]  # Get a DataFrame containing only this row
+                    break
+
+        # If neither situation 1, situation 2 nor situation 3 is met, return the first bump
+        if optimal_first_bump is None:
+            optimal_first_bump = df.iloc[[0]]
+
+        return optimal_first_bump
+
+    def reorder_table(self, table_name):
+        self.used_rows = set()  # Resetting used rows for the new table
+        reordered_table_name = table_name + '_reordered'
+        print(f"Starting reordering for {table_name}")
+        unused_df = self.unused_bumps(table_name)
+        first_bump = self.find_optimal_first_bump(unused_df)
+        if first_bump is not None:
+            self.write_to_table(first_bump, reordered_table_name)
+            self.used_rows.add(first_bump.index[0]) 
+            unused_df = self.unused_bumps(table_name)  # Refresh unused rows
+        while not unused_df.empty:
+            next_row, index = self.get_next_row(table_name)
+            self.write_to_table(next_row, reordered_table_name)
+            unused_df = self.unused_bumps(table_name)  # Refresh unused rows
+        print(f"Finished reordering for {table_name}")
 
     def reorder_all_tables(self):
-        versions = [2, 3, 8, 9]
-        for ver in versions:
-            table_name = f"multibumps_v{ver}_data"
-            print(f"Processing table: {table_name}")
-            self.reorder_table(table_name)
-            print(f"Finished processing table: {table_name}")
+        for i in range(10):
+            table_name = 'multibumps_v' + str(i) + '_data'
+            try:
+                self.reorder_table(table_name)
+                print(f"Table {table_name} is getting reordered.")
+            except pd.errors.DatabaseError:
+                print(f"Table {table_name} does not exist. Moving to the next table.")
