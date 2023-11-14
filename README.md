@@ -609,6 +609,8 @@ Until next time, Space Cowboy!
 
 ## Actual Pros
 
+### erotemic - Reducer of Jank
+
 ### beltsmith - Creator of Sound of Silence
 
 ### OpenAI - Creator of the GPT-4 API, editor of a ton of the code and grammer in the README.md file.
