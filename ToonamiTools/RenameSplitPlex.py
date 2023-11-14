@@ -1,8 +1,9 @@
 import re
+from plexapi.server import PlexServer
+
 
 class PlexLibraryUpdater:
     def __init__(self, plex_url, plex_token, library_name):
-        from plexapi.server import PlexServer
         self.plex_url = plex_url
         self.plex_token = plex_token
         self.library_name = library_name

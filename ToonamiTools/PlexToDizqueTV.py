@@ -1,12 +1,13 @@
 import pandas as pd
 import sqlite3
 import re
+from plexapi.server import PlexServer
+from dizqueTV import API
+
 
 class PlexToDizqueTVSimplified:
     def __init__(self, plex_url, plex_token, library_name, table, dizquetv_url, channel_number):
         print("Initializing the connection to Plex and dizqueTV...")
-        from plexapi.server import PlexServer
-        from dizqueTV import API
         self.plex = PlexServer(plex_url, plex_token)
         self.library_name = library_name
         self.dtv = API(url=dizquetv_url)
