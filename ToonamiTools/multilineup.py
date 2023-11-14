@@ -2,6 +2,7 @@ import pandas as pd
 import sqlite3
 import random
 
+
 class Multilineup:
     def __init__(self):
         db_path = 'toonami.db'

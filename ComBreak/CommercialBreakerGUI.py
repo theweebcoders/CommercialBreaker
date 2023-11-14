@@ -1,13 +1,10 @@
-import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
-from tkinter import ttk, filedialog, messagebox, IntVar
-import ttkthemes as ttkthemes
-import sv_ttk
-import threading
 import os
 import psutil
+import threading
+import tkinter as tk
 from ComBreak.CommercialBreakerLogic import CommercialBreakerLogic
-from config import *
+from tkinter import filedialog, messagebox, ttk
+
 
 class CommercialBreakerGUI:
     """A class that represents the GUI of the Commercial Breaker program."""
@@ -33,13 +30,13 @@ class CommercialBreakerGUI:
 
         # Fast Mode checkbox
         self.fast_mode = tk.BooleanVar()
-        self.fast_mode.trace("w", self.toggle_low_power_mode) # Add a callback when the value changes
+        self.fast_mode.trace("w", self.toggle_low_power_mode)  # Add a callback when the value changes
         self.fast_checkbox = ttk.Checkbutton(self.checkbox_frame, text='Fast Mode', variable=self.fast_mode)
         self.fast_checkbox.pack(side="left")  # 'left' will align the checkbox to the left
 
         # Low Power Mode checkbox
         self.low_power_mode = tk.BooleanVar()
-        self.low_power_mode.trace("w", self.toggle_fast_mode) # Add a callback when the value changes
+        self.low_power_mode.trace("w", self.toggle_fast_mode)  # Add a callback when the value changes
         self.low_power_checkbox = ttk.Checkbutton(self.checkbox_frame, text='Low Power Mode', variable=self.low_power_mode)
         self.low_power_checkbox.pack(side="left")  # 'left' will align the checkbox to the left
 
@@ -88,12 +85,12 @@ class CommercialBreakerGUI:
         self.output_path.set(output_dir)
 
     def toggle_fast_mode(self, *args):
-        if self.low_power_mode.get(): # If Low Power Mode is checked
-            self.fast_mode.set(False) # Uncheck Fast Mode
+        if self.low_power_mode.get():  # If Low Power Mode is checked
+            self.fast_mode.set(False)  # Uncheck Fast Mode
 
     def toggle_low_power_mode(self, *args):
-        if self.fast_mode.get(): # If Fast Mode is checked
-            self.low_power_mode.set(False) # Uncheck Low Power Mode
+        if self.fast_mode.get():  # If Fast Mode is checked
+            self.low_power_mode.set(False)  # Uncheck Low Power Mode
 
     def browse_input_directory(self):
         """Open a dialog to select the input directory."""
@@ -138,16 +135,16 @@ class CommercialBreakerGUI:
 
     def exit_program(self):
         """Exit the program."""
-        main_process_pid = os.getpid() # Get the PID of the main process
+        main_process_pid = os.getpid()  # Get the PID of the main process
         main_process = psutil.Process(main_process_pid)
-        
+
         # Iterate through child processes and terminate them
         for child_process in main_process.children(recursive=True):
             try:
                 child_process.terminate()
-            except:
-                pass # Handle exceptions as needed
-        
+            except Exception:
+                pass  # Handle exceptions as needed
+
         os._exit(0)
 
     def update_progress(self, current, total):
@@ -159,7 +156,6 @@ class CommercialBreakerGUI:
         """Reset the progress bar to zero."""
         self.progress_var.set(0)
         self.progress_bar.update()
-
 
     def update_status(self, text):
         """Update the status label."""

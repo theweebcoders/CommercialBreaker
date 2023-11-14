@@ -1,17 +1,17 @@
+import config
 import os
+import pandas as pd
 import re
 import requests
-from bs4 import BeautifulSoup
-import pandas as pd
-from fuzzywuzzy import process
-from config import *
 import sqlite3
-from config import *
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, IntVar
-import ttkthemes as ttkthemes
-import sv_ttk
+from bs4 import BeautifulSoup
 from unidecode import unidecode
+# from fuzzywuzzy import process
+# import tkinter as tk
+# from tkinter import ttk, filedialog, messagebox, IntVar
+# import ttkthemes as ttkthemes
+# import sv_ttk
+
 
 class IMDBScraper:
     """
@@ -20,7 +20,7 @@ class IMDBScraper:
 
     def __init__(self, urls):
         self.urls = urls
-        self.headers = HEADERS
+        self.headers = config.HEADERS
 
     def get_imdb_shows(self):
         """
@@ -44,7 +44,7 @@ class IMDBScraper:
 class ToonamiChecker(IMDBScraper):
 
     def __init__(self, anime_folder):
-        urls = URLS
+        urls = config.URLS
         super().__init__(urls)
         self.anime_folder = anime_folder
 
@@ -72,18 +72,18 @@ class ToonamiChecker(IMDBScraper):
                             episode_files[show_title] = [os.path.join(rel_path, episode)]
         print(f"Processed {file_count} files.")
         return episode_files
-    
+
     def normalize_and_map(self, show_name, mapping):
         """Normalizes the show name by making it lowercase, removing special characters, and applying a name mapping."""
         normalized_name = unidecode(show_name.lower())
-        
+
         # Replace special characters and underscores with a space, then replace multiple spaces with a single space
         normalized_name = re.sub(r'[^\w\s]', ' ', normalized_name)
         normalized_name = re.sub(r'_', ' ', normalized_name)
         normalized_name = re.sub(r'\s+', ' ', normalized_name).strip()
-        
+
         return mapping.get(normalized_name, normalized_name)
-    
+
     def compare_shows(self):
         """
         Compares scraped IMDB data with video files in a directory.
@@ -96,21 +96,21 @@ class ToonamiChecker(IMDBScraper):
         toonami_episodes = {}
 
         # Use the helper function to normalize and map IMDb show titles
-        normalized_imdb_shows = [self.normalize_and_map(x, show_name_mapping) for x in toonami_shows['Title']]
+        normalized_imdb_shows = [self.normalize_and_map(x, config.show_name_mapping) for x in toonami_shows['Title']]
         #print(normalized_imdb_shows) 1 line at a time
         for title in normalized_imdb_shows:
             print(title)
-        
+
         for show in video_files:
             # Use the helper function to normalize and map video file titles
-            normalized_show = self.normalize_and_map(show, show_name_mapping)
-            
+            normalized_show = self.normalize_and_map(show, config.show_name_mapping)
+
             if normalized_show in normalized_imdb_shows:
                 for episode in video_files[show]:
                     full_path = os.path.join(folder_path, episode)
                     normalized_path = os.path.normpath(full_path)
                     toonami_episodes[(show, episode)] = normalized_path
-        
+
         print(f"Found matches for {len(toonami_episodes)} episodes.")
         return toonami_episodes
 
@@ -124,7 +124,7 @@ class ToonamiChecker(IMDBScraper):
         table_exists = bool(cursor.fetchone())
 
         df = pd.DataFrame([(k[0], k[1], v.replace("\\", "/")) for k, v in toonami_episodes.items()],
-                        columns=['Title', 'Episode', 'File Path'])
+                          columns=['Title', 'Episode', 'File Path'])
 
         if table_exists:
             existing_df = pd.read_sql('SELECT * FROM Toonami_Episodes', conn)
@@ -137,7 +137,7 @@ class ToonamiChecker(IMDBScraper):
 
         conn.close()
         print(f'Successfully wrote rows to {db_path}')
-        
+
     def save_show_names_to_spreadsheet(self, toonami_episodes, db_path="toonami.db"):
         print(f"Writing show names to SQLite database: {db_path}")
         unique_show_names = {k[0] for k in toonami_episodes.keys()}

@@ -1,5 +1,6 @@
 import os
 
+
 class CutFileRenamer:
     def __init__(self, input_dir):
         self.input_dir = input_dir

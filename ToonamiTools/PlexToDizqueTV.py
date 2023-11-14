@@ -5,6 +5,7 @@ from plexapi.server import PlexServer
 from dizqueTV import API
 
 
+
 class PlexToDizqueTVSimplified:
     def __init__(self, plex_url, plex_token, library_name, table, dizquetv_url, channel_number):
         print("Initializing the connection to Plex and dizqueTV...")

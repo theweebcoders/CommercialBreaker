@@ -2,12 +2,13 @@ import os
 import cv2
 import numpy as np
 import subprocess
-import time
 import json
 from ComBreak.VideoLoader import VideoLoader
 from ComBreak.VideoFileManager import VideoFilesManager
-from config import *
 from bisect import bisect_left
+import config
+# from config import *
+
 
 class CommercialBreakerLogic:
     """A class that represents the main logic of the Commercial Breaker program."""
@@ -15,12 +16,11 @@ class CommercialBreakerLogic:
     def __init__(self):
         self.video_durations = {}
 
-
     # ------------------ Begining for cut videos methods ------------------
     @staticmethod
     def reduce_timestamps(timestamps):
         """Eliminate timestamp points that are closer to the previous ones than a certain threshold and less than starting buffer."""
-        return [x for i, x in enumerate(timestamps) if (i == 0 or x - timestamps[i-1] > TIMESTAMP_THRESHOLD) and x >= START_BUFFER]
+        return [x for i, x in enumerate(timestamps) if (i == 0 or x - timestamps[i - 1] > config.TIMESTAMP_THRESHOLD) and x >= config.START_BUFFER]
 
     @staticmethod
     def delete_files(output_path):
@@ -64,8 +64,7 @@ class CommercialBreakerLogic:
 
                 if progress_callback:
                     progress_callback(i + 1, total_videos)
-
-            except Exception as e:
+            except Exception:
                 failed_videos.append(input_file)
 
         if failed_videos:
@@ -75,7 +74,7 @@ class CommercialBreakerLogic:
 
         for output_dir in output_dirs:
             self.rename_files(output_dir)
-            
+
     def gather_video_files_to_cut(self, input_path, output_path):
         video_files_data = []
         output_dirs = set()
@@ -95,7 +94,6 @@ class CommercialBreakerLogic:
 
         return video_files_data, output_dirs, total_videos
 
-
     def cut_single_video(self, input_file, output_file_prefix, end_time, timestamps, destructive_mode):
         timestamps.append(end_time)
         times_str = ','.join(str(t) for t in timestamps)
@@ -105,7 +103,7 @@ class CommercialBreakerLogic:
         output_dir = os.path.dirname(output_file_prefix)
 
         command = [
-            ffmpeg_path, "-i", input_file,
+            config.ffmpeg_path, "-i", input_file,
             "-f", "segment",
             "-segment_times", times_str,
             "-reset_timestamps", "1",
@@ -115,7 +113,6 @@ class CommercialBreakerLogic:
             f"{os.path.join(output_dir, output_file_name_without_ext)} - Part %03d.mp4"
         ]
 
-        
         # Start the FFmpeg process
         process = subprocess.Popen(command)
         # Wait for process to complete
@@ -129,12 +126,11 @@ class CommercialBreakerLogic:
     def get_video_duration(self, input_file):
         end_time = self.video_durations.get(input_file, None)
         if end_time is None:
-            command = [ffprobe_path, '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', input_file]
+            command = [config.ffprobe_path, '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', input_file]
             result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             end_time = float(result.stdout)
             self.video_durations[input_file] = end_time
         return end_time
-
 
     # ------------------- Begining of timestamps finder methods -------------------
 
@@ -171,7 +167,7 @@ class CommercialBreakerLogic:
                     relative_path = os.path.relpath(dirpath, input_path)  # Relative path to the video file
                     output_dir = os.path.join(output_path, relative_path)  # Output directory
                     os.makedirs(output_dir, exist_ok=True)  # Create output directory if it doesn't exist
-                    
+
                     # Create and write chapters to a new text file in the output directory
                     with open(os.path.join(output_dir, f"{filename}.txt"), "w") as f:
                         for chapter in chapters:
@@ -187,10 +183,10 @@ class CommercialBreakerLogic:
         chapters = []
         try:
             command = [
-                ffprobe_path, 
-                '-v', 'quiet', 
-                '-print_format', 'json', 
-                '-show_chapters', 
+                config.ffprobe_path,
+                '-v', 'quiet',
+                '-print_format', 'json',
+                '-show_chapters',
                 video_file
             ]
             output = subprocess.check_output(command).decode()
@@ -212,10 +208,10 @@ class CommercialBreakerLogic:
         try:
             if status_callback:
                 status_callback(f"Downscaling video {i+1} of {total}")
-            
+
             command = [
-                ffmpeg_path, "-i", input_file, "-vf",
-                f'scale=-2:{DOWNSCALE_HEIGHT}:flags=fast_bilinear',
+                config.ffmpeg_path, "-i", input_file, "-vf",
+                f'scale=-2:{config.DOWNSCALE_HEIGHT}:flags=fast_bilinear',
                 "-preset", "ultrafast", "-vcodec", "libx264",
                 "-crf", "23", "-an", output_file, "-y"
             ]
@@ -229,7 +225,7 @@ class CommercialBreakerLogic:
             # Check FFmpeg's STDERR for errors
             if b"Error" in stderr:
                 raise Exception(f"FFmpeg encountered an error while downscaling video {i+1}: {stderr.decode('utf-8')}")
-            
+
             # Call the progress callback after completing the downscaling of each video
             if progress_callback:
                 progress_callback(i + 1, total)
@@ -238,14 +234,13 @@ class CommercialBreakerLogic:
             if status_callback:
                 status_callback(f"An error occurred while downscaling video {i+1} of {total}: {str(e)}")
 
-
     @staticmethod
     def sound_of_silence(input_file):
         """Returns a list of silences, each represented by a dictionary with start and end times."""
         if not os.path.isfile(input_file):
             return []
         try:
-            command = [ffmpeg_path, "-i", input_file, "-af", f"silencedetect=n={DECIBEL_THRESHOLD}dB:d={SILENCE_DURATION}", "-preset", "ultrafast", "-f", "null", "-y", "/dev/null"]
+            command = [config.ffmpeg_path, "-i", input_file, "-af", f"silencedetect=n={config.DECIBEL_THRESHOLD}dB:d={config.SILENCE_DURATION}", "-preset", "ultrafast", "-f", "null", "-y", "/dev/null"]
             # Capture FFmpeg's STDERR
             process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = process.communicate()
@@ -257,7 +252,7 @@ class CommercialBreakerLogic:
             silences = []
             for i in range(0, len(lines), 2):
                 start_time = float(lines[i].split()[4])
-                end_time = float(lines[i+1].split()[4])
+                end_time = float(lines[i + 1].split()[4])
                 silences.append({'start': start_time, 'end': end_time})
 
             print(silences)
@@ -300,7 +295,7 @@ class CommercialBreakerLogic:
                 file_counter -= 1
                 continue
         return video_files_data, total_frames, total_videos, file_counter
-    
+
     def silent_black_frame_detector(self, i, filename, original_file, total_videos, downscaled_file, output_dir, video_loader, status_callback, progress_callback, processed_frames, total_frames):
         try:
             merged_silence_periods = self.get_merged_silence_periods(original_file, status_callback)
@@ -335,9 +330,8 @@ class CommercialBreakerLogic:
                 merged_silence_periods[-1]['end'] = max(silence['end'], merged_silence_periods[-1]['end'])
             else:
                 merged_silence_periods.append(silence)
-        
-        return merged_silence_periods
 
+        return merged_silence_periods
 
     def find_black_frames(self, video_loader, merged_silence_periods, status_callback, progress_callback, processed_frames, total_frames):
         black_frames = []
@@ -350,7 +344,7 @@ class CommercialBreakerLogic:
             frame_time = video_loader.cap.get(cv2.CAP_PROP_POS_MSEC) / 1000
             index = bisect_left(silence_timestamps, frame_time)
 
-            if index % 2 == 0 and np.mean(np.asarray(frame)) < BLACK_FRAME_THRESHOLD:
+            if index % 2 == 0 and np.mean(np.asarray(frame)) < config.BLACK_FRAME_THRESHOLD:
                 black_frames.append(frame_time)
 
             processed_frames += 1
@@ -359,7 +353,6 @@ class CommercialBreakerLogic:
 
         return black_frames, processed_frames
 
-    
     # ------------------- Read Timestamps Method -------------------
     def read_timestamps(self, input_path, output_path, total_frames, video_files_data, total_videos, file_counter, unprocessed_files_manager, progress_callback, status_callback):
         plex_file_path = os.path.join(input_path, "plex_timestamps.txt")
@@ -386,7 +379,6 @@ class CommercialBreakerLogic:
                 if found_in_plex_file:
                     unprocessed_files_manager.remove_file(original_file, dirpath, filename)
 
-
     # ------------------ The method that runs the timestamps methods ------------------
     def detect_commercials(self, input_path, output_path, progress_callback=None, status_callback=None, low_power_mode=False, fast_mode=False, reset_callback=None):
         total_frames = 0
@@ -396,7 +388,7 @@ class CommercialBreakerLogic:
         self.extract_chapters(input_path, output_path, status_callback, progress_callback, reset_callback)
         if reset_callback:
             reset_callback()
-        unprocessed_files_manager = VideoFilesManager() 
+        unprocessed_files_manager = VideoFilesManager()
 
         if low_power_mode:
             status_callback("Low Power Mode Enabled: Skipping black frame detection")

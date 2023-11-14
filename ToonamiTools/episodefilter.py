@@ -1,8 +1,8 @@
 import pandas as pd
 import os
-import re
 import shutil
 import sqlite3
+
 
 class FilterAndMove:
     class DataFrameFilter:
@@ -29,7 +29,7 @@ class FilterAndMove:
             db_path = 'toonami.db'
             self.conn = sqlite3.connect(db_path)
             self.target_directory = target_directory
-        
+
         def move_files(self):
             # Load the DataFrame
             df = pd.read_sql_query("SELECT * FROM lineup_v8_uncut_filtered", self.conn)
@@ -71,7 +71,7 @@ class FilterAndMove:
                     print(f"An error occurred while moving {show_dir}: {e}")
 
             print("Show directories moved successfully.")
-            
+
     def _fake_run(self, target_directory):
         print("Faking filter and move process.")
 

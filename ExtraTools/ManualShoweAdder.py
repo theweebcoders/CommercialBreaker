@@ -7,6 +7,7 @@ from functools import cmp_to_key
 import tkinter as tk
 from tkinter import filedialog
 
+
 class AnimeShowCompilerGUI:
     def __init__(self, processor):
         self.processor = processor
@@ -39,7 +40,6 @@ class AnimeShowCompilerGUI:
         label.pack(side="left")
         tk.Button(frame, text="Browse", command=lambda: self.select_folder(label)).pack(side="right")
         setattr(self, label_name, label)
-
 
     def select_files(self, label):
         files = filedialog.askopenfilenames()
@@ -141,10 +141,10 @@ class AnimeShowProcessor:
         columns = [column[1] for column in c.fetchall()]
         if "Priority" not in columns:
             c.execute("ALTER TABLE commercial_injector_final ADD COLUMN Priority TEXT;")
-        
+
         # Update existing records in SQLite table to have 'Low' in 'Priority' column if they are blank or NULL
         c.execute("UPDATE commercial_injector_final SET Priority = 'Low' WHERE Priority IS NULL OR Priority = '';")
-        
+
         # Append DataFrame to SQLite table
         result_df.to_sql('commercial_injector_final', db, if_exists='append', index=False)
 
@@ -152,10 +152,9 @@ class AnimeShowProcessor:
         db.commit()
         db.close()
 
-
     def _extract_details(self, path):
         # Extracting show name, season, and episode using regex
-        show_name = re.search(r'/([^/]+)/Season \d+/[^/]+ - S\d+E\d+', path.replace('\\', '/')).group(1) # Modified line
+        show_name = re.search(r'/([^/]+)/Season \d+/[^/]+ - S\d+E\d+', path.replace('\\', '/')).group(1)  # Modified line
         season = re.search(r'S(\d+)', path).group(1)
         episode = re.search(r'E(\d+)', path).group(1)
         return show_name, season, episode

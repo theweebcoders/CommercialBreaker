@@ -3,19 +3,21 @@ import pandas as pd
 import re
 import shutil
 import sqlite3
-from config import *
+
+import config
+
 
 class MediaProcessor:
     def __init__(self, bump_folder, nice_output_dir):
-        self.keywords = keywords
+        self.keywords = config.keywords
         self.bump_folder = bump_folder
         self.nice_output_dir = nice_output_dir
         self.columns = ['ORIGINAL_FILE_PATH', 'FULL_FILE_PATH', 'TOONAMI_VERSION', 'PLACEMENT_1', 'SHOW_NAME_1', 'PLACEMENT_2', 'SHOW_NAME_2', 'PLACEMENT_3', 'SHOW_NAME_3', 'PLACEMENT_4', 'AD_VERSION', 'COLOR', 'Status']
         self.show_name_mappings_lower = None
-        self.show_name_mapping = show_name_mapping
-        self.show_name_mapping_2 = show_name_mapping_2  # Add this line
-        self.show_name_mapping_3 = show_name_mapping_3  # Add this line
-        self.colors = colors
+        self.show_name_mapping = config.show_name_mapping
+        self.show_name_mapping_2 = config.show_name_mapping_2  # Add this line
+        self.show_name_mapping_3 = config.show_name_mapping_3  # Add this line
+        self.colors = config.colors
 
     def generate_dynamic_regex(self, count, shows):
         # Create a dynamic part of the regex pattern that matches the show names
@@ -34,7 +36,6 @@ class MediaProcessor:
         elif count == 0:
             self.regex = rf"(?i)^Toonami\s?(?P<TOONAMI_VERSION>\d\s\d)?\s?(?P<SPECIAL_SHOW_NAME>robot|robots|clyde|clydes)(?:\s(?P<AD_VERSION>\d{{1,2}}))?$"
         return self.regex
-
 
     def _retrieve_media_files(self, directory):
         media_files = []
@@ -69,11 +70,10 @@ class MediaProcessor:
 
         print(f"Data saved to {table_name} table.")
 
-
     def count_keywords(self, bump):
         # Convert bump to lowercase for easier matching
         lower_bump = bump.lower()
-        
+
         # Define the sets of keywords
         singles = ["back", "to ads", "generic", "intro", "next"]
         from_keyword = "from"
@@ -93,17 +93,16 @@ class MediaProcessor:
         # Check for 'Later'
         elif later_keyword in lower_bump:
             return 3
-        
+
         # If none of the above conditions are met, return 0
         else:
             return 0
-
 
     def _apply_show_name_mapping(self, bump):
         # Sort keys by length, in descending order, to handle multi-word mappings first
         for mapping in [self.show_name_mapping, self.show_name_mapping_2, self.show_name_mapping_3]:  # Loop over mappings
             sorted_keys = sorted(mapping.keys(), key=len, reverse=True)
-            
+
             # Transform to lowercase for easier matching
             transformed_bump = bump.lower()
 
@@ -111,7 +110,7 @@ class MediaProcessor:
             for key in sorted_keys:
                 value = mapping[key]
                 transformed_bump = transformed_bump.replace(key.lower(), value.lower())
-                
+
             # Update bump for next mapping
             bump = transformed_bump
 
@@ -119,7 +118,6 @@ class MediaProcessor:
         transformed_bump = self._clean_show_name(transformed_bump)
 
         return transformed_bump
-
 
     def _extract_data_from_pattern(self, bump, shows):
         # Step 1: Apply the show_name_mapping to the bump
@@ -133,10 +131,10 @@ class MediaProcessor:
             return match.groupdict()
         else:
             return None
-        
+
     def _clean_show_name(self, show_name):
         return re.sub(r'[^a-zA-Z0-9\s]', '', show_name).replace('  ', ' ').strip().lower()
-    
+
     def _process_data_patterns(self, media_files, shows):
         new_df = []
         no_match_df = []
@@ -157,7 +155,7 @@ class MediaProcessor:
 
                 # Explicitly set SHOW_NAME_1 for generic bumps
                 if matched_data['Status'] == 'nice' and matched_data.get('SHOW_NAME_1') is None:
-                    for bump in genric_bumps:
+                    for bump in config.genric_bumps:
                         if re.search(bump, matched_data['ORIGINAL_FILE_PATH'], re.IGNORECASE):
                             matched_data['SHOW_NAME_1'] = bump
                             break
@@ -168,18 +166,17 @@ class MediaProcessor:
 
         return pd.DataFrame(new_df, columns=self.columns), no_match_df
 
-
     def _set_status(self, matched_data, shows):
         # Initialize status as 'nice' by default
         status = 'nice'
-        
+
         # First, handle the case for genric_bumps using the old straightforward approach
         for col in ['SHOW_NAME_1', 'SHOW_NAME_2', 'SHOW_NAME_3']:
-            if col in matched_data and matched_data[col] in genric_bumps:
+            if col in matched_data and matched_data[col] in config.genric_bumps:
                 matched_data['Status'] = 'nice'
                 matched_data['SHOW_NAME_1'] = matched_data[col]
                 return matched_data  # Explicitly return
-                
+
         # Then, handle other cases using the new method
         for col in ['SHOW_NAME_1', 'SHOW_NAME_2', 'SHOW_NAME_3']:
             if col in matched_data and pd.notna(matched_data[col]):
@@ -188,43 +185,42 @@ class MediaProcessor:
                     continue
 
                 show_name = self._clean_show_name(cleaned_value)
-                
+
                 if show_name not in shows:
                     status = 'naughty'
                     break
-                    
+
         # Assign the final status
         matched_data['Status'] = status
         return matched_data  # Explicitly return
-
 
     def run(self):
         print("Initiating database connection...")
         conn = sqlite3.connect('toonami.db')
         print("Database connection established.")
-        
+
         # Initialize the show name mappings to lowercase
         all_mappings = [self.show_name_mapping, self.show_name_mapping_2, self.show_name_mapping_3]
         self.show_name_mappings_lower = {k.lower(): v.lower() for mapping in all_mappings for k, v in mapping.items()}
-        
+
         print("Retrieving Toonami Shows from the database...")
         shows_df = pd.read_sql_query("SELECT * FROM Toonami_Shows", conn)
         shows = shows_df['Title'].apply(lambda x: self._clean_show_name(self.show_name_mappings_lower.get(x.lower(), x))).tolist()
         print("Toonami Shows retrieved.")
-        
+
         print("Retrieving and processing media files...")
         media_files = self._retrieve_media_files(self.bump_folder)
         initially_found = len(media_files)
         print(f"Initially found {initially_found} media files.")
-        
+
         processed_df, no_match_data = self._process_data_patterns(media_files, shows)
         print(f"Processed into {len(processed_df)} entries.")
-        
+
         print("Making a list...")
         nice_df = processed_df[processed_df['Status'] == 'nice'].copy()
         naughty_df = processed_df[processed_df['Status'] == 'naughty']
         print("Checking it twice.")
-        
+
         print("Because Santa Clause is coming to Town.")
         nice_file_paths = []
         for file_path in nice_df['FULL_FILE_PATH']:
@@ -234,17 +230,17 @@ class MediaProcessor:
                 nice_file_paths.append(destination)
         nice_df['FULL_FILE_PATH'] = nice_file_paths
         print("'Nice' files moved.")
-        
+
         print("Saving processed data to SQLite tables...")
         self._save_to_sql(nice_df, "nice_list", conn)
         self._save_to_sql(naughty_df, "naughty_list", conn)
         self._save_to_sql(pd.DataFrame(no_match_data, columns=['ORIGINAL_FILE_PATH', 'CLEANED_BUMP']), "no_match", conn)
         print("Data saved to SQLite tables.")
-        
+
         print("Saving additional processed files...")
         self._save_to_sql(nice_df.drop(columns=['ORIGINAL_FILE_PATH', 'Status']), "lineup_prep_out", conn)
         print("Additional files saved.")
-        
+
         print("Lineup Preparation Completed Successfully.")
-        
+
         conn.close()
