@@ -88,21 +88,21 @@ class LogicController():
     def on_continue_first(self, selected_anime_library, selected_toonami_library, dizquetv_url):
         # Use the database value if the widget value starts with "eg. ", otherwise use the widget value
 
-        if selected_anime_library.startswith("eg. ") or not selected_anime_library or selected_anime_library is None:
+        if selected_anime_library.startswith("eg. ") or not selected_anime_library:
             selected_anime_library = self._get_data("selected_anime_library")
 
-        if selected_toonami_library.startswith("eg. ") or not selected_toonami_library or selected_toonami_library is None:
+        if selected_toonami_library.startswith("eg. ") or not selected_toonami_library:
             selected_toonami_library = self._get_data("selected_toonami_library")
 
-        if dizquetv_url.startswith("eg. ") or not dizquetv_url or dizquetv_url is None:
+        if dizquetv_url.startswith("eg. ") or not dizquetv_url:
             dizquetv_url = self._get_data("dizquetv_url")
 
         plex_url = self.library_manager.plex_url
-        if plex_url.startswith("eg. ") or not plex_url or plex_url is None:
+        if plex_url.startswith("eg. ") or not plex_url:
             plex_url = self._get_data("plex_url")
 
         plex_token = self.library_manager.plex_token
-        if plex_token.startswith("eg. ") or not plex_token or plex_token is None:
+        if plex_token.startswith("eg. ") or not plex_token:
             plex_token = self._get_data("plex_token")
 
         # Save the fetched data to the database
@@ -118,19 +118,19 @@ class LogicController():
     def on_continue_second(self, selected_anime_library, selected_toonami_library, plex_url, plex_token, dizquetv_url):
         # Check each widget value, if it starts with "eg. ", fetch the value from the database
 
-        if selected_anime_library.startswith("eg. ") or not selected_anime_library or selected_anime_library is None:
+        if selected_anime_library.startswith("eg. ") or not selected_anime_library:
             selected_anime_library = self._get_data("selected_anime_library")
 
-        if selected_toonami_library.startswith("eg. ") or not selected_toonami_library or selected_toonami_library is None:
+        if selected_toonami_library.startswith("eg. ") or not selected_toonami_library:
             selected_toonami_library = self._get_data("selected_toonami_library")
 
-        if plex_url.startswith("eg. ") or not plex_url or plex_url is None:
+        if plex_url.startswith("eg. ") or not plex_url:
             plex_url = self._get_data("plex_url")
 
-        if plex_token.startswith("eg. ") or not plex_token or plex_token is None:
+        if plex_token.startswith("eg. ") or not plex_token:
             plex_token = self._get_data("plex_token")
 
-        if dizquetv_url.startswith("eg. ") or not dizquetv_url or dizquetv_url is None:
+        if dizquetv_url.startswith("eg. ") or not dizquetv_url:
             dizquetv_url = self._get_data("dizquetv_url")
 
         # Save the fetched data to the database
@@ -145,16 +145,16 @@ class LogicController():
 
     def on_continue_third(self, anime_folder, bump_folder, special_bump_folder, working_folder):
         # Check each widget value, if it's blank, fetch the value from the database
-        if not anime_folder or anime_folder is None:
+        if not anime_folder:
             anime_folder = self._get_data("anime_folder")
 
-        if not bump_folder or bump_folder is None:
+        if not bump_folder:
             bump_folder = self._get_data("bump_folder")
 
-        if not special_bump_folder or special_bump_folder is None:
+        if not special_bump_folder:
             special_bump_folder = self._get_data("special_bump_folder")
 
-        if not working_folder or working_folder is None:
+        if not working_folder:
             working_folder = self._get_data("working_folder")
 
         # Save the fetched data to the database
