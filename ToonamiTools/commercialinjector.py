@@ -23,7 +23,7 @@ class LineupLogic:
         def apply_show_name_mapping(show_name):
             show_name = config.show_name_mapping.get(show_name, show_name)
             show_name = config.show_name_mapping_2.get(show_name, show_name)
-            show_name = config.how_name_mapping_3.get(show_name, show_name)
+            show_name = config.show_name_mapping_3.get(show_name, show_name)
             return show_name
 
         df_parts['SHOW_NAME_1'] = df_parts['SHOW_NAME_1'].str.lower().apply(apply_show_name_mapping)
@@ -39,7 +39,7 @@ class LineupLogic:
         print("Generating lineup...")
 
         for (show_name, season_and_episode), group in df_parts.groupby(['SHOW_NAME_1', 'Season and Episode']):
-            mapped_show_name = config.how_name_mapping.get(show_name, show_name)
+            mapped_show_name = config.show_name_mapping.get(show_name, show_name)
 
             parts = list(group['FULL_FILE_PATH'])
             bumps = df_bumps_sanitized[df_bumps_sanitized['SHOW_NAME_1'] == mapped_show_name].sort_values('PLACEMENT_2')
