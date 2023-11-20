@@ -137,13 +137,11 @@ If, for some reason, you don't want to login with Plex or can't, you can enter y
 
 This is the folder that contains your Anime. Click the "Browse Anime Folder" button and navigate to the folder that contains your Anime. Select the folder and click "Select Folder" at the bottom right of the window.
 
-**Warning: Later on TOM will automatically move your Toonami Anime to a new folder. (You can disable this but it's not recommended) Some of our users prefer to manually move a few shows as a test before they run the whole thing. If you do this, move some shows to a new folder and select that folder here.**
 
 **Step 2** Select your Bumps Folder
 
 This is the folder that contains your bumps. Click the "Browse Bumps Folder" button and navigate to the folder that contains your bumps. Select the folder and click "Select Folder" at the bottom right of the window.
 
-**Warning: Later on we will be moving your Toonami Bumps to a new folder. (You can NOT disable this) Some of our users prefer to just make a copy of their entire bumps folder, as it's not that big. If you do this, move your bumps to a new folder and select that folder here.**
 
 **Step 3** Select your Special Bumps Folder
 
@@ -155,13 +153,12 @@ You can technically put anything in here but you can also find old Toonami bumps
 
 **Step 4** Select your Working Folder
 
-This is the folder that we will move your Anime and Bumps to, as well as do the cutting. Click the "Browse Working Folder" button and navigate to the folder that you want to use as your working folder. Select the folder and click "Select Folder" at the bottom right of the window.
+This is the folder that we will move your Anime to, as well as do the cutting. Click the "Browse Working Folder" button and navigate to the folder that you want to use as your working folder. Select the folder and click "Select Folder" at the bottom right of the window.
 
 Once you have selected all your folders, click the "Continue" button at the bottom right of the window.
 
 ## Step 3 - Prepare Content - Intruder Alert
 
-You will notice the "Don't move my anime (not recommended)" checkbox at the top. We recommend you don't use this. It will just make things more complicated later. If you do use this, you will have to manually move your anime and bumps to the new folders later for cutting. If you leave this unchecked, we will automatically move your Anime that was on Toonami to its own folder, then move the Anime that will be used by the lineup to its own folder. This is useful as it will reduce the amount of time it takes to cut your Anime by letting you know what Anime actually needs to be cut.
 
 **Step 1** Click the "Prepare Content"
 
@@ -169,11 +166,11 @@ You will get a pop-up window that says "Select Shows". This is a list of all the
 
 Due to an error later on for now if you are going to make a cut lineup, you need to uncheck Anime you don't intend to cut.
 
-Afterwards, this will move your Anime and Bumps to the new folders and then it will move the Anime that will be used by the lineup to it's own folder called "toonami_filtered".
+**Step 2** Click "Move Filtered Shows" (Optional, but highly recommended)
 
-When this completes, you will get a pop-up window that says "Your Anime is ready to be cut!" 
+This will move the shows that will be used by the lineup to it's own folder called "toonami_filtered". We do this so you only have to cut the shows that will be used by the lineup. This will save you a lot of time.
 
-**Step 2** Get Plex Timestamps
+**Step 3** Click "Get Plex Timestamps" (Optional, but highly recommended)
 
 This will get the Plex Timestamps for Intros for all the shows in your Anime Library (The one you selected in Step 1). If you don't have Plex Pass or the "Skip Intro" feature enabled, you can skip this step. If you do have Plex Pass and the "Skip Intro" feature, we highly recommend you do this step as it serves as a backup for when the black frames and silence detection fails.
 
@@ -268,11 +265,11 @@ Just click the "Add Flex" button it will automatically add Flex to your channel.
 
 This tool will cut your videos at the black frames, at the intros given by PlexTimestamps, or chapter markers (if you have them), so you can insert commercials and bumps between the breaks.
 
-**Step 1** Click the "Browse" button next to the Input File field. (This will be filled in for you if you used the GUI and did not click the "Don't move my anime (not recommended)" checkbox)
+**Step 1** Click the "Browse" button next to the Input File field. (This will be filled in for you. If you clicked "Move Filtered Shows" in the Prepare Content step you can leave this as is)
 
 Navigate to the folder containing the videos you want to cut. Select the folder and click "Select Folder" at the bottom right of the window.
 
-**Step 2** Click the "Browse" button next to the Output Directory field (This will be filled in for you if you used the GUI and did not click the "Don't move my anime (not recommended)" checkbox)
+**Step 2** Click the "Browse" button next to the Output Directory field (This will be filled in for you. If you clicked "Move Filtered Shows" in the Prepare Content step you can leave this as is)
 
 Navigate to the folder where you want the cut videos to be saved. Select the folder and click "Select Folder" at the bottom right of the window.
 
@@ -327,15 +324,9 @@ This tool will check your anime library and against the Toonami IMDB to find wha
 
 This is a script that scrapes show titles and related data from IMDB, using URLs stored in the config file. The script features a  GUI, which permits users to selectively include or exclude shows during the data collection process. Once the scraping is complete, the gathered information is written to two tables in a SQLite database: one table dedicated to the shows and another for all the episodes.
 
-### File Mover
-
-This tool is very simple. Now that we know what shows in your library were on Toonami, we move them to a new folder.
-
-The File Mover tool acts as a crucial post-processing element in managing your anime library. After identifying shows that were part of the Toonami lineup, this tool automatically moves them to a designated folder. The shows retain their original folder structure, ensuring a seamless fit into your library. Although the GUI provides an option to skip this action by clicking "Don't Move," it's generally discouraged. Skipping could introduce complexities in subsequent steps and hinder the process of curating your anime collection such as at the "Cut" step.
-
 ### Lineup Prep
 
-The Lineup Prep tool is designed to meticulously organize your "bumps" for compatibility with the Lineup Maker. It utilizes a table generated by ToonamiChecker to search for show names within the bump files. Common show name mappings, such as converting "fmab" to "Fullmetal Alchemist Brotherhood," are also employed to ensure accuracy. Bumps that meet specific criteria, termed as "nice" bumps, are then moved to a designated folder for streamlined integration with the Lineup Maker. While robust regex patterns are used for this identification, limitations exist; if issues arise later, they are likely rooted here. Additional tables are also created in the SQLite database as a preliminary measure for troubleshooting.
+The Lineup Prep tool is designed to meticulously organize your "bumps" for compatibility with the Lineup Maker. It utilizes a table generated by ToonamiChecker to search for show names within the bump files. Common show name mappings, such as converting "fmab" to "Fullmetal Alchemist Brotherhood," are also employed to ensure accuracy. While robust regex patterns are used for this identification, limitations exist; if issues arise later, they are likely rooted here. Additional tables are also created in the SQLite database as a preliminary measure for troubleshooting.
 
 ### Toonami Encoder
 
@@ -351,7 +342,7 @@ The Show Scheduler, aka "Merger", is a pivotal tool that serves dual roles in yo
 
 ### Filter and Move
 
-This tool is specially designed for intelligent anime management. It sifts through the Toonami folder, where your selected anime resides, and moves only the episodes slated for the final lineup to a dedicated folder. This approach conserves both time and storage space, considering the resource-intensive nature of anime cutting. If you chose the "Don't Move" option earlier, this tool will create empty folders named after the shows intended for the lineup. While these empty folders can serve as placeholders to indicate which anime will be in the final lineup, this approach is not highly recommended. The tool is optimized to handle the movement of files, ensuring a streamlined and efficient process.
+This tool is specially designed for intelligent anime management. It uses the output of Uncut encoder since it checks what shows you have bumps for, and if you don't have bumps for a show it won't appear in the lineup. This approach conserves both time and storage space, considering the resource-intensive nature of anime cutting. The tool is optimized to handle the movement of files, ensuring a streamlined and efficient process.
 
 
 ### Get Timestamp Plex
@@ -453,7 +444,8 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
   
 ### Additional Features
 
-- [ ] Make "Toonami" varible so it can be changed to whatever you want eg Disney Channel
+- [x] Make "Toonami" varible so it can be changed to whatever you want eg Disney Channel
+    - [ ] Do more testing but allow this to be adjusted in the gui along with IMDB URL
 
 ### Documentation & Compatibility
 
@@ -562,7 +554,7 @@ Q: Can I request a new feature for the apps?
   Yes, the developer of the apps is always open to feedback and feature requests. You can submit your ideas and suggestions via the contact link provided on the application's homepage.
 
 
-Q: I noticed you save the original file path and the full file path in the bump.xlsx file. Why not just save the full file path?
+Q: I noticed you save the original file path and the full file path in the bump table. Why not just save the full file path?
 
 
   It was to cover up a mistake halfway through the process when we forgot we were going to need to move the bump files to a new folder as that code wasn't written yet. Then, when we went to write the code, trying to just change the original file path to the full file path broke our regex pattern. If your reading this and thing that's dumb, it's really easy to fix. Just do this... Please help us. We have no idea what we are doing; we're not ever real programmers; we're just nerds who like anime and Toonami, and no one would make this for us, so we just started doing it ourselves. It's been almost a year, and we still don't know what we're doing. Please help us.
