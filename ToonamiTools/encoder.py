@@ -2,12 +2,13 @@ import pandas as pd
 import sqlite3
 from pandas import DataFrame
 from typing import Dict
+import config
 
 
 class ToonamiEncoder:
     def __init__(self):
         print("Initializing ToonamiEncoder...")
-        db_path = 'toonami.db'
+        db_path = f'{config.network}.db'
         self.codes: Dict[str, str] = {}
         self.conn = sqlite3.connect(db_path)
 

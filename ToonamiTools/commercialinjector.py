@@ -8,7 +8,7 @@ import config
 class LineupLogic:
     def __init__(self):
         print("Initializing database connection...")
-        db_path = 'toonami.db'
+        db_path = f'{config.network}.db'
         self.conn = sqlite3.connect(db_path)
         print("Database connection established.")
 

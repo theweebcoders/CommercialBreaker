@@ -3,7 +3,7 @@ import os
 
 class FolderMaker:
     def __init__(self, dir_input):
-        self.folders = ['toonami', 'nice_bumps', 'cut', 'final lineup', 'toonami_filtered']
+        self.folders = ['cut', 'toonami_filtered']
         self.dir_input = dir_input
     def run(self):
         print(f"Starting to create folders in {self.dir_input}...")

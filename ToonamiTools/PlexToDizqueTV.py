@@ -3,6 +3,7 @@ import sqlite3
 import re
 from plexapi.server import PlexServer
 from dizqueTV import API
+import config
 
 
 
@@ -13,10 +14,10 @@ class PlexToDizqueTVSimplified:
         self.library_name = library_name
         self.dtv = API(url=dizquetv_url)
         self.channel_number = channel_number
-        toonami_db = sqlite3.connect('toonami.db')
-        print(f"Connected to SQLite database 'toonami.db', focusing on the table '{table}'.")
+        network_db = sqlite3.connect(f'{config.network}.db')
+        print(f"Connected to SQLite database '{config.network}.db', focusing on the table '{table}'.")
         self.table = table
-        self.df = pd.read_sql_query(f"SELECT * FROM {self.table}", toonami_db)
+        self.df = pd.read_sql_query(f"SELECT * FROM {self.table}", network_db)
 
     def get_filename_from_path(self, path):
         return re.split(r'[\\/]', path)[-1]

@@ -5,7 +5,7 @@ import config
 
 class LogicController():
     def __init__(self):
-        self.db_path = "toonami.db"
+        self.db_path = f'{config.network}.db'
         self._setup_database()
         self._new_server_choice_subscribers = []
         self._new_library_choice_subscribers = []
@@ -166,14 +166,11 @@ class LogicController():
         # Optional: Print values for verification
         print(anime_folder, bump_folder, special_bump_folder, working_folder)
 
-    def prepare_content(self, dont_move, display_show_selection):
+    def prepare_content(self, display_show_selection):
         # Update the values based on the current state of the checkboxes
-        self.dont_move = dont_move
         working_folder = self._get_data("working_folder")
         anime_folder = self._get_data("anime_folder")
         bump_folder = self._get_data("bump_folder")
-        toonami_folder = working_folder + "/toonami"
-        nice_bumps = working_folder + "/nice_bumps"
         merger_bumps_list_1 = 'multibumps_v2_data_reordered'
         merger_bumps_list_2 = 'multibumps_v3_data_reordered'
         merger_bumps_list_3 = 'multibumps_v9_data_reordered'
@@ -183,21 +180,17 @@ class LogicController():
         merger_out_3 = 'lineup_v9_uncut'
         merger_out_4 = 'lineup_v8_uncut'
         uncut_encoder_out = 'uncut_encoded_data'
-        filter_output_folder = working_folder + "/toonami_filtered/"
         fmaker = ToonamiTools.FolderMaker(working_folder)
         easy_checker = ToonamiTools.ToonamiChecker(anime_folder)
-        easy_mover = ToonamiTools.FileMover(toonami_folder, self.dont_move)
-        lineup_prep = ToonamiTools.MediaProcessor(bump_folder, nice_bumps)
+        lineup_prep = ToonamiTools.MediaProcessor(bump_folder)
         easy_encoder = ToonamiTools.ToonamiEncoder()
-        uncutencoder = ToonamiTools.UncutEncoder(toonami_folder)
+        uncutencoder = ToonamiTools.UncutEncoder()
         ml = ToonamiTools.Multilineup()
         merger = ToonamiTools.ShowScheduler(uncut=True)
-        fmove = ToonamiTools.FilterAndMove()
         fmaker.run()
         unique_show_names, toonami_episodes = easy_checker.prepare_episode_data()
         selected_shows = display_show_selection(unique_show_names)
         easy_checker.process_selected_shows(selected_shows, toonami_episodes)
-        easy_mover.run()
         lineup_prep.run()
         easy_encoder.encode_and_save()
         ml.reorder_all_tables()
@@ -206,7 +199,12 @@ class LogicController():
         merger.run(merger_bumps_list_2, uncut_encoder_out, merger_out_2)
         merger.run(merger_bumps_list_3, uncut_encoder_out, merger_out_3)
         merger.run(merger_bumps_list_4, uncut_encoder_out, merger_out_4)
-        fmove.run(filter_output_folder, self.dont_move)
+
+    def move_filtered(self):
+        fmove = ToonamiTools.FilterAndMove()
+        working_folder = self._get_data("working_folder")
+        filter_output_folder = working_folder + "/toonami_filtered/"
+        fmove.run(filter_output_folder)
 
     def get_plex_timestamps(self):
         working_folder = self._get_data("working_folder")
@@ -267,7 +265,7 @@ class LogicController():
 
     def prepare_toonami_channel(self, start_from_last_episode, toonami_version):
 
-        cont_config = ToonamiTools.TOONAMI_CONFIG_CONT.get(toonami_version, {})
+        cont_config = config.TOONAMI_CONFIG_CONT.get(toonami_version, {})
 
         merger_bump_list = cont_config["merger_bump_list"]
         merger_out = cont_config["merger_out"]
@@ -279,7 +277,7 @@ class LogicController():
 
     def create_toonami_channel_cont(self, toonami_version, channel_number):
 
-        cont_config = ToonamiTools.TOONAMI_CONFIG_CONT.get(toonami_version, {})
+        cont_config = config.TOONAMI_CONFIG_CONT.get(toonami_version, {})
         table = cont_config["merger_out"]
         dizquetv_url = self._get_data("dizquetv_url")
         plex_url = self._get_data("plex_url")

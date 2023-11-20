@@ -7,7 +7,7 @@ import config
 
 class ShowScheduler:
     def __init__(self, reuse_episode_blocks=True, continue_from_last_used_episode_block=False, apply_ns3_logic=False, uncut=False):
-        self.conn = sqlite3.connect('toonami.db')
+        self.conn = sqlite3.connect(f'{config.network}.db')
         if continue_from_last_used_episode_block:
             query = "SELECT name FROM sqlite_master WHERE type='table' AND name='last_used_episode_block';"
             if self.conn.execute(query).fetchone():
@@ -37,7 +37,7 @@ class ShowScheduler:
         print("Loading encoder data from", encoder_table)
         print("Loading commercial injector data from", commercial_table)
         print("Loading codes from codes")
-        self.conn = sqlite3.connect('toonami.db')
+        self.conn = sqlite3.connect(f'{config.network}.db')
         self.encoder_df = pd.read_sql(f'SELECT * FROM {encoder_table}', self.conn)
         self.commercial_injector_df = pd.read_sql(f'SELECT * FROM {commercial_table}', self.conn)
         self.commercial_injector_df['show_name'] = self.commercial_injector_df['BLOCK_ID'].str.rsplit(pat='_S', n=1).str[0].str.replace('_', ' ').str.lower()

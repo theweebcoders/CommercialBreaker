@@ -2,12 +2,13 @@ import pandas as pd
 import os
 import shutil
 import sqlite3
+import config
 
 
 class FilterAndMove:
     class DataFrameFilter:
         def __init__(self):
-            db_path = 'toonami.db'
+            db_path = f'{config.network}.db'
             self.conn = sqlite3.connect(db_path)
 
         def filter_and_write(self):
@@ -15,7 +16,7 @@ class FilterAndMove:
             # Load the data
             df = pd.read_sql_query("SELECT * FROM lineup_v8_uncut", self.conn)
             # Filter out the rows
-            df_filtered = df[~df['FULL_FILE_PATH'].str.contains('/nice_bumps', na=False)]
+            df_filtered = df[~df['FULL_FILE_PATH'].str.lower().str.contains(config.network.lower(), na=False)]
 
             # Drop the 'Code' and 'BLOCK_ID' columns
             df_filtered = df_filtered.drop(columns=['Code', 'BLOCK_ID'])
@@ -26,7 +27,7 @@ class FilterAndMove:
 
     class EpisodeMover:
         def __init__(self, target_directory):
-            db_path = 'toonami.db'
+            db_path = f'{config.network}.db'
             self.conn = sqlite3.connect(db_path)
             self.target_directory = target_directory
 
@@ -72,47 +73,16 @@ class FilterAndMove:
 
             print("Show directories moved successfully.")
 
-    def _fake_run(self, target_directory):
-        print("Faking filter and move process.")
-
-        # Load the DataFrame from the input file
-        df = pd.read_sql_query("SELECT * FROM lineup_v8_uncut_filtered", self.conn)
-
-        # Identify unique show directories
-        unique_show_dirs = set()
-        for file_path in df['FULL_FILE_PATH']:
-            # Normalize the path to handle inconsistencies in slash usage
-            file_path = os.path.normpath(file_path)
-            # Go up two levels from the file path to get the show directory
-            season_dir = os.path.dirname(file_path)
-            show_dir = os.path.dirname(season_dir)
-            unique_show_dirs.add(show_dir)
-
-        # Create show directories but leave them empty
-        for show_dir in unique_show_dirs:
-            show_name = os.path.basename(show_dir)
-            dest_dir = os.path.join(target_directory, "ToonamiPlaylistShows", show_name)
-            suffix = 0
-            while os.path.exists(dest_dir):
-                suffix += 1
-                dest_dir = os.path.join(target_directory, "ToonamiPlaylistShows", show_name + f"_copy{suffix}")
-            os.makedirs(dest_dir)
-        print("Empty show directories created successfully.")
-
-    def run(self, target_directory, skip=False):
+    def run(self, target_directory):
         # Connect to the SQLite database
-        self.conn = sqlite3.connect('toonami.db')
+        self.conn = sqlite3.connect(f'{config.network}.db')
         print("Starting filter and move process.")
-
         # Create an instance of DataFrameFilter
         df_filter = self.DataFrameFilter()
         # Call the method to filter and write the DataFrame
         df_filter.filter_and_write()
-        if skip:
-            self._fake_run(target_directory)
-        else:
-            # Create an instance of EpisodeMover with the filtered data file
-            episode_mover = self.EpisodeMover(target_directory)
-            # Call the method to move files
-            episode_mover.move_files()
+        # Create an instance of EpisodeMover with the filtered data file
+        episode_mover = self.EpisodeMover(target_directory)
+        # Call the method to move files
+        episode_mover.move_files()
         print("Filter and move process completed successfully.")

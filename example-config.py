@@ -1,19 +1,15 @@
 # Rename this file to config.py and fill in the values below
 # cp example-config.py config.py
-
-import os
-import re
-
-
-current_dir = os.path.dirname(os.path.realpath(__file__))
-tools_dir = os.path.join(current_dir, "Tools")
-icon_path = os.path.join(current_dir, "icon.ico")
-ffmpeg_path = os.path.join(tools_dir, "ffmpeg.exe")
-ffprobe_path = os.path.join(tools_dir, "ffprobe.exe")
-ffplay_path = os.path.join(tools_dir, "ffplay.exe")
-fpcalc_path = os.path.join(tools_dir, "fpcalc.exe")
-mkvmerge_path = os.path.join(tools_dir, "mkvmerge.exe")
-
+# put the name of your network here e.g "Toonami" or "Disney"
+network = "toonami"
+current_dir = __file__.rstrip('config.py')
+tools_dir = current_dir + "Tools/"
+icon_path = current_dir + "icon.ico"
+ffmpeg_path = tools_dir + "ffmpeg.exe"
+ffprobe_path = tools_dir + "ffprobe.exe"
+ffplay_path = tools_dir + "ffplay.exe"
+fpcalc_path = tools_dir + "fpcalc.exe"
+mkvmerge_path = tools_dir + "mkvmerge.exe"
 ENGLISH_VARIATIONS = ['eng', 'english', 'english dub', 'inglês', 'en', 'en-us', '英語', 'anglais']
 
 username="username"

@@ -1,5 +1,4 @@
 from .toonamichecker import ToonamiChecker
-from .mover import FileMover
 from .lineupprep import MediaProcessor
 from .encoder import ToonamiEncoder
 from .uncutencoder import UncutEncoder

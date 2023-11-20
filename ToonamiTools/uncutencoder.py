@@ -7,15 +7,14 @@ import config
 
 
 class UncutEncoder:
-    def __init__(self, toonami_folder):
+    def __init__(self):
         self.file_paths = []
         self.block_ids = []
         self.bumps_df = None
-        self.folder = toonami_folder
         self.intro_bump_cycle = {}
         self.generic_bump_cycle = {}
         self.default_bump_cycle = None  # Cycling default bumps
-        db_path = 'toonami.db'
+        db_path = f'{config.network}.db'
         self.conn = sqlite3.connect(db_path)
 
     def apply_show_name_mappings(self, show_name):
@@ -33,23 +32,28 @@ class UncutEncoder:
         ]['FULL_FILE_PATH'].tolist():
             self.default_bump_cycle = cycle(default_bumps)
 
-    def find_files(self, base_dir):
-        self.base_dir = base_dir
-        pattern = re.compile(r"\\([^\\]+)\\Season (\d+)\\[^\\]+ - S(\d+)E(\d+)")
-        for dirpath, dirnames, filenames in os.walk(self.base_dir):
-            for file in filenames:
-                if file.endswith(".mkv") or file.endswith(".mp4"):
-                    full_path = os.path.join(dirpath, file)
-                    self.file_paths.append(full_path)
-                    if match := pattern.search(full_path):
-                        show_name = match[1].upper().replace(' ', '_')
-                        show_name = re.sub(r'[^A-Z0-9_]', '', show_name)
-                        show_name = re.sub(r'_+', '_', show_name)
-                        season = match[2]
-                        episode = match[4]
-                        self.block_ids.append(f"{show_name}_S{season.zfill(2)}E{episode.zfill(2)}")
-                    else:
-                        self.block_ids.append("")
+    def find_files(self):
+        # Query the database for the full file paths
+        query = "SELECT Full_File_Path FROM toonami_episodes"
+        df = pd.read_sql(query, self.conn)
+
+        # Compile the regex pattern for matching file paths
+        pattern = re.compile(r"/([^/]+)/Season (\d+)/[^/]+ - S(\d+)E(\d+)")
+
+        # Normalize file paths and iterate over them
+        for full_path in df['Full_File_Path']:
+            normalized_path = os.path.normpath(full_path)
+            if normalized_path.endswith(".mkv") or normalized_path.endswith(".mp4"):
+                self.file_paths.append(normalized_path)
+                if match := pattern.search(normalized_path.replace('\\', '/')):
+                    show_name = match[1].upper().replace(' ', '_')
+                    show_name = re.sub(r'[^A-Z0-9_]', '', show_name)
+                    show_name = re.sub(r'_+', '_', show_name)
+                    season = match[2]
+                    episode = match[4]
+                    self.block_ids.append(f"{show_name}_S{season.zfill(2)}E{episode.zfill(2)}")
+                else:
+                    self.block_ids.append("")
 
     def insert_intro_bumps(self):
         for i in range(len(self.file_paths) - 1, -1, -1):
@@ -93,9 +97,8 @@ class UncutEncoder:
         print("Table created in the database.")
 
     def run(self):
-        print(f"Starting process for folder: {self.folder}")
         self.load_bumps_data()
-        self.find_files(self.folder)
+        self.find_files()
         self.insert_intro_bumps()
         self.create_table()
         print("Process completed.")

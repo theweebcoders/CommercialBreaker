@@ -1,8 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-# import ttkthemes as ttkthemes
 import sv_ttk
-from ComBreak.CommercialBreakerLogic import CommercialBreakerLogic
+from ComBreak import CommercialBreakerLogic
 from FrontEndLogic import LogicController
 import config
 import threading
@@ -237,11 +236,6 @@ class Page4(ttk.Frame):
         label = ttk.Label(self, text="Prepare Your Content:", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
 
-        self.dont_move_anime_var = tk.BooleanVar(value=self.dont_move)
-        dont_move_anime_checkbox = ttk.Checkbutton(self, text="Don't move my anime (not recommended)",
-                                                   variable=self.dont_move_anime_var)
-        dont_move_anime_checkbox.pack(pady=3)
-
         prepare_button = ttk.Button(self, text="Prepare my shows and bumps to be cut",
                                     command=self.prepare_my_shows)
         prepare_button.pack(pady=3)
@@ -249,6 +243,10 @@ class Page4(ttk.Frame):
         get_plex_timestamps_button = ttk.Button(self, text="Get Plex Timestamps",
                                         command=self.logic.get_plex_timestamps)
         get_plex_timestamps_button.pack(pady=3)
+
+        move_filtered_button = ttk.Button(self, text="Move Filtered Shows",
+                                        command=self.logic.move_filtered)
+        move_filtered_button.pack(pady=3)
 
         # Create a new frame to hold the button
         button_frame = ttk.Frame(self)
@@ -260,7 +258,7 @@ class Page4(ttk.Frame):
         self.continue_button.pack(side="right", padx=5, pady=5)
 
     def prepare_my_shows(self):
-        self.logic.prepare_content(self.dont_move_anime_var.get(), self.display_show_selection)
+        self.logic.prepare_content(self.display_show_selection)
 
     def display_show_selection(self, unique_show_names):
         selected_shows = []

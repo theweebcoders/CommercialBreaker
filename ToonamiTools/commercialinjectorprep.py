@@ -2,12 +2,13 @@ import os
 import re
 import pandas as pd
 import sqlite3
+import config
 
 
 class AnimeFileOrganizer:
     def __init__(self, anime_dir):
         self.anime_dir = anime_dir
-        db_path = 'toonami.db'
+        db_path = f'{config.network}.db'
         self.conn = sqlite3.connect(db_path)
         self.cursor = self.conn.cursor()
 

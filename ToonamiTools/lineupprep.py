@@ -8,10 +8,9 @@ import config
 
 
 class MediaProcessor:
-    def __init__(self, bump_folder, nice_output_dir):
+    def __init__(self, bump_folder):
         self.keywords = config.keywords
         self.bump_folder = bump_folder
-        self.nice_output_dir = nice_output_dir
         self.columns = ['ORIGINAL_FILE_PATH', 'FULL_FILE_PATH', 'TOONAMI_VERSION', 'PLACEMENT_1', 'SHOW_NAME_1', 'PLACEMENT_2', 'SHOW_NAME_2', 'PLACEMENT_3', 'SHOW_NAME_3', 'PLACEMENT_4', 'AD_VERSION', 'COLOR', 'Status']
         self.show_name_mappings_lower = None
         self.show_name_mapping = config.show_name_mapping
@@ -28,13 +27,13 @@ class MediaProcessor:
         sorted_unescaped_colors = "|".join(sorted(self.colors, key=len, reverse=True))
 
         if count == 1:
-            self.regex = rf"(?i)^Toonami\s?(?P<TOONAMI_VERSION>\d\s\d)?\s?(?P<SHOW_NAME_1>{dynamic_show_names})\s(?P<PLACEMENT_2>{sorted_unescaped_keywords})(?:\s(?P<AD_VERSION>\d{{1,2}}))?(?:\s(?P<COLOR>{sorted_unescaped_colors}))?$"
+            self.regex = rf"(?i)^{config.network}\s?(?P<TOONAMI_VERSION>\d\s\d)?\s?(?P<SHOW_NAME_1>{dynamic_show_names})\s(?P<PLACEMENT_2>{sorted_unescaped_keywords})(?:\s(?P<AD_VERSION>\d{{1,2}}))?(?:\s(?P<COLOR>{sorted_unescaped_colors}))?$"
         elif count == 2:
-            self.regex = rf"(?i)^Toonami\s?(?P<TOONAMI_VERSION>\d\s\d)?\s?(?P<SHOW_NAME_1>{dynamic_show_names})\s(?P<PLACEMENT_2>{sorted_unescaped_keywords})\s(?P<SHOW_NAME_2>{dynamic_show_names})(?:\s(?P<AD_VERSION>\d{{1,2}}))?(?:\s(?P<COLOR>{sorted_unescaped_colors}))?$"
+            self.regex = rf"(?i)^{config.network}\s?(?P<TOONAMI_VERSION>\d\s\d)?\s?(?P<SHOW_NAME_1>{dynamic_show_names})\s(?P<PLACEMENT_2>{sorted_unescaped_keywords})\s(?P<SHOW_NAME_2>{dynamic_show_names})(?:\s(?P<AD_VERSION>\d{{1,2}}))?(?:\s(?P<COLOR>{sorted_unescaped_colors}))?$"
         elif count >= 3:
-            self.regex = rf"(?i)^Toonami\s?(?P<TOONAMI_VERSION>\d\s\d)?\s?(?P<PLACEMENT_1>{sorted_unescaped_keywords})?\s?(?P<SHOW_NAME_1>{dynamic_show_names})\s(?P<PLACEMENT_2>{sorted_unescaped_keywords})\s(?P<SHOW_NAME_2>{dynamic_show_names})\s(?P<PLACEMENT_3>{sorted_unescaped_keywords})\s(?P<SHOW_NAME_3>{dynamic_show_names})(?:\s(?P<AD_VERSION>\d{{1,2}}))?(?:\s(?P<COLOR>{sorted_unescaped_colors}))?$"
+            self.regex = rf"(?i)^{config.network}\s?(?P<TOONAMI_VERSION>\d\s\d)?\s?(?P<PLACEMENT_1>{sorted_unescaped_keywords})?\s?(?P<SHOW_NAME_1>{dynamic_show_names})\s(?P<PLACEMENT_2>{sorted_unescaped_keywords})\s(?P<SHOW_NAME_2>{dynamic_show_names})\s(?P<PLACEMENT_3>{sorted_unescaped_keywords})\s(?P<SHOW_NAME_3>{dynamic_show_names})(?:\s(?P<AD_VERSION>\d{{1,2}}))?(?:\s(?P<COLOR>{sorted_unescaped_colors}))?$"
         elif count == 0:
-            self.regex = rf"(?i)^Toonami\s?(?P<TOONAMI_VERSION>\d\s\d)?\s?(?P<SPECIAL_SHOW_NAME>robot|robots|clyde|clydes)(?:\s(?P<AD_VERSION>\d{{1,2}}))?$"
+            self.regex = rf"(?i)^{config.network}\s?(?P<TOONAMI_VERSION>\d\s\d)?\s?(?P<SPECIAL_SHOW_NAME>robot|robots|clyde|clydes)(?:\s(?P<AD_VERSION>\d{{1,2}}))?$"
         return self.regex
 
     def _retrieve_media_files(self, directory):
@@ -196,7 +195,7 @@ class MediaProcessor:
 
     def run(self):
         print("Initiating database connection...")
-        conn = sqlite3.connect('toonami.db')
+        conn = sqlite3.connect(f'{config.network}.db')
         print("Database connection established.")
 
         # Initialize the show name mappings to lowercase
@@ -220,16 +219,6 @@ class MediaProcessor:
         nice_df = processed_df[processed_df['Status'] == 'nice'].copy()
         naughty_df = processed_df[processed_df['Status'] == 'naughty']
         print("Checking it twice.")
-
-        print("Because Santa Clause is coming to Town.")
-        nice_file_paths = []
-        for file_path in nice_df['FULL_FILE_PATH']:
-            if os.path.exists(file_path):
-                destination = os.path.join(self.nice_output_dir, os.path.basename(file_path))
-                shutil.move(file_path, destination)
-                nice_file_paths.append(destination)
-        nice_df['FULL_FILE_PATH'] = nice_file_paths
-        print("'Nice' files moved.")
 
         print("Saving processed data to SQLite tables...")
         self._save_to_sql(nice_df, "nice_list", conn)

@@ -6,11 +6,7 @@ import requests
 import sqlite3
 from bs4 import BeautifulSoup
 from unidecode import unidecode
-# from fuzzywuzzy import process
-# import tkinter as tk
-# from tkinter import ttk, filedialog, messagebox, IntVar
-# import ttkthemes as ttkthemes
-# import sv_ttk
+import config
 
 
 class IMDBScraper:
@@ -114,7 +110,7 @@ class ToonamiChecker(IMDBScraper):
         print(f"Found matches for {len(toonami_episodes)} episodes.")
         return toonami_episodes
 
-    def save_episodes_to_spreadsheet(self, toonami_episodes, db_path="toonami.db"):
+    def save_episodes_to_spreadsheet(self, toonami_episodes, db_path=f"{config.network}.db"):
         print(f"Writing episode data to SQLite database: {db_path}")
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
@@ -124,12 +120,12 @@ class ToonamiChecker(IMDBScraper):
         table_exists = bool(cursor.fetchone())
 
         df = pd.DataFrame([(k[0], k[1], v.replace("\\", "/")) for k, v in toonami_episodes.items()],
-                          columns=['Title', 'Episode', 'File Path'])
+                          columns=['Title', 'Episode', 'Full_File_Path'])
 
         if table_exists:
             existing_df = pd.read_sql('SELECT * FROM Toonami_Episodes', conn)
             combined_df = pd.concat([existing_df, df], ignore_index=True)
-            duplicates = combined_df.duplicated(subset=['Title', 'Episode', 'File Path'], keep='last')
+            duplicates = combined_df.duplicated(subset=['Title', 'Episode', 'File_File_Path'], keep='last')
             combined_df = combined_df[~duplicates]
             combined_df.to_sql('Toonami_Episodes', conn, if_exists='replace', index=False)
         else:
@@ -138,7 +134,7 @@ class ToonamiChecker(IMDBScraper):
         conn.close()
         print(f'Successfully wrote rows to {db_path}')
 
-    def save_show_names_to_spreadsheet(self, toonami_episodes, db_path="toonami.db"):
+    def save_show_names_to_spreadsheet(self, toonami_episodes, db_path=f"{config.network}.db"):
         print(f"Writing show names to SQLite database: {db_path}")
         unique_show_names = {k[0] for k in toonami_episodes.keys()}
         conn = sqlite3.connect(db_path)

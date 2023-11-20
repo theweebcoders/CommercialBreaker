@@ -2,12 +2,12 @@ import os
 import sqlite3
 import pandas as pd
 import numpy as np
-
+import config
 
 class FileProcessor:
     def __init__(self, input_dir):
         self.input_dir = input_dir
-        db_path = 'toonami.db'
+        db_path = f'{config.network}.db'
         self.conn = sqlite3.connect(db_path)
         self.lineup_dataframes = [name[0] for name in self.conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'lineup_v%'")]
         print(f"Initialized FileProcessor with DataFrames: {self.lineup_dataframes}")

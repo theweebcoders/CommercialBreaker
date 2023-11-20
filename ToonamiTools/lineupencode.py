@@ -2,11 +2,12 @@ import pandas as pd
 import os
 import re
 import sqlite3
+import config
 
 
 class BlockIDCreator:
     def __init__(self):
-        db_path = 'toonami.db'
+        db_path = f'{config.network}.db'
         self.conn = sqlite3.connect(db_path)
         self.last_block_id = None
         print("Initialized database connection.")

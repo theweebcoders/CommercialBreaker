@@ -2,6 +2,7 @@ import paramiko
 import json
 import tempfile
 import os
+import config
 
 
 class DizqueTVManager:
@@ -36,7 +37,7 @@ class DizqueTVManager:
         return output
 
     def is_flex_target(self, title):
-        target_keywords = ['Toonami']
+        target_keywords = [config.network]
         return any(keyword in title for keyword in target_keywords)
 
     def insert_flex(self, json_data):
