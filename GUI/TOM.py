@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import sv_ttk
 from ComBreak import CommercialBreakerLogic
-from FrontEndLogic import LogicController
+from GUI import LogicController
 import config
 import threading
 import os
