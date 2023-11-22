@@ -80,7 +80,7 @@ Download ffmpeg, ffplay, and ffprobe from https://www.ffmpeg.org/ and put them i
 In the terminal window, type the following command:
 
 ```bash
-python3 TOM.py
+python3 main.py --tom
 ```
 ### Note: There is a GPTReadme in this folder. You should be able to copy and paste the entire thing into a ChatGPT prompt, and it will answer any questions you have if you don't want to read this.
 
