@@ -8,3 +8,4 @@ Tools/fpcalc.exe
 Tools/ffplay.exe
 temp.py
 logs
+.vscode/launch.json
