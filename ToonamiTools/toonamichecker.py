@@ -125,7 +125,7 @@ class ToonamiChecker(IMDBScraper):
         if table_exists:
             existing_df = pd.read_sql('SELECT * FROM Toonami_Episodes', conn)
             combined_df = pd.concat([existing_df, df], ignore_index=True)
-            duplicates = combined_df.duplicated(subset=['Title', 'Episode', 'File_File_Path'], keep='last')
+            duplicates = combined_df.duplicated(subset=['Title', 'Episode', 'Full_File_Path'], keep='last')
             combined_df = combined_df[~duplicates]
             combined_df.to_sql('Toonami_Episodes', conn, if_exists='replace', index=False)
         else:
