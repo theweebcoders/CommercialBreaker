@@ -71,7 +71,7 @@ This will create a folder in your home directory called CommercialBreaker. This 
 
 Create a folder in your home directory called "Tools."
 
-Download ffmpeg, ffplay, and ffprobe from https://www.ffmpeg.org/ and put them in the Tools folder. The program calls the ffmpeg, ffplay, and ffprobe executables directly, so they need to be in the same folder as the program. (See FAQ)
+Download ffmpeg, ffplay, and ffprobe from https://www.ffmpeg.org/ and put them in the Tools folder or install them using the following the instruction given on the ffmpeg website. The program can call the ffmpeg, ffplay, and ffprobe executables directly, but to do so they need to be in the same folder as the program. (See FAQ)
 
 **Note:** If updateing from a previous version please delete config.py and run cp example-config.py config.py again
 
@@ -82,7 +82,105 @@ In the terminal window, type the following command:
 ```bash
 python3 main.py --tom
 ```
-### Note: There is a GPTReadme in this folder. You should be able to copy and paste the entire thing into a ChatGPT prompt, and it will answer any questions you have if you don't want to read this.
+
+# How to name your files
+
+### Bump File Naming Guide
+
+This guide outlines the proper way to name bump files to avoid problems. Depending on the number of shows involved, the naming scheme varies.
+
+Things to note:
+
+    Maintain a space between each part of a bump (If your bumps already follow this guide but have underscores that's fine too)
+    Some components, like AD_VERSION or COLOR, might not always be necessary
+    Make sure your bumps follow this naming scheme or they will not be used
+    Any bump with more than one show is sometimes refered to as a "multibump"
+
+
+#### We have differant nameing schemes for differant types of bump depending on how many shows the bumps involve
+
+
+Format for No Shows (Generic Bumps):
+
+    Pattern: [Network] [TOONAMI_VERSION] [SPECIAL_SHOW_NAME] [AD_VERSION]
+    
+    Examples: 
+        Toonami 2 0 robots 03
+        Toonami 3 0 clydes 04
+
+Format for One Show (Singles):
+
+    Pattern: [Network] [TOONAMI_VERSION] [SHOW_NAME_1] [PLACEMENT_2] [AD_VERSION] [COLOR]
+    
+    Examples:
+        Toonami 2 0 Gundam back 04 red
+        Toonami 2 0 Gundam to ads 05 blue
+        Toonami 2 0 Gundam generic 09 green
+        Toonami 2 0 Gundam intro 9 yellow
+        Toonami 2 0 Gundam next 12 purple
+    Placement Options: "back", "to ads", "generic", "intro", "next"
+
+Multibumps:
+
+Format for Two Shows aka Transitional Bumps aka Double Bumps:
+
+    Pattern: [Network] [TOONAMI_VERSION] [SHOW_NAME_1] "Next From" OR "From" [SHOW_NAME_2] [AD_VERSION] [COLOR]
+    
+    Examples: 
+        Toonami 2 0 Gundam Next From Evangelion 05 blue
+        Toonami 2 0 Inuyasha From Evangelion 7 blue
+
+Format for Three Shows aka Triple Bumps:
+
+    Pattern: [Network] [TOONAMI_VERSION] "Now" [SHOW_NAME_1] "Next" [SHOW_NAME_2] "Later" [SHOW_NAME_3] [AD_VERSION] [COLOR]
+    
+    Examples: 
+        Toonami 2 0 Now Gundam Next Evangelion Later Cowboy Bebop 10 green
+        Toonami 3 0 Now Inuyasha Next Bleach Later Naruto 2 red
+
+Pattern Key:
+
+    Network: The network name, e.g., "Toonami".
+
+    TOONAMI_VERSION: The version of Toonami the bump is from
+    If there is no version number it will be assumed to be OG aka 1 0
+    The space is in repalce of the period in the version number
+    If you make your own bumps or use custom made ones we recommend you use 7 0 this will insure that bump is only used in a mixed lineup
+
+    SHOW_NAME_X: The name of the show(s) involved.
+
+    PLACEMENT_X: Specific keywords indicating the bump's role or timing relative to the show:
+        For singles: "back", "to ads", "generic", "intro", "next"
+        For transitions: "Next From" (two shows), "Now", "Next", "Later" (three shows)
+    
+    AD_VERSION: A numeric identifier, for different ad versions or cuts.
+    
+    COLOR: Optional, for thematic categorization.
+
+
+### Episode File Naming Guide
+
+This guide outlines the proper way to name episode files to avoid problems.
+
+Things to note:
+
+    The inclusion of show title, a hyphen, season number, and episode number, always using two digits for season and episode numbers, is necessary like having the sigils inscribed in your transmutation circle.
+
+    Deviations from this naming scheme will result in the episodes not being recognized like a ship not finding its way due to a crew not having set their log pose to find the next island.
+
+Format for Show Episodes:
+
+Pattern: [SHOW_TITLE] - S[SEASON_NUMBER]E[EPISODE_NUMBER] - optional remaining naming
+Examples:
+
+    Naruto - S01E28 - Eat or Be Eaten - Panic in the Forest Bluray-1080p Remux
+    One Piece - S11E01 - Marine High Admiral Aokiji! The Threat of the Greatest Power
+
+Pattern Key:
+
+    SHOW_TITLE: The name of the show, followed by a space, a hyphen, and another space.
+    S[SEASON_NUMBER]: 'S' followed by the season number, always using two digits.
+    E[EPISODE_NUMBER]: 'E' followed by the episode number, always using two digits.
 
 # Support your local Mad Scientist
 <a href="https://www.buymeacoffee.com/tim000x3" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="41" width="174"></a>
@@ -509,7 +607,11 @@ Q: Why do ffmpeg, ffprobe, and ffplay need to be in the same folder as the progr
 Q: Why don't you just ffmpeg, ffprobe, and ffplay the normal way and let python find them?
 
 
-  One dumb reason. My last name has an apostrophe in it, and it broke "Path" on Windows. So some programs, even if added to Path, cannot be called from Python. I'm sure I can't be the only one with this problem, so I just left it like this for now. If you want to change it, you can just change the path in the config.
+  It does now but it didn't before. I know you want to know
+  
+Q: Why?
+
+  One dumb reason. My last name has an apostrophe in it, and it broke "Path" on Windows. So some programs, even if added to Path, cannot be called from Python. I'm sure I can't be the only one with this problem, so I left in the option to let you call the executibles directly. You no longer need to do this as I fixed it but I left it in just in case. Also, this only works on Windows.
 
 
 Q: The GUI freezes when I run a tool. What's going on?
