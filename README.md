@@ -113,10 +113,10 @@ Format for One Show (Singles):
     Pattern: [Network] [TOONAMI_VERSION] [SHOW_NAME_1] [PLACEMENT_2] [AD_VERSION] [COLOR]
     
     Examples:
-        Toonami 2 0 Gundam back 04 red
+        Toonami 2 0 Gundam back 4 red
         Toonami 2 0 Gundam to ads 05 blue
-        Toonami 2 0 Gundam generic 09 green
-        Toonami 2 0 Gundam intro 9 yellow
+        Toonami 2 0 Gundam generic 09
+        Toonami 2 0 Gundam intro
         Toonami 2 0 Gundam next 12 purple
     Placement Options: "back", "to ads", "generic", "intro", "next"
 
@@ -135,8 +135,8 @@ Format for Three Shows aka Triple Bumps:
     Pattern: [Network] [TOONAMI_VERSION] "Now" [SHOW_NAME_1] "Next" [SHOW_NAME_2] "Later" [SHOW_NAME_3] [AD_VERSION] [COLOR]
     
     Examples: 
-        Toonami 2 0 Now Gundam Next Evangelion Later Cowboy Bebop 10 green
-        Toonami 3 0 Now Inuyasha Next Bleach Later Naruto 2 red
+        Toonami 2 0 Gundam Next Evangelion Later Cowboy Bebop 10 green
+        Toonami 3 0 Now Inuyasha Next Bleach Later Naruto 2
 
 Pattern Key:
 
@@ -151,7 +151,10 @@ Pattern Key:
 
     PLACEMENT_X: Specific keywords indicating the bump's role or timing relative to the show:
         For singles: "back", "to ads", "generic", "intro", "next"
-        For transitions: "Next From" (two shows), "Now", "Next", "Later" (three shows)
+        For transitions double bumps: "Next From" (two shows)
+        For triple bumps: "Now", "Next", "Later" (three shows). 
+        Now goes in PLACEMENT_1 and is entirely optional, Later goes in PLACEMENT_3. All other placement keywords go in
+        PLACEMENT_2
     
     AD_VERSION: A numeric identifier, for different ad versions or cuts.
     
@@ -517,7 +520,7 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 - [ ] Bug Testing
     - [ ] Create test cases for each tool
     - [ ] Test on Linux
-    - [ ] Test on Mac
+    - [x] Test on Mac
     
 ### General Tasks
 
