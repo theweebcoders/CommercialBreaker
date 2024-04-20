@@ -7,7 +7,6 @@ from ComBreak.VideoLoader import VideoLoader
 from ComBreak.VideoFileManager import VideoFilesManager
 from bisect import bisect_left
 import config
-# from config import *
 
 
 class CommercialBreakerLogic:
@@ -15,6 +14,14 @@ class CommercialBreakerLogic:
 
     def __init__(self):
         self.video_durations = {}
+
+    @staticmethod
+    def get_executable_path(executable_name, config_path):
+        try:
+            subprocess.run([executable_name, "-version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            return executable_name  # Executable is on PATH
+        except subprocess.CalledProcessError:
+            return config_path  # Use config path if not on PATH
 
     # ------------------ Begining for cut videos methods ------------------
     @staticmethod
@@ -103,7 +110,7 @@ class CommercialBreakerLogic:
         output_dir = os.path.dirname(output_file_prefix)
 
         command = [
-            config.ffmpeg_path, "-i", input_file,
+            CommercialBreakerLogic.get_executable_path("ffmpeg", config.ffmpeg_path), "-i", input_file,
             "-f", "segment",
             "-segment_times", times_str,
             "-reset_timestamps", "1",
@@ -126,7 +133,7 @@ class CommercialBreakerLogic:
     def get_video_duration(self, input_file):
         end_time = self.video_durations.get(input_file, None)
         if end_time is None:
-            command = [config.ffprobe_path, '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', input_file]
+            command = [CommercialBreakerLogic.get_executable_path("ffprobe", config.ffprobe_path), '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', input_file]
             result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             end_time = float(result.stdout)
             self.video_durations[input_file] = end_time
@@ -183,7 +190,7 @@ class CommercialBreakerLogic:
         chapters = []
         try:
             command = [
-                config.ffprobe_path,
+                CommercialBreakerLogic.get_executable_path("ffprobe", config.ffprobe_path),
                 '-v', 'quiet',
                 '-print_format', 'json',
                 '-show_chapters',
@@ -210,7 +217,7 @@ class CommercialBreakerLogic:
                 status_callback(f"Downscaling video {i+1} of {total}")
 
             command = [
-                config.ffmpeg_path, "-i", input_file, "-vf",
+                CommercialBreakerLogic.get_executable_path("ffmpeg", config.ffmpeg_path), "-i", input_file, "-vf",
                 f'scale=-2:{config.DOWNSCALE_HEIGHT}:flags=fast_bilinear',
                 "-preset", "ultrafast", "-vcodec", "libx264",
                 "-crf", "23", "-an", output_file, "-y"
@@ -240,7 +247,7 @@ class CommercialBreakerLogic:
         if not os.path.isfile(input_file):
             return []
         try:
-            command = [config.ffmpeg_path, "-i", input_file, "-af", f"silencedetect=n={config.DECIBEL_THRESHOLD}dB:d={config.SILENCE_DURATION}", "-preset", "ultrafast", "-f", "null", "-y", "/dev/null"]
+            command = [CommercialBreakerLogic.get_executable_path("ffmpeg", config.ffmpeg_path), "-i", input_file, "-af", f"silencedetect=n={config.DECIBEL_THRESHOLD}dB:d={config.SILENCE_DURATION}", "-preset", "ultrafast", "-f", "null", "-y", "/dev/null"]
             # Capture FFmpeg's STDERR
             process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = process.communicate()
