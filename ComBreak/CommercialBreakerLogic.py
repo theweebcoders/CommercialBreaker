@@ -110,8 +110,11 @@ class CommercialBreakerLogic:
         output_dir = os.path.dirname(output_file_prefix)
 
         command = [
-            CommercialBreakerLogic.get_executable_path("ffmpeg", config.ffmpeg_path), "-i", input_file,
+            CommercialBreakerLogic.get_executable_path("ffmpeg", config.ffmpeg_path),
+            "-i", input_file,
             "-f", "segment",
+            "-nostats",
+            "-loglevel", "quiet",  # Suppress FFmpeg output
             "-segment_times", times_str,
             "-reset_timestamps", "1",
             "-c:v", "copy",  # Copy the video codec
@@ -151,13 +154,13 @@ class CommercialBreakerLogic:
         # Loop to count total videos
         for dirpath, _, filenames in os.walk(input_path):
             for filename in filenames:
-                if not filename.endswith('.txt'):  # Count only video files
+                if filename.endswith(tuple(config.video_file_types)):
                     total_videos += 1
 
         # Loop over all subdirectories and files in the input directory
         for dirpath, _, filenames in os.walk(input_path):
             for filename in filenames:
-                if filename.endswith('.txt'):  # Ignore txt files
+                if not filename.endswith(tuple(config.video_file_types)):
                     continue
 
                 processed_videos += 1  # Increment count for each video processed
@@ -262,7 +265,7 @@ class CommercialBreakerLogic:
                 end_time = float(lines[i + 1].split()[4])
                 silences.append({'start': start_time, 'end': end_time})
 
-            print(silences)
+            #print(silences)
             return silences
 
         except Exception as e:
