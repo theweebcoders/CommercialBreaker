@@ -7,11 +7,23 @@ from plexapi.server import PlexServer
 
 
 class PlexServerList:
+    """
+    This class is responsible for fetching and storing the list of Plex servers. It allows the program to fetch the Plex libraries. It also handles the process of obtaining a Plex token for authentication.
+    This is important to the program for users to interact with their Plex servers so they can use things saved on their Plex servers in the program and save some outputs to their Plex servers.
+    """
     def __init__(self):
+        """
+        Creates an empty list to store the Plex servers and sets the Plex token to None.
+        This allows the program to store the Plex servers and the Plex token in this module.
+        """
         self.plex_servers = []
         self.plex_token = None
 
     def GetPlexToken(self):
+        """
+        This function sets up a new event loop for asyncio, which is used to handle the asynchronous tasks required for fetching the Plex token.
+        The Plex token is needed to authenticate the program with the user's Plex acccount so the program can interact with the user's Plex servers.
+        """
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
@@ -36,6 +48,10 @@ class PlexServerList:
         loop.close()
 
     def GetPlexServerList(self):
+        """
+        Fetches and stores the list of Plex servers associated with the user's Plex account. It obtains the Plex token and uses it to authenticate with the Plex account.
+        Allowing the program to interact with the user's Plex servers and provide the user with a list of their Plex servers.
+        """
         self.GetPlexToken()
         try:
             account = MyPlexAccount(token=self.plex_token)
@@ -49,12 +65,23 @@ class PlexServerList:
 
 
 class PlexLibraryManager:
+    """
+    This class is responsible for managing the Plex library. It fetches and stores the details of a selected Plex server.
+    This is important to the program as it allows the user to select a Plex server and use the libraries on that server in the program.
+    """
     def __init__(self, selected_server, plex_token):
         self.selected_server = selected_server
         self.plex_token = plex_token  # Storing the token
         self.plex_url = None
+        """
+        Takes the selected Plex server and the Plex token as arguements.
+        """
 
     def GetPlexDetails(self):
+        """
+        Fetches and stores the details of the selected Plex server. It uses the Plex token to authenticate with the Plex account and connect to the selected server. The base URL of the server is then stored for future use. 
+        This is important to retain user's selection so it can be stored for future use.
+        """
         account = MyPlexAccount(token=self.plex_token)
         selected_resource = next(resource for resource in account.resources() if resource.name == self.selected_server)
         plex = selected_resource.connect()
@@ -65,10 +92,19 @@ class PlexLibraryManager:
 
 
 class PlexLibraryFetcher:
+    """
+    This class is responsible for fetching and storing the libraries from a selected Plex server.
+    It uses the Plex token to authenticate with the Plex account and connect to the server using its base URL.
+    The libraries are then fetched and stored for future use.
+    """
     def __init__(self, plex_url, plex_token):
         self.plex_url = plex_url
         self.plex_token = plex_token
         self.libraries = []
+
+    """
+    Takes the base URL of the selected Plex server and the Plex token as arguements.
+    """
 
     def GetPlexLibraries(self):
         server = PlexServer(self.plex_url, self.plex_token)

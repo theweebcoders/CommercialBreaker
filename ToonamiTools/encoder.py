@@ -6,13 +6,25 @@ import config
 
 
 class ToonamiEncoder:
+    """
+    Creates a code for each bump based on the bump's Toonami Version, placements, show names, number of shows, Ad Version, and color.
+    These codes allow for efficeint library management and bump selection for lineup generation.
+    """
     def __init__(self):
+        """
+        Creates a dictionary to store the codes and connects to the SQLite database.
+        """
         print("Initializing ToonamiEncoder...")
         db_path = f'{config.network}.db'
         self.codes: Dict[str, str] = {}
         self.conn = sqlite3.connect(db_path)
 
     def get_abbr(self, name, kind, index):
+        """
+        Generates an abbreviation from the first few letters of the name (one or two words). If that avvreviation already exists appends a number to differentiate. Returns a string with 'kind', 'index', and abbreviation.
+        This enables the creation of unique codes for each bump.
+
+        """
         if pd.isna(name):
             return None
 
@@ -34,6 +46,10 @@ class ToonamiEncoder:
         return kind + str(index) + ':' + self.codes[name]
 
     def create_code(self, row):
+        """
+        Uses the 'get_abbr' function to create a code for each bump based on the bump's Toonami Version, placements, show names, number of shows, Ad Version, and color.
+        The codes are unique to each bump and allow for efficeint library management and bump selection for lineup generation.
+        """
         placements = [self.get_abbr(row['PLACEMENT_' + str(i + 1)], 'P', i + 1) for i in range(3)]
         shows = [self.get_abbr(row['SHOW_NAME_' + str(i + 1)], 'S', i + 1) for i in range(3)]
 
@@ -53,6 +69,10 @@ class ToonamiEncoder:
         return code
 
     def encode_dataframe(self, df: DataFrame) -> DataFrame:
+        """
+        Uses regex to extract the Toonami Version and number of shows from the code. Sorts the DataFrame by Toonami Version and number of shows.
+        Allows for a clear and concise way to sort the DataFrame.
+        """
         print("Encoding DataFrame...")
         df['Code'] = df.apply(self.create_code, axis=1)
         df['sort_ver'] = df['Code'].str.extract(r'V(\d+)', expand=False).fillna('9').astype(int)
@@ -62,12 +82,20 @@ class ToonamiEncoder:
         return df
 
     def save_codes_to_db(self):
+        """
+        Saves the codes to the SQLite database in the 'codes' table for decoding as needed.
+        Later in the program this allows for the codes to be used without having to carry over columns with bump data and then decode them to get the bump data.
+        """
         print("Saving codes to database...")
         codes_df = pd.DataFrame(list(self.codes.items()), columns=['Name', 'Code'])
         codes_df.to_sql('codes', self.conn, index=False, if_exists='replace')
         print("Codes saved.")
 
     def save_encoded_dataframes(self, df: DataFrame):
+        """
+        Saves separate DataFrames for the codes for singles and multibumps to the SQLite database.
+        This allows for more organized and efficient data management.
+        """
         print("Saving encoded DataFrames to database...")
         df.drop(['sort_ver', 'sort_ns'], axis=1).to_sql('main_data', self.conn, index=False, if_exists='replace')
         singles_df = df[df['Code'].str.contains('-NS1$')]
@@ -81,6 +109,9 @@ class ToonamiEncoder:
         print("Encoded DataFrames saved.")
 
     def encode_and_save(self):
+        """
+        Runs the 'encode_dataframe', 'save_codes_to_db', and 'save_encoded_dataframes' functions.
+        """
         print("Beginning encode_and_save operation...")
         df = pd.read_sql_query("SELECT * FROM lineup_prep_out", self.conn)
         df = self.encode_dataframe(df)
