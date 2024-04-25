@@ -19,6 +19,7 @@ class Page1(ttk.Frame):
         self.logic.subscribe_to_new_server_choices(self.update_dropdown)
         self.logic.subscribe_to_new_library_choices(self.update_anime_dropdown)
         self.logic.subscribe_to_new_library_choices(self.update_toonami_dropdown)
+        self.logic.subscribe_to_status_updates(self.update_status_label)
 
 
         label = ttk.Label(self, text="Login with Plex", font=("Helvetica", 24))
@@ -63,6 +64,14 @@ class Page1(ttk.Frame):
         self.dizquetv_url_entry.insert(0, "eg. http://localhost:17685")
         self.dizquetv_url_entry.pack(pady=3)
 
+        # Status label
+        self.status_label = tk.Label(self, text="Status: Idle",
+                                     foreground='darkgray',
+                                     font=('Arial', 16, 'bold'),
+                                     relief='flat')
+        # Centering the label in the window
+        self.status_label.pack(pady=10, padx=10, fill='x')
+
         # Create a new frame to hold the buttons
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
@@ -79,6 +88,9 @@ class Page1(ttk.Frame):
         # Create the 'Continue' button but don't pack it yet
         self.continue_button = ttk.Button(button_frame, text="Continue",
                                         command=self.on_continue_button_click)
+        
+    def update_status_label(self, status):
+        self.status_label.config(text=f"Status: {status}")
 
     def update_dropdown(self):
         """Callback to update the dropdown when new server choices are announced."""
@@ -231,6 +243,7 @@ class Page4(ttk.Frame):
         self.logic = logic
         self.root_window = parent
         self.dont_move = False  # Set to False by default
+        self.logic.subscribe_to_status_updates(self.update_status_label)
 
 
         label = ttk.Label(self, text="Prepare Your Content:", font=("Helvetica", 24))
@@ -248,14 +261,29 @@ class Page4(ttk.Frame):
                                         command=self.logic.move_filtered)
         move_filtered_button.pack(pady=3)
 
+        # Status label
+        self.status_label = tk.Label(self, text="Status: Idle",
+                                     foreground='darkgray',
+                                     font=('Arial', 16, 'bold'),
+                                     relief='flat')
+        # Centering the label in the window
+        self.status_label.pack(pady=10, padx=10, fill='x')
+
         # Create a new frame to hold the button
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
 
         self.continue_button = ttk.Button(self, text="Continue",
-                                    command=lambda: controller.show_frame("Page5"))
+                                    command=self.on_continue_button_click)
 
         self.continue_button.pack(side="right", padx=5, pady=5)
+
+    def on_continue_button_click(self):
+        self.logic.on_continue_fourth()
+        self.controller.show_frame("Page5")
+
+    def update_status_label(self, status):
+        self.status_label.config(text=f"Status: {status}")
 
     def prepare_my_shows(self):
         self.logic.prepare_content(self.display_show_selection)
@@ -391,9 +419,11 @@ class Page5(ttk.Frame):
             button.pack(pady=3)
 
         """Add a 'Continue' button to the frame next to the checkboxes."""
-        self.continue_button = ttk.Button(self.checkbox_frame, text="Continue", command=lambda: self.controller.show_frame("Page6"))
+        self.continue_button = ttk.Button(self.checkbox_frame, text="Continue", command=lambda: [self.controller.show_frame("Page6"), self.on_continue_button_click()])
         self.continue_button.pack(side="right", padx=5, pady=5)
 
+    def on_continue_button_click(self):
+        self.TOM_logic.on_continue_fifth()
 
     def set_input_output_dirs(self, input_dir, output_dir):
         self.input_path.set(input_dir)
@@ -507,6 +537,7 @@ class Page6(ttk.Frame):
         label.pack(pady=10, padx=10)
         # Pass both the instance of Page6 and the main controller (MainApplication) to LogicController
         self.logic = logic
+        self.logic.subscribe_to_status_updates(self.update_status_label)
 
         what_toonami_version_label = ttk.Label(self, text="What Toonami Version are you making today?")
         what_toonami_version_label.pack(pady=3)
@@ -539,14 +570,28 @@ class Page6(ttk.Frame):
                                                   command=self.create_toonami_channel)
         create_toonami_channel_button.pack(pady=3)
 
+        # Status label
+        self.status_label = tk.Label(self, text="Status: Idle",
+                                     foreground='darkgray',
+                                     font=('Arial', 16, 'bold'),
+                                     relief='flat')
+        # Centering the label in the window
+        self.status_label.pack(pady=10, padx=10, fill='x')
+
         # Create a new frame to hold the button
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
 
         self.continue_button = ttk.Button(self, text="Continue",
-                                    command=lambda: controller.show_frame("Page7"))
-
+                                    command=self.on_continue_button_click)
         self.continue_button.pack(side="right", padx=5, pady=5)
+
+    def on_continue_button_click(self):
+        self.logic.on_continue_sixth()
+        self.controller.show_frame("Page7")
+
+    def update_status_label(self, status):
+        self.status_label.config(text=f"Status: {status}")
 
     def create_toonami_channel(self):
         toonami_version = self.toonami_version.get()
@@ -560,6 +605,7 @@ class Page7(ttk.Frame):
         self.controller = controller
         # Pass both the instance of Page7 and the main controller (MainApplication) to LogicController
         self.logic = logic
+        self.logic.subscribe_to_status_updates(self.update_status_label)
 
 
         label = ttk.Label(self, text="Make a new Toonami Channel:", font=("Helvetica", 24))
@@ -591,14 +637,29 @@ class Page7(ttk.Frame):
         create_toonami_channel_button = ttk.Button(self, text="Create Toonami Channel", command=self.create_toonami_channel_cont)
         create_toonami_channel_button.pack(pady=3)
 
+        # Status label
+        self.status_label = tk.Label(self, text="Status: Idle",
+                                     foreground='darkgray',
+                                     font=('Arial', 16, 'bold'),
+                                     relief='flat')
+        # Centering the label in the window
+        self.status_label.pack(pady=10, padx=10, fill='x')
+
         # Create a new frame to hold the button
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
 
         self.continue_button = ttk.Button(self, text="Continue",
-                                    command=lambda: controller.show_frame("Page8"))
+                                    command=self.on_continue_button_click)
 
         self.continue_button.pack(side="right", padx=5, pady=5)
+
+    def on_continue_button_click(self):
+        self.logic.on_continue_seventh()
+        self.controller.show_frame("Page8")
+
+    def update_status_label(self, status):
+        self.status_label.config(text=f"Status: {status}")
 
     def prepare_toonami_channel(self):
         toonami_version = self.toonami_version.get()
@@ -617,6 +678,7 @@ class Page8(ttk.Frame):
         self.controller = controller
         # Pass both the instance of Page8 and the main controller (MainApplication) to LogicController
         self.logic = logic
+        self.logic.subscribe_to_status_updates(self.update_status_label)
 
         label = ttk.Label(self, text="Flex your Toonami Channel:", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
@@ -660,6 +722,17 @@ class Page8(ttk.Frame):
 
         add_flex_button = ttk.Button(self, text="Add Flex", command=self.flex)
         add_flex_button.pack(pady=3)
+
+        # Status label
+        self.status_label = tk.Label(self, text="Status: Idle",
+                                     foreground='darkgray',
+                                     font=('Arial', 16, 'bold'),
+                                     relief='flat')
+        # Centering the label in the window
+        self.status_label.pack(pady=10, padx=10, fill='x')
+
+    def update_status_label(self, status):
+        self.status_label.config(text=f"Status: {status}")
 
     def flex(self):
         ssh_host = self.ssh_host_entry.get()
