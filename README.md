@@ -514,9 +514,16 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
     - **Possible Fixes**
     - When Running cut rerun multibump reorderd based on cut anime?
 - [ ] Still a lot of broken connections
+- [ ] If you add special bumps to a list it makes a _bonus table and it's never used
+- [ ] Adding flex assumes you are remoting into a server with a docker container for dizquetv
+    - [ ] Allow for a local json manipulation
+- [ ] Add to the readme to move the cut anime and bumps to the toonami library but not just here in the readme like actual instructions
+
   
 ## **Ongoing Tasks**
 
+- [ ] Make it so Clydes can rerun prepare show cut 
+- [ ] Create commercial breaker inteface for Clydes
 - [ ] Bug Testing
     - [ ] Create test cases for each tool
     - [ ] Test on Linux
@@ -617,12 +624,6 @@ Q: Why?
   One dumb reason. My last name has an apostrophe in it, and it broke "Path" on Windows. So some programs, even if added to Path, cannot be called from Python. I'm sure I can't be the only one with this problem, so I left in the option to let you call the executibles directly. You no longer need to do this as I fixed it but I left it in just in case. Also, this only works on Windows.
 
 
-Q: The GUI freezes when I run a tool. What's going on?
-
-
-  This stops interaction while code is running. "It's not a bug, it's a feature"
-
-
 Q: Does CommercialBreaker damage the original quality of my anime?
 
 
@@ -664,12 +665,26 @@ Q: I noticed you save the original file path and the full file path in the bump 
 
   It was to cover up a mistake halfway through the process when we forgot we were going to need to move the bump files to a new folder as that code wasn't written yet. Then, when we went to write the code, trying to just change the original file path to the full file path broke our regex pattern. If your reading this and thing that's dumb, it's really easy to fix. Just do this... Please help us. We have no idea what we are doing; we're not ever real programmers; we're just nerds who like anime and Toonami, and no one would make this for us, so we just started doing it ourselves. It's been almost a year, and we still don't know what we're doing. Please help us.
 
+Q: When I create a second channel, it has a prepare channel step. I didn't have to do this for the first channel. Why do I have to do it for the second channel?
+
+  First of all, oh no, one more button your poor wittle fingers. Second, the secound channel has the option of continuing where the last one left off.  This is if in your last channel Naruto only went to episode 26 the next channel will start at episode 27 and then the next channel will start at episode 28. This is also why you need to run the prepare channel to "Start from last episode". This is done by some sort of black magic that we honetly forgot how it works to the point we argured about it when writing this thing. If you know how it works there is a $3.50 reward via paypal or starbucks gift card.  Also, I think we try to shuffle stuff around so it's not always the same... I don't remember. It's been almost 2 years. We have no idea what we are doing. Also, it's 1 AM and I have been working on this for 12 hours. I'm tired. Please help us.
 
 Q: Your naming scheme is confusing and inconsistent; I can't follow it all!
 
 
   First of all, just use easy mode. Second, it took a year before we lost track of the naming scheme. Third, suck it up, buttercup.
 
+Q: What is easy mode?
+
+  We don't have it anymore but I forgot to take it out of the readme.
+
+Q: Why not just remove it from the readme?
+
+  I forgot.
+
+Q: Why not just remove it now?
+
+  I'm tired. I'm going to bed.
 
 Q: You use a lot of weeb talk in your readme. It's not very professional.
 
