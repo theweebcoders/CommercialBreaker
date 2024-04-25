@@ -1,7 +1,7 @@
 # Rename this file to config.py and fill in the values below
 # cp example-config.py config.py
 # put the name of your network here e.g "Toonami" or "Disney"
-network = "toonami"
+network = "Toonami"
 current_dir = __file__.rstrip('config.py')
 tools_dir = current_dir + "Tools/"
 icon_path = current_dir + "icon.ico"
@@ -132,6 +132,32 @@ show_name_mapping_2 = {
 show_name_mapping_3 = {
 
 }
+
+video_file_types = [
+    '.mp4',  # Common for various H.264 and H.265/HEVC videos
+    '.mkv',  # Can include almost any video codec
+    '.avi',  # Older container, supports various codecs like DivX and XviD
+    '.mov',  # Apple QuickTime, often used with H.264 and ProRes
+    '.wmv',  # Windows Media Video
+    '.flv',  # Flash Video
+    '.webm',  # Usually VP8 or VP9 video codec
+    '.m4v',  # Similar to MP4, often used by Apple devices
+    '.mpg', '.mpeg',  # MPEG-1 and MPEG-2 video formats
+    '.3gp',  # Used on 3G mobile phones but also supported on some 2G and 4G phones
+    '.m2ts', '.mts',  # AVCHD format used by camcorders
+    '.ts',  # MPEG transport stream, used in broadcast
+    '.vob',  # DVD Video Object
+    '.ogv',  # Ogg format that may include Theora video codec
+    '.mxf',  # Material Exchange Format for professional digital video and audio
+    '.divx',  # Video codec and format popular for its ability to compress lengthy video segments
+    '.xvid',  # Open-source MPEG-4 video codec
+    '.f4v',  # Flash Video used in Adobe Flash
+    '.h264', '.h265',  # Raw H.264 and H.265 video streams
+    '.hevc',  # Another name for H.265, often used in raw streams
+    '.asf',  # Advanced Systems Format, used for Windows Media Video
+    '.rmvb', '.rm',  # RealMedia Variable Bitrate and RealMedia format
+    '.qt'  # QuickTime File Format
+]
 
 genric_bumps = ['clydes', 'robot', 'robots', 'robot', 'robot 1', 'robot 2', 'robot 3', 'robot 4', 'robot 5', 'robot 6', 'robot 7', 'robot 8', 'robot 9', 'robot 10']
 
