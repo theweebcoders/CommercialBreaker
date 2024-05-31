@@ -4,45 +4,65 @@ import pandas as pd
 import re
 import requests
 import sqlite3
-from bs4 import BeautifulSoup
 from unidecode import unidecode
 import config
 
 
-class IMDBScraper:
-    """
-    Class for scraping IMDB data.
-    """
-
-    def __init__(self, urls):
-        self.urls = urls
-        self.headers = config.HEADERS
-
-    def get_imdb_shows(self):
+class ToonamiShowsFetcher:
+    def __init__(self):
+        self.api_url = "https://en.wikipedia.org/w/api.php"
+        
+    def get_toonami_shows(self):
         """
-        Scrapes IMDB data and returns it as a pandas DataFrame.
+        Fetches data of shows aired on Toonami from Wikipedia API and returns it as a pandas DataFrame.
         """
+        params = {
+            "action": "parse",
+            "page": "Toonami",
+            "format": "json",
+            "prop": "wikitext",
+        }
+
+        response = requests.get(self.api_url, params=params)
+        if response.status_code != 200:
+            raise Exception("Failed to fetch data from Wikipedia API")
+
+        data = response.json()
+        wikitext = data["parse"]["wikitext"]["*"]
+
+        # Dynamically find the programming section
+        programming_section_start = wikitext.find("== Cartoon Network (1997–2008) / Kids' WB (2001–2002) ==")
+        programming_section_end = wikitext.find("== References ==")
+        
+        if programming_section_start == -1 or programming_section_end == -1:
+            raise Exception("Programming section not found in the wikitext")
+
+        program_section = wikitext[programming_section_start:programming_section_end]
+        program_lines = program_section.split("\n")
+
         titles = []
         years = []
-        for url in self.urls:
-            res = requests.get(url, headers=self.headers)
-            soup = BeautifulSoup(res.text, 'html.parser')
-            table = soup.find('div', class_='lister-list')
-            rows = table.find_all('div', class_='lister-item mode-detail')
-            for row in rows:
-                title = row.h3.a.text
+        current_year = None
+
+        for line in program_lines:
+            year_match = re.match(r"^'''(\d{4})'''", line)
+            if year_match:
+                current_year = year_match.group(1)
+            elif line.startswith("*"):
+                title = re.sub(r'\[\[|\]\]', '', line.strip('* ').split('|')[-1])
                 titles.append(title)
-                year = row.h3.find('span', class_='lister-item-year text-muted unbold').text.strip('()')
-                years.append(year)
+                years.append(current_year)
+
+        # Output for verification
+        print("Titles:", titles)
+        print("Years:", years)
+        
         return pd.DataFrame({'Title': titles, 'Year': years})
-
-
-class ToonamiChecker(IMDBScraper):
-
+    
+class ToonamiChecker:
     def __init__(self, anime_folder):
-        urls = config.URLS
-        super().__init__(urls)
         self.anime_folder = anime_folder
+        self.toonami_shows_fetcher = ToonamiShowsFetcher()
 
     def get_video_files(self):
         """
@@ -82,26 +102,26 @@ class ToonamiChecker(IMDBScraper):
 
     def compare_shows(self):
         """
-        Compares scraped IMDB data with video files in a directory.
+        Compares Toonami shows data with video files in a directory.
         """
         folder_path = self.anime_folder
 
-        print("Comparing scraped IMDB data with video files in directory.")
-        toonami_shows = self.get_imdb_shows()
+        print("Comparing Toonami shows data with video files in directory.")
+        toonami_shows = self.toonami_shows_fetcher.get_toonami_shows()
         video_files = self.get_video_files()
         toonami_episodes = {}
 
-        # Use the helper function to normalize and map IMDb show titles
-        normalized_imdb_shows = [self.normalize_and_map(x, config.show_name_mapping) for x in toonami_shows['Title']]
-        #print(normalized_imdb_shows) 1 line at a time
-        for title in normalized_imdb_shows:
+        # Use the helper function to normalize and map Toonami show titles
+        normalized_toonami_shows = [self.normalize_and_map(x, config.show_name_mapping) for x in toonami_shows['Title']]
+        #print(normalized_toonami_shows) 1 line at a time
+        for title in normalized_toonami_shows:
             print(title)
 
         for show in video_files:
             # Use the helper function to normalize and map video file titles
             normalized_show = self.normalize_and_map(show, config.show_name_mapping)
 
-            if normalized_show in normalized_imdb_shows:
+            if normalized_show in normalized_toonami_shows:
                 for episode in video_files[show]:
                     full_path = os.path.join(folder_path, episode)
                     normalized_path = os.path.normpath(full_path)
@@ -125,7 +145,7 @@ class ToonamiChecker(IMDBScraper):
         if table_exists:
             existing_df = pd.read_sql('SELECT * FROM Toonami_Episodes', conn)
             combined_df = pd.concat([existing_df, df], ignore_index=True)
-            duplicates = combined_df.duplicated(subset=['Title', 'Episode', 'Full_File_Path'], keep='last')
+            duplicates = combined_df.duplicated(subset=['Title', 'Episode', 'File_File_Path'], keep='last')
             combined_df = combined_df[~duplicates]
             combined_df.to_sql('Toonami_Episodes', conn, if_exists='replace', index=False)
         else:
@@ -168,7 +188,6 @@ class ToonamiChecker(IMDBScraper):
         return unique_show_names, toonami_episodes
 
     def process_selected_shows(self, selected_shows, toonami_episodes):
-        selected_shows = selected_shows
         filtered_episodes = {k: v for k, v in toonami_episodes.items() if k[0] in selected_shows}
         self.save_episodes_to_spreadsheet(filtered_episodes)
         self.save_show_names_to_spreadsheet(filtered_episodes)
