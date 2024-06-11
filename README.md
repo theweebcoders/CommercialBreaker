@@ -51,9 +51,9 @@ The brilliance of these tools lies in their ability to create an unbroken Toonam
 
 Here is what it will look like
 
-![SampleLineup1](https://github.com/tim000x3/CommercialBreaker/assets/30919168/12c1ec40-b6dc-4b1f-9b6a-2abff97491ab)
+![SampleLineup1](https://github.com/theweebcoders/CommercialBreaker/assets/30919168/12c1ec40-b6dc-4b1f-9b6a-2abff97491ab)
 
-![SampleLineup2](https://github.com/tim000x3/CommercialBreaker/assets/30919168/50a52cff-868c-4053-8b52-c6ff77e95804)
+![SampleLineup2](https://github.com/theweebcoders/CommercialBreaker/assets/30919168/50a52cff-868c-4053-8b52-c6ff77e95804)
 
 ## The Lineup
 
@@ -73,7 +73,7 @@ Open a terminal and type the following commands one at a time: Each line is its 
 
 ```bash
 
-git clone https://github.com/tim000x3/CommercialBreaker.git
+git clone https://github.com/theweebcoders/CommercialBreaker.git
 
 cd CommercialBreaker
 
