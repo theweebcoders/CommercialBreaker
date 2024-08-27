@@ -1,20 +1,3 @@
-## 🚨 [Emergency Patch Released] 🚨
-
-Hey Toonami faithful! We've hit a minor glitch in the matrix due to recent changes with IMDb. Our trusty IMDb web scraper went down, but don't worry, we have got your back! An **emergency patch** is here to save the day and get your Toonami marathons back on track.
-
-### What's New:
-- **Fixed:** Transitioned from using IMDb to Wikipedia for the list of shows that aired on Toonami. Think of it as upgrading from the Zaku II to the RX-78-2 Gundam.
-
-### Next Steps:
-- Like the RX-78-2, this patch is solid, but a more permanent solution, like the Nu Gundam, is in the works. Stay tuned, and keep those power levels high!
-
-### How to Update:
-To update to the latest version with the emergency patch, follow these steps:
-
-1. **Pull the latest changes:**
-   ```sh
-   git pull origin main
-
 # CommercialBreaker & Toonami Tools: Because Your Anime Deserves Commercial Breaks
 
 Hey there, space cowboy. Remember those long Toonami nights filled with anime and the oddly comforting interruption of commercials? Ever thought your sleek, ad-free Plex server felt a little too... smooth? Well, we've got the fix for you, because here, we're mixing the future with a splash of the past.
