@@ -432,10 +432,6 @@ class Page4(BasePage, RedisListenerMixin):
         self.fast_mode = False
         self.low_power_mode = False
 
-        # Build the GUI
-        self.create_widgets()
-
-    def create_widgets(self):
         # Page title
         self.add_label(self.main_container, "Commercial Breaker")
 
@@ -555,14 +551,16 @@ class Page4(BasePage, RedisListenerMixin):
 
     def update_progress(self, current, total):
         self.progress_value = current / total * 100
-        self.execute_in_main_thread(self.progress_bar.set_value, self.progress_value)
+        self.progress_bar.set_value, self.progress_value
 
     def reset_progress_bar(self):
         self.progress_value = 0
-        self.execute_in_main_thread(self.progress_bar.set_value, self.progress_value)
+        self.progress_bar.set_value, self.progress_value
 
     def update_status(self, text):
         self.logic2._broadcast_status_update(text)
+        #refresh the status label
+        self.status_label.set_text(text)
 
     def _run_and_notify(self, task, done_callback, task_name, destructive_mode=False, low_power_mode=False, fast_mode=False, reset_callback=None):
         self.update_status(f"Started task: {task_name}")
