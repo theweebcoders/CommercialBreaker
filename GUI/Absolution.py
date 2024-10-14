@@ -24,81 +24,23 @@ class BasePage(gui.Container):
         self.lbl = gui.Label(title)
         self.append(self.lbl)
 
-
-class Page1(BasePage):
-    def __init__(self, app, *args, **kwargs):
-        super(Page1, self).__init__(app, 'Page1', *args, **kwargs)
-        # Label for login instruction
-        label = gui.Label("Login with Plex", style={'font-size': '24px', 'padding': '10px'})
-        self.append(label)
-        self.logic = LogicController()
-        self.PlexManager = PlexManager(self.logic)
-        self.redis_queue = Queue()
-        self.start_redis_listener_thread(self.redis_queue)
-        self.after(100, self.process_redis_messages)
-        self.libraries_selected = 0
-        
-        # Login button
-        login_with_plex_button = gui.Button("Login with Plex", width=200, height=30)
-        login_with_plex_button.onclick.do(self.login_to_plex)
-        self.append(login_with_plex_button)
-
-        # Dropdown for Plex Servers
-        self.plex_server_dropdown = gui.DropDown(width='100%')
-        self.plex_server_dropdown.append(gui.DropDownItem("Select a Plex Server"))
-        self.plex_server_dropdown.onchange.do(self.on_server_selected)
-        self.append(self.plex_server_dropdown)
-        
-        # Dropdown for Anime Library
-        self.plex_anime_library_dropdown = gui.DropDown(width='100%')
-        self.plex_anime_library_dropdown.append(gui.DropDownItem("Select your Anime Library"))
-        self.plex_anime_library_dropdown.onchange.do(self.add_1_to_libraries_selected)
-        self.append(self.plex_anime_library_dropdown)
-        
-        # Dropdown for Toonami Library
-        self.plex_library_dropdown = gui.DropDown(width='100%')
-        self.plex_library_dropdown.append(gui.DropDownItem("Select your Toonami Library"))
-        self.plex_library_dropdown.onchange.do(self.add_1_to_libraries_selected)
-        self.append(self.plex_library_dropdown)
-        
-        # DizqueTV URL Entry
-        dizquetv_url_label = gui.Label('dizqueTV URL:', width='100%')
-        self.append(dizquetv_url_label)
-        self.dizquetv_url_entry = gui.Input(input_type='text', width='100%')
-        self.dizquetv_url_entry.set_value("eg. http://localhost:17685")
-        self.append(self.dizquetv_url_entry)
-
-        #status label
-        self.status_label = gui.Label("Status: Idle", width='100%')
-        self.append(self.status_label)
-
-
-        # Continue and Skip buttons
-        self.continue_button = gui.Button("Continue", width=200, height=30)
-        self.continue_button.onclick.do(self.on_continue_button_click)
-        self.continue_button.style['display'] = 'none'  # Initially hide continue button
-        self.append(self.continue_button)
-
-        self.skip_button = gui.Button("Skip", width=200, height=30)
-        self.skip_button.onclick.do(lambda x: self.app.set_current_page('Page2'))
-        self.append(self.skip_button)
-
-#----- firgure out how to make this DRY later -----
-
-    def after(self, time, callback):
-        #wait for time in milliseconds then call callback
-        threading.Timer(time/1000, callback).start()
+class RedisListenerMixin:
+    def after(self, time_ms, callback):
+        # Wait for time in milliseconds then call callback
+        threading.Timer(time_ms / 1000, callback).start()
 
     def process_redis_messages(self):
         while not self.redis_queue.empty():
             message = self.redis_queue.get()
-            if message['channel'].decode('utf-8') == 'status_updates':
-                self.update_status_label(message['data'].decode('utf-8'))
-            elif message['channel'].decode('utf-8') == 'new_server_choices':
-                self.update_dropdown()
-            elif message['channel'].decode('utf-8') == 'new_library_choices':
-                self.update_library_dropdowns()
-        
+            channel = message['channel'].decode('utf-8')
+            data = message['data'].decode('utf-8')
+
+            if channel == 'status_updates':
+                self.update_status_label(data)
+            elif hasattr(self, 'handle_redis_message'):
+                # Allow pages to handle additional messages
+                self.handle_redis_message(channel, data)
+
         self.after(100, self.process_redis_messages)
 
     def listen_for_redis_updates(self, redis_queue):
@@ -116,7 +58,62 @@ class Page1(BasePage):
     def update_status_label(self, status):
         self.status_label.set_text(f"Status: {status}")
 
-# -----------------------------
+class Page1(BasePage, RedisListenerMixin):
+    def __init__(self, app, *args, **kwargs):
+        super(Page1, self).__init__(app, 'Page1', *args, **kwargs)
+        # Label for login instruction
+        label = gui.Label("Login with Plex", style={'font-size': '24px', 'padding': '10px'})
+        self.append(label)
+        self.logic = LogicController()
+        self.PlexManager = PlexManager(self.logic)
+        self.redis_queue = Queue()
+        self.start_redis_listener_thread(self.redis_queue)
+        self.after(100, self.process_redis_messages)
+        self.libraries_selected = 0
+
+        # Login button
+        login_with_plex_button = gui.Button("Login with Plex", width=200, height=30)
+        login_with_plex_button.onclick.do(self.login_to_plex)
+        self.append(login_with_plex_button)
+
+        # Dropdown for Plex Servers
+        self.plex_server_dropdown = gui.DropDown(width='100%')
+        self.plex_server_dropdown.append(gui.DropDownItem("Select a Plex Server"))
+        self.plex_server_dropdown.onchange.do(self.on_server_selected)
+        self.append(self.plex_server_dropdown)
+
+        # Dropdown for Anime Library
+        self.plex_anime_library_dropdown = gui.DropDown(width='100%')
+        self.plex_anime_library_dropdown.append(gui.DropDownItem("Select your Anime Library"))
+        self.plex_anime_library_dropdown.onchange.do(self.add_1_to_libraries_selected)
+        self.append(self.plex_anime_library_dropdown)
+
+        # Dropdown for Toonami Library
+        self.plex_library_dropdown = gui.DropDown(width='100%')
+        self.plex_library_dropdown.append(gui.DropDownItem("Select your Toonami Library"))
+        self.plex_library_dropdown.onchange.do(self.add_1_to_libraries_selected)
+        self.append(self.plex_library_dropdown)
+
+        # DizqueTV URL Entry
+        dizquetv_url_label = gui.Label('dizqueTV URL:', width='100%')
+        self.append(dizquetv_url_label)
+        self.dizquetv_url_entry = gui.Input(input_type='text', width='100%')
+        self.dizquetv_url_entry.set_value("eg. http://localhost:17685")
+        self.append(self.dizquetv_url_entry)
+
+        # Status label
+        self.status_label = gui.Label("Status: Idle", width='100%')
+        self.append(self.status_label)
+
+        # Continue and Skip buttons
+        self.continue_button = gui.Button("Continue", width=200, height=30)
+        self.continue_button.onclick.do(self.on_continue_button_click)
+        self.continue_button.style['display'] = 'none'  # Initially hide continue button
+        self.append(self.continue_button)
+
+        self.skip_button = gui.Button("Skip", width=200, height=30)
+        self.skip_button.onclick.do(lambda x: self.app.set_current_page('Page2'))
+        self.append(self.skip_button)
 
     def login_to_plex(self, widget):
         self.logic.login_to_plex()
@@ -129,27 +126,6 @@ class Page1(BasePage):
         self.logic.on_server_selected(self.selected_server)
         self.PlexManager._wait_for_libraries()
         self.update_library_dropdowns()
-
-    def update_status_label(self, status):
-        self.status_label.set_text(f"Status: {status}")
-
-    def update_library_dropdowns(self):
-        try:
-            # Attempt to get the message without blocking
-            message = self.redis_queue.get_nowait()
-            if message['channel'].decode('utf-8') == 'plex_libraries':
-                # Decode and load data from the message
-                library_list = json.loads(message['data'].decode('utf-8'))
-                for library in library_list:
-                    self.plex_anime_library_dropdown.append(gui.DropDownItem(library))
-                    self.plex_library_dropdown.append(gui.DropDownItem(library))
-            else:
-                # If the message is not the one we are looking for, put it back (or handle differently)
-                self.redis_queue.put(message)
-        except Empty:
-            # If no messages, reschedule to try again in 100 milliseconds
-            self.after(100, self.update_library_dropdowns)
-
 
     def add_1_to_libraries_selected(self, widget, value):
         self.libraries_selected += 1
@@ -170,11 +146,28 @@ class Page1(BasePage):
                 for server in server_list:
                     self.plex_server_dropdown.append(gui.DropDownItem(server))
             else:
-                # If the message is not the one we are looking for, put it back (or handle differently)
+                # If the message is not the one we are looking for, put it back
                 self.redis_queue.put(message)
         except Empty:
             # If no messages, reschedule to try again in 100 milliseconds
             self.after(100, self.update_dropdown)
+
+    def update_library_dropdowns(self):
+        try:
+            # Attempt to get the message without blocking
+            message = self.redis_queue.get_nowait()
+            if message['channel'].decode('utf-8') == 'plex_libraries':
+                # Decode and load data from the message
+                library_list = json.loads(message['data'].decode('utf-8'))
+                for library in library_list:
+                    self.plex_anime_library_dropdown.append(gui.DropDownItem(library))
+                    self.plex_library_dropdown.append(gui.DropDownItem(library))
+            else:
+                # If the message is not the one we are looking for, put it back
+                self.redis_queue.put(message)
+        except Empty:
+            # If no messages, reschedule to try again in 100 milliseconds
+            self.after(100, self.update_library_dropdowns)
 
     def on_continue_button_click(self, widget):
         selected_anime_library = self.plex_anime_library_dropdown.get_value()
@@ -185,6 +178,13 @@ class Page1(BasePage):
         self.logic._set_data("dizquetv_url", dizquetv_url)
         self.logic._broadcast_status_update("Idle")
         self.app.set_current_page('Page3')
+
+    # Optional: Handle additional Redis messages specific to this page
+    def handle_redis_message(self, channel, data):
+        if channel == 'new_server_choices':
+            self.update_dropdown()
+        elif channel == 'new_library_choices':
+            self.update_library_dropdowns()
 
 class Page2(BasePage):
     def __init__(self, app, *args, **kwargs):
@@ -239,7 +239,7 @@ class Page2(BasePage):
         self.logic.on_continue_second(plex_url, plex_token, plex_anime_library, plex_toonami_library, dizquetv_url)
         self.app.set_current_page('Page3')
 
-class Page3(BasePage):
+class Page3(BasePage, RedisListenerMixin):
     def __init__(self, app, *args, **kwargs):
         super(Page3, self).__init__(app, 'Page3', *args, **kwargs)
         self.logic = LogicController()
@@ -269,72 +269,70 @@ class Page3(BasePage):
         self.move_filtered_shows_button.onclick.do(self.logic.move_filtered)
         self.append(self.move_filtered_shows_button)
 
-        # status label
+        # Status label
         self.status_label = gui.Label("Status: Idle", width='100%')
         self.append(self.status_label)
 
-        # continue button
+        # Continue button
         self.continue_button = gui.Button("Continue", width=200, height=30)
         self.continue_button.onclick.do(lambda x: self.app.set_current_page('Page5'))
         self.continue_button.onclick.do(lambda x: self.logic._broadcast_status_update("Idle"))
         self.append(self.continue_button)
 
-
     def prepare_content(self, widget):
-            self.logic = LogicController()
-            self.logic._broadcast_status_update("Preparing bumps...")
-            working_folder = self.logic._get_data("working_folder")
-            anime_folder = self.logic._get_data("anime_folder")
-            fmaker = ToonamiTools.FolderMaker(working_folder)
-            easy_checker = self.ToonamiChecker(anime_folder)
-            fmaker.run()    
-            # Run easy_checker with retries
-            for i in range(25):
-                try:
-                    unique_show_names, toonami_episodes = easy_checker.prepare_episode_data()
-                    self.display_show_selection(unique_show_names, easy_checker, toonami_episodes)
-                    self.logic._broadcast_status_update("Waiting for show selection...")
-                    break
-                except Exception as e:
-                    print(e)
-                    time.sleep(2)
-            else:
-                self.logic._broadcast_status_update("Prepare content failed. Please try again.")
-                raise Exception("Failed to run easy_checker")
-           
-            
+        self.logic = LogicController()
+        self.logic._broadcast_status_update("Preparing bumps...")
+        working_folder = self.logic._get_data("working_folder")
+        anime_folder = self.logic._get_data("anime_folder")
+        fmaker = ToonamiTools.FolderMaker(working_folder)
+        easy_checker = self.ToonamiChecker(anime_folder)
+        fmaker.run()
+        # Run easy_checker with retries
+        for i in range(25):
+            try:
+                unique_show_names, toonami_episodes = easy_checker.prepare_episode_data()
+                self.display_show_selection(unique_show_names, easy_checker, toonami_episodes)
+                self.logic._broadcast_status_update("Waiting for show selection...")
+                break
+            except Exception as e:
+                print(e)
+                time.sleep(2)
+        else:
+            self.logic._broadcast_status_update("Prepare content failed. Please try again.")
+            raise Exception("Failed to run easy_checker")
+
     def prepare_content_continue(self):
-            self.logic = LogicController()
-            self.logic._broadcast_status_update("Preparing uncut lineup...")
-            merger_bumps_list_1 = 'multibumps_v2_data_reordered'
-            merger_bumps_list_2 = 'multibumps_v3_data_reordered'
-            merger_bumps_list_3 = 'multibumps_v9_data_reordered'
-            merger_bumps_list_4 = 'multibumps_v8_data_reordered'
-            merger_out_1 = 'lineup_v2_uncut'
-            merger_out_2 = 'lineup_v3_uncut'
-            merger_out_3 = 'lineup_v9_uncut'
-            merger_out_4 = 'lineup_v8_uncut'
-            uncut_encoder_out = 'uncut_encoded_data'
-            bump_folder = self.logic._get_data("bump_folder")
-            lineup_prep = ToonamiTools.MediaProcessor(bump_folder)
-            easy_encoder = ToonamiTools.ToonamiEncoder()
-            uncutencoder = ToonamiTools.UncutEncoder()
-            ml = ToonamiTools.Multilineup()
-            merger = ToonamiTools.ShowScheduler(uncut=True)
-            lineup_prep.run()
-            easy_encoder.encode_and_save()
-            ml.reorder_all_tables()
-            uncutencoder.run()
-            merger.run(merger_bumps_list_1, uncut_encoder_out, merger_out_1)
-            merger.run(merger_bumps_list_2, uncut_encoder_out, merger_out_2)
-            merger.run(merger_bumps_list_3, uncut_encoder_out, merger_out_3)
-            merger.run(merger_bumps_list_4, uncut_encoder_out, merger_out_4)
-            self.logic._broadcast_status_update("Content preperation complete")
+        self.logic = LogicController()
+        self.logic._broadcast_status_update("Preparing uncut lineup...")
+        merger_bumps_list_1 = 'multibumps_v2_data_reordered'
+        merger_bumps_list_2 = 'multibumps_v3_data_reordered'
+        merger_bumps_list_3 = 'multibumps_v9_data_reordered'
+        merger_bumps_list_4 = 'multibumps_v8_data_reordered'
+        merger_out_1 = 'lineup_v2_uncut'
+        merger_out_2 = 'lineup_v3_uncut'
+        merger_out_3 = 'lineup_v9_uncut'
+        merger_out_4 = 'lineup_v8_uncut'
+        uncut_encoder_out = 'uncut_encoded_data'
+        bump_folder = self.logic._get_data("bump_folder")
+        lineup_prep = ToonamiTools.MediaProcessor(bump_folder)
+        easy_encoder = ToonamiTools.ToonamiEncoder()
+        uncutencoder = ToonamiTools.UncutEncoder()
+        ml = ToonamiTools.Multilineup()
+        merger = ToonamiTools.ShowScheduler(uncut=True)
+        lineup_prep.run()
+        easy_encoder.encode_and_save()
+        ml.reorder_all_tables()
+        uncutencoder.run()
+        merger.run(merger_bumps_list_1, uncut_encoder_out, merger_out_1)
+        merger.run(merger_bumps_list_2, uncut_encoder_out, merger_out_2)
+        merger.run(merger_bumps_list_3, uncut_encoder_out, merger_out_3)
+        merger.run(merger_bumps_list_4, uncut_encoder_out, merger_out_4)
+        self.logic._broadcast_status_update("Content preparation complete")
 
     def display_show_selection(self, unique_show_names, easy_checker, toonami_episodes):
         self.selection_container = gui.VBox()
         self.checkboxes = {}
-        
+
         for show in unique_show_names:
             checkbox = gui.CheckBox(checked=True)  # Set the checkbox to be checked by default
             checkbox_label = gui.Label(show)
@@ -346,7 +344,7 @@ class Page3(BasePage):
         self.selection_container.append(done_button)
         self.append(self.selection_container)
         print("Show selection displayed")
-    
+
     def on_done_button_clicked(self, widget, easy_checker, toonami_episodes):
         selected_shows = [show for show, checkbox in self.checkboxes.items() if checkbox.get_value()]
         for i in range(25):
@@ -359,38 +357,10 @@ class Page3(BasePage):
         self.remove_child(self.selection_container)
         self.prepare_content_continue()
 
-#----- firgure out how to make this DRY later -----
+    # Optional: Handle additional Redis messages specific to this page
+    def handle_redis_message(self, channel, data):
+        pass  # No additional messages to handle in this page
 
-    def after(self, time, callback):
-        #wait for time in milliseconds then call callback
-        threading.Timer(time/1000, callback).start()
-
-    def process_redis_messages(self):
-        while not self.redis_queue.empty():
-            message = self.redis_queue.get()
-            if message['channel'].decode('utf-8') == 'status_updates':
-                self.update_status_label(message['data'].decode('utf-8'))
-        
-        self.after(100, self.process_redis_messages)
-
-    def listen_for_redis_updates(self, redis_queue):
-        redis_client = self.logic.redis_client
-        pubsub = redis_client.pubsub()
-        pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices', 'plex_servers', 'plex_libraries')
-
-        for message in pubsub.listen():
-            if message['type'] == 'message':
-                redis_queue.put(message)
-
-    def start_redis_listener_thread(self, redis_queue):
-        threading.Thread(target=self.listen_for_redis_updates, args=(redis_queue,), daemon=True).start()
-
-    def update_status_label(self, status):
-        self.status_label.set_text(f"Status: {status}")
-
-# -----------------------------
-        
-        
 class Page4(BasePage):
     def __init__(self, app, *args, **kwargs):
         super(Page4, self).__init__(app, 'Page4', *args, **kwargs)
@@ -400,7 +370,7 @@ class Page4(BasePage):
 
         # Commercial Breaker goes here
 
-class Page5(BasePage):
+class Page5(BasePage, RedisListenerMixin):
     def __init__(self, app, *args, **kwargs):
         super(Page5, self).__init__(app, 'Page5', *args, **kwargs)
         self.logic = LogicController()
@@ -408,7 +378,7 @@ class Page5(BasePage):
         self.start_redis_listener_thread(self.redis_queue)
         self.after(100, self.process_redis_messages)
 
-        # drop down menu with label of "What Toonami Version are you making today?" and options of ("OG", "2", "3", "Mixed", "Uncut OG", "Uncut 2", "Uncut 3", "Uncut Mixed")
+        # Drop-down menu with options
         label = gui.Label("What Toonami Version are you making today?", style={'font-size': '24px', 'padding': '10px'})
         self.append(label)
         options = ["OG", "2", "3", "Mixed", "Uncut OG", "Uncut 2", "Uncut 3", "Uncut Mixed"]
@@ -418,96 +388,70 @@ class Page5(BasePage):
             self.toonami_version_dropdown.append(gui.DropDownItem(option))
         self.append(self.toonami_version_dropdown)
 
-        # "What channel number do you want to use?"
+        # Channel number entry
         label = gui.Label("What channel number do you want to use?", style={'font-size': '24px', 'padding': '10px'})
         self.append(label)
         self.channel_number_entry = gui.Input(input_type='text', width='100%')
         self.channel_number_entry.set_value("eg. 60")
         self.append(self.channel_number_entry)
 
-        #prepare cut anime for lineup
+        # Prepare cut anime for lineup
         label = gui.Label("Prepare Cut Anime for Lineup", style={'font-size': '24px', 'padding': '10px'})
         self.append(label)
         self.prepare_cut_anime_button = gui.Button("Prepare Cut Anime for Lineup", width=200, height=30)
         self.prepare_cut_anime_button.onclick.do(self.logic.prepare_cut_anime)
         self.append(self.prepare_cut_anime_button)
 
-        #"Add Special Bumps to Sheet"
+        # Add special bumps to sheet
         label = gui.Label("Add Special Bumps to Sheet", style={'font-size': '24px', 'padding': '10px'})
         self.append(label)
         self.add_special_bumps_button = gui.Button("Add Special Bumps to Sheet", width=200, height=30)
         self.add_special_bumps_button.onclick.do(self.logic.add_special_bumps)
         self.append(self.add_special_bumps_button)
 
-        # "Prepare Plex"
+        # Prepare Plex
         label = gui.Label("Prepare Plex", style={'font-size': '24px', 'padding': '10px'})
         self.append(label)
         self.prepare_plex_button = gui.Button("Prepare Plex", width=200, height=30)
         self.prepare_plex_button.onclick.do(self.logic.create_prepare_plex)
         self.append(self.prepare_plex_button)
 
-        # "Create Toonami Channel"
+        # Create Toonami Channel
         label = gui.Label("Create Toonami Channel", style={'font-size': '24px', 'padding': '10px'})
         self.append(label)
         self.create_toonami_channel_button = gui.Button("Create Toonami Channel", width=200, height=30)
         self.create_toonami_channel_button.onclick.do(self.create_toonami_channel)
         self.append(self.create_toonami_channel_button)
 
-        #status label
+        # Status label
         self.status_label = gui.Label("Status: Idle", width='100%')
         self.append(self.status_label)
 
-        # "Continue"
+        # Continue button
         self.continue_button = gui.Button("Continue", width=200, height=30)
         self.continue_button.onclick.do(lambda x: self.app.set_current_page('Page6'))
         self.continue_button.onclick.do(lambda x: self.logic._broadcast_status_update("Idle"))
         self.append(self.continue_button)
 
-#----- firgure out how to make this DRY later -----
-
-    def after(self, time, callback):
-        #wait for time in milliseconds then call callback
-        threading.Timer(time/1000, callback).start()
-
-    def process_redis_messages(self):
-        while not self.redis_queue.empty():
-            message = self.redis_queue.get()
-            if message['channel'].decode('utf-8') == 'status_updates':
-                self.update_status_label(message['data'].decode('utf-8'))
-        
-        self.after(100, self.process_redis_messages)
-
-    def listen_for_redis_updates(self, redis_queue):
-        redis_client = self.logic.redis_client
-        pubsub = redis_client.pubsub()
-        pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices', 'plex_servers', 'plex_libraries')
-
-        for message in pubsub.listen():
-            if message['type'] == 'message':
-                redis_queue.put(message)
-
-    def start_redis_listener_thread(self, redis_queue):
-        threading.Thread(target=self.listen_for_redis_updates, args=(redis_queue,), daemon=True).start()
-
-    def update_status_label(self, status):
-        self.status_label.set_text(f"Status: {status}")
-
-# -----------------------------
-    def create_toonami_channel(self):
+    def create_toonami_channel(self, widget):
         toonami_version = self.toonami_version_dropdown.get_value()
         channel_number = self.channel_number_entry.get_value()
         self.logic.create_toonami_channel(toonami_version, channel_number)
-        
-class Page6(BasePage):
+
+    # Optional: Handle additional Redis messages specific to this page
+    def handle_redis_message(self, channel, data):
+        pass  # No additional messages to handle in this page
+
+class Page6(BasePage, RedisListenerMixin):
     def __init__(self, app, *args, **kwargs):
-        super(Page6, self).__init__(app, 'Page7', *args, **kwargs)
+        super(Page6, self).__init__(app, 'Page6', *args, **kwargs)
         self.logic = LogicController()
         self.redis_queue = Queue()
         self.start_redis_listener_thread(self.redis_queue)
         self.after(100, self.process_redis_messages)
         self.logic._broadcast_status_update("Idle")
 
-        # "What Toonami Version are you making today?" and options of ("OG", "2", "3", "Mixed", "Uncut OG", "Uncut 2", "Uncut 3", "Uncut Mixed")
+        # Toonami version selection
         label = gui.Label("What Toonami Version are you making today?", style={'font-size': '24px', 'padding': '10px'})
         self.append(label)
         options = ["OG", "2", "3", "Mixed", "Uncut OG", "Uncut 2", "Uncut 3", "Uncut Mixed"]
@@ -517,86 +461,57 @@ class Page6(BasePage):
             self.toonami_version_dropdown.append(gui.DropDownItem(option))
         self.append(self.toonami_version_dropdown)
 
-        # "What channel number do you want to use?"
+        # Channel number entry
         label = gui.Label("What channel number do you want to use?", style={'font-size': '24px', 'padding': '10px'})
         self.append(label)
         self.channel_number_entry = gui.Input(input_type='text', width='100%')
         self.channel_number_entry.set_value("eg. 60")
         self.append(self.channel_number_entry)
 
-        #this checkbox takes up half the page
+        # Start from last episode checkbox
         label = gui.Label("Start from last episode?", style={'font-size': '24px', 'padding': '10px'})
         self.append(label)
         self.start_from_last_episode_checkbox = gui.CheckBox()
         self.start_from_last_episode_checkbox.set_value(False)
         self.append(self.start_from_last_episode_checkbox)
 
-        # "Prepare toonami channel"
+        # Prepare toonami channel
         label = gui.Label("Prepare Toonami Channel", style={'font-size': '24px', 'padding': '10px'})
         self.append(label)
         self.prepare_toonami_channel_button = gui.Button("Prepare Toonami Channel", width=200, height=30)
         self.prepare_toonami_channel_button.onclick.do(self.prepare_toonami_channel)
         self.append(self.prepare_toonami_channel_button)
 
-        # "Create Toonami Channel"
+        # Create toonami channel
         label = gui.Label("Create Toonami Channel", style={'font-size': '24px', 'padding': '10px'})
         self.append(label)
         self.create_toonami_channel_button = gui.Button("Create Toonami Channel", width=200, height=30)
         self.create_toonami_channel_button.onclick.do(self.create_toonami_channel)
         self.append(self.create_toonami_channel_button)
 
-        #status label
+        # Status label
         self.status_label = gui.Label("Status: Idle", width='100%')
         self.append(self.status_label)
 
-        # "Next"
+        # Next button
         self.next_button = gui.Button("Next", width=200, height=30)
         self.next_button.onclick.do(lambda x: self.app.set_current_page('Page7'))
         self.next_button.onclick.do(lambda x: self.logic._broadcast_status_update("Idle"))
         self.append(self.next_button)
 
-
-#----- firgure out how to make this DRY later -----
-
-    def after(self, time, callback):
-        #wait for time in milliseconds then call callback
-        threading.Timer(time/1000, callback).start()
-
-    def process_redis_messages(self):
-        while not self.redis_queue.empty():
-            message = self.redis_queue.get()
-            if message['channel'].decode('utf-8') == 'status_updates':
-                self.update_status_label(message['data'].decode('utf-8'))
-        
-        self.after(100, self.process_redis_messages)
-
-    def listen_for_redis_updates(self, redis_queue):
-        redis_client = self.logic.redis_client
-        pubsub = redis_client.pubsub()
-        pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices', 'plex_servers', 'plex_libraries')
-
-        for message in pubsub.listen():
-            if message['type'] == 'message':
-                redis_queue.put(message)
-
-    def start_redis_listener_thread(self, redis_queue):
-        threading.Thread(target=self.listen_for_redis_updates, args=(redis_queue,), daemon=True).start()
-
-    def update_status_label(self, status):
-        self.status_label.set_text(f"Status: {status}")
-
-# -----------------------------
-
-    def prepare_toonami_channel(self):
+    def prepare_toonami_channel(self, widget):
         toonami_version = self.toonami_version_dropdown.get_value()
         start_from_last_episode = self.start_from_last_episode_checkbox.get_value()
         self.logic.prepare_toonami_channel(start_from_last_episode, toonami_version)
 
-    def create_toonami_channel(self):
+    def create_toonami_channel(self, widget):
         toonami_version = self.toonami_version_dropdown.get_value()
         channel_number = self.channel_number_entry.get_value()
         self.logic.create_toonami_channel(toonami_version, channel_number)
 
+    # Optional: Handle additional Redis messages specific to this page
+    def handle_redis_message(self, channel, data):
+        pass  # No additional messages to handle in this page
 
 class Page7(BasePage):
     def __init__(self, app, *args, **kwargs):
@@ -604,15 +519,14 @@ class Page7(BasePage):
         self.logic = LogicController()
         self.logic._broadcast_status_update("Idle")
 
-        #flex your toonami channel
+        # Flex your toonami channel
         label = gui.Label("Flex Your Toonami Channel", style={'font-size': '24px', 'padding': '10px'})
         self.append(label)
 
-        #write a new add flex cause they are both docker containter they should be able to talk to each other
+        # TODO: Implement functionality for flexing the Toonami channel
 
 class MainApp(App):
     def __init__(self, *args, **kwargs):
-
         self.page_titles = {
             "Page1": "Step 1 - Login to Plex - Welcome to the Absolution",
             "Page2": "Step 1 - Enter Details - A Little Detour",
@@ -620,7 +534,7 @@ class MainApp(App):
             "Page4": "Step 3 - Commercial Breaker - Toonami Will Be Right Back",
             "Page5": "Step 4 - Create your Toonami Channel - All aboard the Absolution",
             "Page6": "Step 5 - Let's Make Another Channel! - Toonami's Back Bitches",
-            "Page7": "Step 6 - Flex Your Toonami Channel - Commerecial Break"
+            "Page7": "Step 6 - Flex Your Toonami Channel - Commercial Break"
         }
         super(MainApp, self).__init__(*args, **kwargs)
 
@@ -644,7 +558,7 @@ class MainApp(App):
             self.container.append(self.pages[page_name])
 
 def WebServer():
-    # starts the webserver
+    # Starts the webserver
     start(MainApp, address='0.0.0.0', port=8081, start_browser=True)
 
 if __name__ == "__main__":
