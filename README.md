@@ -1,3 +1,15 @@
+# Heads up: You are probably in the wrong branch
+
+Welcome to the future-docker-beta branch, also known as the super beta, for a reason. This branch is actively under development, and most features likely won't work as expected. If you're looking for a stable version, check out the main branch.
+
+# What are we doing here?
+
+This branch is focused on developing a web UI using the Remi Python library and integrating Redis to handle status updates (like login progress and task tracking). For now, Redis is required because the old status update mechanism doesn’t work with Remi.
+
+The ultimate goal is to have everything, including the web UI, running inside a Docker container. Redis will likely remain necessary for the web UI but will become optional for other components of the system.
+
+Currently, most features are untested, and the web UI is a work in progress. As the development moves forward, we aim to provide a fully Dockerized experience for managing CommercialBreaker and related tools.
+
 # CommercialBreaker & Toonami Tools: Because Your Anime Deserves Commercial Breaks
 
 Hey there, space cowboy. Remember those long Toonami nights filled with anime and the oddly comforting interruption of commercials? Ever thought your sleek, ad-free Plex server felt a little too... smooth? Well, we've got the fix for you, because here, we're mixing the future with a splash of the past.
