@@ -551,11 +551,13 @@ class Page4(BasePage, RedisListenerMixin):
 
     def update_progress(self, current, total):
         self.progress_value = current / total * 100
-        self.progress_bar.set_value, self.progress_value
+        self.app.execute_javascript(f"document.getElementById('{self.progress_bar.identifier}').value = {self.progress_value}")
+        print(f"Progress: {self.progress_value}%")
 
     def reset_progress_bar(self):
         self.progress_value = 0
-        self.progress_bar.set_value, self.progress_value
+        self.app.execute_javascript(f"document.getElementById('{self.progress_bar.identifier}').value = {self.progress_value}")
+        print("Progress reset")
 
     def update_status(self, text):
         self.logic2._broadcast_status_update(text)
@@ -699,7 +701,7 @@ class MainApp(App):
             "Page1": "Step 1 - Login to Plex - Welcome to the Absolution",
             "Page2": "Step 1 - Enter Details - A Little Detour",
             "Page3": "Step 2 - Prepare Content - Intruder Alert",
-            "Page4": "Step 3 - Commercial Breaker - Toonami Will Be Right Back (CURRENTLY BORKEN THIS IS MOSTLY A PLACEHOLDER)",
+            "Page4": "Step 3 - Commercial Breaker - Toonami Will Be Right Back",
             "Page5": "Step 4 - Create your Toonami Channel - All aboard the Absolution",
             "Page6": "Step 5 - Let's Make Another Channel! - Toonami's Back Bitches",
             "Page7": "Step 6 - Flex Your Toonami Channel - Commercial Break"
