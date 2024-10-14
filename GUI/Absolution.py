@@ -311,7 +311,7 @@ class Page3(BasePage, RedisListenerMixin):
 
     def on_continue_button_click(self, widget):
         self.logic._broadcast_status_update("Idle")
-        self.app.set_current_page('Page5')
+        self.app.set_current_page('Page4')
 
     def prepare_content(self, widget):
         self.logic = LogicController()
@@ -416,11 +416,167 @@ class Page3(BasePage, RedisListenerMixin):
 class Page4(BasePage):
     def __init__(self, app, *args, **kwargs):
         super(Page4, self).__init__(app, 'Page4', *args, **kwargs)
+        self.logic = CommercialBreakerLogic()
+        self.input_path = ''
+        self.output_path = ''
+        self.progress_value = 0
 
-        # Next button
-        self.next_button = self.add_button(self.main_container, "Next", lambda x: self.app.set_current_page('Page5'))
+        # Create variables for checkboxes
+        self.destructive_mode = False
+        self.fast_mode = False
+        self.low_power_mode = False
 
-        # TODO: Implement Commercial Breaker functionality here
+        # Build the GUI
+        self.create_widgets()
+
+    def create_widgets(self):
+        # Page title
+        self.add_label(self.main_container, "Commercial Breaker - Remove Commercials from Videos")
+
+        # Checkbox container
+        checkbox_container = gui.HBox(style={'justify-content': 'flex-start', 'margin': '10px'})
+
+        # Destructive Mode checkbox
+        self.destructive_checkbox = gui.CheckBoxLabel('Destructive Mode', False)
+        self.destructive_checkbox.onchange.do(self.on_destructive_mode_changed)
+        checkbox_container.append(self.destructive_checkbox)
+
+        # Fast Mode checkbox
+        self.fast_checkbox = gui.CheckBoxLabel('Fast Mode', False)
+        self.fast_checkbox.onchange.do(self.on_fast_mode_changed)
+        checkbox_container.append(self.fast_checkbox)
+
+        # Low Power Mode checkbox
+        self.low_power_checkbox = gui.CheckBoxLabel('Low Power Mode', False)
+        self.low_power_checkbox.onchange.do(self.on_low_power_mode_changed)
+        checkbox_container.append(self.low_power_checkbox)
+
+        self.main_container.append(checkbox_container)
+
+        # Input and Output directories
+        self.input_path_input = self.add_labeled_input(self.main_container, "Input directory:", "")
+        self.output_path_input = self.add_labeled_input(self.main_container, "Output directory:", "")
+
+        # Progress bar and status label
+        progress_container = gui.VBox(style={'align-items': 'center', 'margin-top': '20px'})
+
+        progress_label = gui.Label("Progress:", style=Styles.default_label_style)
+        progress_container.append(progress_label)
+
+        self.progress_bar = gui.Progress(0, 100, style={'width': '80%', 'height': '20px'})
+        progress_container.append(self.progress_bar)
+
+        self.status_label = gui.Label("Idle", style=Styles.default_label_style)
+        progress_container.append(self.status_label)
+
+        self.main_container.append(progress_container)
+
+        # Action buttons
+        buttons_container = gui.HBox(style={'justify-content': 'center', 'margin-top': '20px'})
+
+        detect_button = self.add_button(buttons_container, "Detect", self.detect_commercials)
+        cut_button = self.add_button(buttons_container, "Cut", self.cut_videos)
+        delete_button = self.add_button(buttons_container, "Delete", self.delete_txt_files)
+
+        self.main_container.append(buttons_container)
+
+        # Continue button to go to the next page
+        self.next_button = self.add_button(self.main_container, "Continue", self.on_continue_button_click)
+
+    def on_continue_button_click(self, widget):
+        self.logic2 = LogicController()
+        self.logic2._broadcast_status_update("Idle")
+        self.app.set_current_page('Page5')
+
+    # Checkbox event handlers
+    def on_destructive_mode_changed(self, widget, value):
+        self.destructive_mode = value
+
+    def on_fast_mode_changed(self, widget, value):
+        if value:
+            self.low_power_checkbox.set_value(False)
+            self.low_power_mode = False
+        self.fast_mode = value
+
+    def on_low_power_mode_changed(self, widget, value):
+        if value:
+            self.fast_checkbox.set_value(False)
+            self.fast_mode = False
+        self.low_power_mode = value
+
+    # Methods for action buttons
+    def detect_commercials(self, widget):
+        if self.validate_input_output_dirs():
+            threading.Thread(target=self._run_and_notify, args=(
+                self.logic.detect_commercials,
+                self.done_detect_commercials,
+                "Detect Black Frames",
+                False,
+                self.low_power_mode,
+                self.fast_mode,
+                self.reset_progress_bar
+            )).start()
+
+    def cut_videos(self, widget):
+        if self.validate_input_output_dirs():
+            threading.Thread(target=self._run_and_notify, args=(
+                self.logic.cut_videos,
+                self.done_cut_videos,
+                "Cut Video",
+                self.destructive_mode
+            )).start()
+
+    def delete_txt_files(self, widget):
+        if not self.output_path_input.get_value():
+            self.update_status("Please specify an output directory.")
+            return
+        self.logic.delete_files(self.output_path_input.get_value())
+        self.update_status("Clean up done!")
+
+    # Utility methods
+    def validate_input_output_dirs(self):
+        self.input_path = self.input_path_input.get_value()
+        self.output_path = self.output_path_input.get_value()
+        if not (self.input_path and self.output_path):
+            self.update_status("Please specify an input and output directory.")
+            return False
+        if not os.path.isdir(self.input_path):
+            self.update_status("Input directory does not exist.")
+            return False
+        if not os.access(self.output_path, os.W_OK):
+            self.update_status("Output directory is not writable.")
+            return False
+        return True
+
+    def update_progress(self, current, total):
+        self.progress_value = current / total * 100
+        self.execute_in_main_thread(self.progress_bar.set_value, self.progress_value)
+
+    def reset_progress_bar(self):
+        self.progress_value = 0
+        self.execute_in_main_thread(self.progress_bar.set_value, self.progress_value)
+
+    def update_status(self, text):
+        self.execute_in_main_thread(self.status_label.set_text, text)
+
+    def _run_and_notify(self, task, done_callback, task_name, destructive_mode=False, low_power_mode=False, fast_mode=False, reset_callback=None):
+        self.update_status(f"Started task: {task_name}")
+        if task_name == "Detect Black Frames":
+            task(self.input_path, self.output_path, self.update_progress, self.update_status, low_power_mode, fast_mode, reset_callback)
+        elif task_name == "Cut Video":
+            self.reset_progress_bar()
+            task(self.input_path, self.output_path, self.update_progress, self.update_status, destructive_mode)
+        self.update_status(f"Finished task: {task_name}")
+        done_callback(task_name)
+
+    def done_cut_videos(self, task_name):
+        self.update_status(f"{task_name} - Done!")
+
+    def done_detect_commercials(self, task_name):
+        self.update_status(f"{task_name} - Done!")
+
+    def execute_in_main_thread(self, func, *args):
+        self.app.execute_javascript(f"window.pywebview.api.{func.__name__}({args})")
 
 class Page5(BasePage, RedisListenerMixin):
     def __init__(self, app, *args, **kwargs):
@@ -540,7 +696,7 @@ class MainApp(App):
             "Page1": "Step 1 - Login to Plex - Welcome to the Absolution",
             "Page2": "Step 1 - Enter Details - A Little Detour",
             "Page3": "Step 2 - Prepare Content - Intruder Alert",
-            "Page4": "Step 3 - Commercial Breaker - Toonami Will Be Right Back",
+            "Page4": "Step 3 - Commercial Breaker - Toonami Will Be Right Back (CURRENTLY BORKEN THIS IS MOSTLY A PLACEHOLDER)",
             "Page5": "Step 4 - Create your Toonami Channel - All aboard the Absolution",
             "Page6": "Step 5 - Let's Make Another Channel! - Toonami's Back Bitches",
             "Page7": "Step 6 - Flex Your Toonami Channel - Commercial Break"
