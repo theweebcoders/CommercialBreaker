@@ -737,6 +737,8 @@ Until next time, Space Cowboy!
 
 Send three crows to the top of the tallest mountain in the land. They will find me.
 
+or just join the discord I guess https://discord.gg/S7NcUdhKRD
+
 # License
 
 You're Pirtates right? Are you really going to care about a license?
