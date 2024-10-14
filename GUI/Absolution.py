@@ -363,17 +363,38 @@ class Page3(BasePage, RedisListenerMixin):
         self.logic._broadcast_status_update("Content preparation complete")
 
     def display_show_selection(self, unique_show_names, easy_checker, toonami_episodes):
-        self.selection_container = gui.VBox(style={'align-items': 'center', 'justify-content': 'center', 'margin-top': '20px'})
+        # Sort the list alphabetically (case-insensitive)
+        unique_show_names_sorted = sorted(unique_show_names, key=lambda s: s.lower())
+
+        self.selection_container = gui.VBox(style={
+            'align-items': 'flex-start',
+            'justify-content': 'flex-start',
+            'margin-top': '20px',
+            'width': '100%',
+        })
         self.checkboxes = {}
 
-        for show in unique_show_names:
+        label_width = '200px'
+
+        for show in unique_show_names_sorted:
             checkbox = gui.CheckBox(checked=True, style={'margin-right': '10px'})
-            checkbox_label = gui.Label(show, style=Styles.default_label_style)
+            checkbox_label = gui.Label(show, style={
+                **Styles.default_label_style,
+                'width': label_width,
+                'text-align': 'left',
+            })
             self.checkboxes[show] = checkbox
-            hbox = gui.HBox(children=[checkbox, checkbox_label], style={'align-items': 'center'})
+            hbox = gui.HBox(children=[checkbox, checkbox_label], style={
+                'align-items': 'center',
+                'justify-content': 'flex-start',
+                'width': '100%',
+            })
             self.selection_container.append(hbox)
 
-        done_button = self.add_button(self.selection_container, "Done", lambda w: self.on_done_button_clicked(w, easy_checker, toonami_episodes))
+        done_button = self.add_button(
+            self.selection_container, "Done",
+            lambda w: self.on_done_button_clicked(w, easy_checker, toonami_episodes)
+        )
         self.main_container.append(self.selection_container)
         print("Show selection displayed")
 
