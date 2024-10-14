@@ -275,9 +275,12 @@ class Page3(BasePage, RedisListenerMixin):
 
         # Continue button
         self.continue_button = gui.Button("Continue", width=200, height=30)
-        self.continue_button.onclick.do(lambda x: self.app.set_current_page('Page5'))
-        self.continue_button.onclick.do(lambda x: self.logic._broadcast_status_update("Idle"))
+        self.continue_button.onclick.do(self.on_continue_button_click)
         self.append(self.continue_button)
+
+    def on_continue_button_click(self, widget):
+        self.logic._broadcast_status_update("Idle")
+        self.app.set_current_page('Page5')
 
     def prepare_content(self, widget):
         self.logic = LogicController()
