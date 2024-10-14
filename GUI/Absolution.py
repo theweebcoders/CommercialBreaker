@@ -422,9 +422,20 @@ class Page4(BasePage, RedisListenerMixin):
         self.start_redis_listener_thread(self.redis_queue)
         self.after(100, self.process_redis_messages)
 
-        # Create variables for input and output directories
-        self.input_path = ''
-        self.output_path = ''
+        # Initialize the working folder and default directories
+        self.working_folder = self.logic2._get_data("working_folder")
+        self.default_input_folder = f"{self.working_folder}/toonami_filtered"
+        self.default_output_folder = f"{self.working_folder}/cut"
+
+        # Create variables for input and output directories with defaults
+        self.input_path = self.default_input_folder
+        self.output_path = self.default_output_folder
+
+        # Initialize input fields with default values pre-filled
+        self.input_path_input = self.add_labeled_input(self.main_container, "Input directory:", self.default_input_folder)
+        self.output_path_input = self.add_labeled_input(self.main_container, "Output directory:", self.default_output_folder)
+
+        # Initialize progress bar
         self.progress_value = 0
 
         # Create variables for checkboxes
@@ -454,10 +465,6 @@ class Page4(BasePage, RedisListenerMixin):
         checkbox_container.append(self.low_power_checkbox)
 
         self.main_container.append(checkbox_container)
-
-        # Input and Output directories
-        self.input_path_input = self.add_labeled_input(self.main_container, "Input directory:", "")
-        self.output_path_input = self.add_labeled_input(self.main_container, "Output directory:", "")
 
         # Progress bar and status label
         progress_container = gui.VBox(style={'align-items': 'center', 'margin-top': '20px'})
