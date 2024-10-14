@@ -11,22 +11,50 @@ from queue import Queue, Empty
 import remi.gui as gui
 from remi import start, App
 import time
-import config
+
+class Styles:
+    default_label_style = {
+        'font-size': '16px',
+        'padding': '5px',
+        'margin': '5px'
+    }
+    title_label_style = {
+        'font-size': '24px',
+        'padding': '10px',
+        'font-weight': 'bold',
+        'margin': '10px'
+    }
+    default_button_style = {
+        'font-size': '16px',
+        'padding': '10px',
+        'margin': '5px'
+    }
+    default_input_style = {
+        'font-size': '16px',
+        'padding': '5px',
+        'margin': '5px',
+        'width': '100%'
+    }
+    default_container_style = {
+        'display': 'flex',
+        'flex-direction': 'column',
+        'align-items': 'center',
+        'justify-content': 'flex-start',
+        'width': '100%',
+        'height': '100%',
+        'background-color': '#F0F0F0',
+        'overflow': 'auto'
+    }
 
 class BasePage(gui.Container):
     def __init__(self, app, title_key, *args, **kwargs):
         super(BasePage, self).__init__(*args, **kwargs)
         self.app = app
-        self.set_size(800, 600)
-        # Debugging line to check what gets retrieved
-        print(f"Retrieving title for {title_key}: {getattr(app, 'page_titles', {}).get(title_key, 'No title found')}")
-        title = getattr(app, 'page_titles', {}).get(title_key, "No title found")
-        self.lbl = gui.Label(title)
-        self.append(self.lbl)
+        self.set_size('100%', '100%')
+        self.style.update(Styles.default_container_style)
 
 class RedisListenerMixin:
     def after(self, time_ms, callback):
-        # Wait for time in milliseconds then call callback
         threading.Timer(time_ms / 1000, callback).start()
 
     def process_redis_messages(self):
@@ -38,7 +66,6 @@ class RedisListenerMixin:
             if channel == 'status_updates':
                 self.update_status_label(data)
             elif hasattr(self, 'handle_redis_message'):
-                # Allow pages to handle additional messages
                 self.handle_redis_message(channel, data)
 
         self.after(100, self.process_redis_messages)
@@ -61,9 +88,6 @@ class RedisListenerMixin:
 class Page1(BasePage, RedisListenerMixin):
     def __init__(self, app, *args, **kwargs):
         super(Page1, self).__init__(app, 'Page1', *args, **kwargs)
-        # Label for login instruction
-        label = gui.Label("Login with Plex", style={'font-size': '24px', 'padding': '10px'})
-        self.append(label)
         self.logic = LogicController()
         self.PlexManager = PlexManager(self.logic)
         self.redis_queue = Queue()
@@ -71,49 +95,74 @@ class Page1(BasePage, RedisListenerMixin):
         self.after(100, self.process_redis_messages)
         self.libraries_selected = 0
 
+        # Main container for the page
+        main_container = gui.VBox(width='80%', style={
+            'align-items': 'center',
+            'justify-content': 'flex-start',
+            'margin': 'auto',
+            'padding': '20px'
+        })
+
+        # Page title
+        page_title = gui.Label(self.app.page_titles.get('Page1', ''), style=Styles.title_label_style)
+        main_container.append(page_title)
+
+        # Label for login instruction
+        label = gui.Label("Login with Plex", style=Styles.default_label_style)
+        main_container.append(label)
+
         # Login button
-        login_with_plex_button = gui.Button("Login with Plex", width=200, height=30)
+        login_with_plex_button = gui.Button("Login with Plex", width=200, height=30, style=Styles.default_button_style)
         login_with_plex_button.onclick.do(self.login_to_plex)
-        self.append(login_with_plex_button)
+        main_container.append(login_with_plex_button)
 
         # Dropdown for Plex Servers
-        self.plex_server_dropdown = gui.DropDown(width='100%')
+        self.plex_server_dropdown = gui.DropDown(width='100%', style=Styles.default_input_style)
         self.plex_server_dropdown.append(gui.DropDownItem("Select a Plex Server"))
         self.plex_server_dropdown.onchange.do(self.on_server_selected)
-        self.append(self.plex_server_dropdown)
+        main_container.append(self.plex_server_dropdown)
 
         # Dropdown for Anime Library
-        self.plex_anime_library_dropdown = gui.DropDown(width='100%')
+        self.plex_anime_library_dropdown = gui.DropDown(width='100%', style=Styles.default_input_style)
         self.plex_anime_library_dropdown.append(gui.DropDownItem("Select your Anime Library"))
         self.plex_anime_library_dropdown.onchange.do(self.add_1_to_libraries_selected)
-        self.append(self.plex_anime_library_dropdown)
+        main_container.append(self.plex_anime_library_dropdown)
 
         # Dropdown for Toonami Library
-        self.plex_library_dropdown = gui.DropDown(width='100%')
+        self.plex_library_dropdown = gui.DropDown(width='100%', style=Styles.default_input_style)
         self.plex_library_dropdown.append(gui.DropDownItem("Select your Toonami Library"))
         self.plex_library_dropdown.onchange.do(self.add_1_to_libraries_selected)
-        self.append(self.plex_library_dropdown)
+        main_container.append(self.plex_library_dropdown)
 
         # DizqueTV URL Entry
-        dizquetv_url_label = gui.Label('dizqueTV URL:', width='100%')
-        self.append(dizquetv_url_label)
-        self.dizquetv_url_entry = gui.Input(input_type='text', width='100%')
-        self.dizquetv_url_entry.set_value("eg. http://localhost:17685")
-        self.append(self.dizquetv_url_entry)
+        dizquetv_url_label = gui.Label('dizqueTV URL:', style=Styles.default_label_style)
+        main_container.append(dizquetv_url_label)
+        self.dizquetv_url_entry = gui.Input(input_type='text', style=Styles.default_input_style)
+        self.dizquetv_url_entry.set_value("e.g., http://localhost:17685")
+        main_container.append(self.dizquetv_url_entry)
 
         # Status label
-        self.status_label = gui.Label("Status: Idle", width='100%')
-        self.append(self.status_label)
+        self.status_label = gui.Label("Status: Idle", style=Styles.default_label_style)
+        main_container.append(self.status_label)
 
         # Continue and Skip buttons
-        self.continue_button = gui.Button("Continue", width=200, height=30)
-        self.continue_button.onclick.do(self.on_continue_button_click)
-        self.continue_button.style['display'] = 'none'  # Initially hide continue button
-        self.append(self.continue_button)
+        buttons_container = gui.HBox(style={
+            'justify-content': 'center',
+            'margin-top': '20px'
+        })
 
-        self.skip_button = gui.Button("Skip", width=200, height=30)
+        self.continue_button = gui.Button("Continue", width=200, height=30, style=Styles.default_button_style)
+        self.continue_button.onclick.do(self.on_continue_button_click)
+        self.continue_button.style['display'] = 'none'
+        buttons_container.append(self.continue_button)
+
+        self.skip_button = gui.Button("Skip", width=200, height=30, style=Styles.default_button_style)
         self.skip_button.onclick.do(lambda x: self.app.set_current_page('Page2'))
-        self.append(self.skip_button)
+        buttons_container.append(self.skip_button)
+
+        main_container.append(buttons_container)
+
+        self.append(main_container)
 
     def login_to_plex(self, widget):
         self.logic.login_to_plex()
@@ -138,35 +187,27 @@ class Page1(BasePage, RedisListenerMixin):
 
     def update_dropdown(self):
         try:
-            # Attempt to get the message without blocking
             message = self.redis_queue.get_nowait()
             if message['channel'].decode('utf-8') == 'plex_servers':
-                # Decode and load data from the message
                 server_list = json.loads(message['data'].decode('utf-8'))
                 for server in server_list:
                     self.plex_server_dropdown.append(gui.DropDownItem(server))
             else:
-                # If the message is not the one we are looking for, put it back
                 self.redis_queue.put(message)
         except Empty:
-            # If no messages, reschedule to try again in 100 milliseconds
             self.after(100, self.update_dropdown)
 
     def update_library_dropdowns(self):
         try:
-            # Attempt to get the message without blocking
             message = self.redis_queue.get_nowait()
             if message['channel'].decode('utf-8') == 'plex_libraries':
-                # Decode and load data from the message
                 library_list = json.loads(message['data'].decode('utf-8'))
                 for library in library_list:
                     self.plex_anime_library_dropdown.append(gui.DropDownItem(library))
                     self.plex_library_dropdown.append(gui.DropDownItem(library))
             else:
-                # If the message is not the one we are looking for, put it back
                 self.redis_queue.put(message)
         except Empty:
-            # If no messages, reschedule to try again in 100 milliseconds
             self.after(100, self.update_library_dropdowns)
 
     def on_continue_button_click(self, widget):
@@ -179,7 +220,6 @@ class Page1(BasePage, RedisListenerMixin):
         self.logic._broadcast_status_update("Idle")
         self.app.set_current_page('Page3')
 
-    # Optional: Handle additional Redis messages specific to this page
     def handle_redis_message(self, channel, data):
         if channel == 'new_server_choices':
             self.update_dropdown()
@@ -189,45 +229,59 @@ class Page1(BasePage, RedisListenerMixin):
 class Page2(BasePage):
     def __init__(self, app, *args, **kwargs):
         super(Page2, self).__init__(app, 'Page2', *args, **kwargs)
-        # plex url entry
-        plex_url_label = gui.Label('Plex URL:', width='100%')
-        self.append(plex_url_label)
-        self.plex_url_entry = gui.Input(input_type='text', width='100%')
-        self.plex_url_entry.set_value("eg. http://localhost:32400")
-        self.append(self.plex_url_entry)
 
-        # plex token entry
-        plex_token_label = gui.Label('Plex Token:', width='100%')
-        self.append(plex_token_label)
-        self.plex_token_entry = gui.Input(input_type='text', width='100%')
-        self.plex_token_entry.set_value("eg. xxxxxxxxxxxxxx")
-        self.append(self.plex_token_entry)
+        main_container = gui.VBox(width='80%', style={
+            'align-items': 'center',
+            'justify-content': 'flex-start',
+            'margin': 'auto',
+            'padding': '20px'
+        })
 
-        # plex anime library entry
-        plex_anime_library_label = gui.Label('Plex Anime Library:', width='100%')
-        self.append(plex_anime_library_label)
-        self.plex_anime_library_entry = gui.Input(input_type='text', width='100%')
-        self.plex_anime_library_entry.set_value("eg. Anime")
-        self.append(self.plex_anime_library_entry)
+        # Page title
+        page_title = gui.Label(self.app.page_titles.get('Page2', ''), style=Styles.title_label_style)
+        main_container.append(page_title)
 
-        # plex toonami library entry
-        plex_toonami_library_label = gui.Label('Plex Toonami Library:', width='100%')
-        self.append(plex_toonami_library_label)
-        self.plex_toonami_library_entry = gui.Input(input_type='text', width='100%')
-        self.plex_toonami_library_entry.set_value("eg. Toonami")
-        self.append(self.plex_toonami_library_entry)
+        # Plex URL Entry
+        plex_url_label = gui.Label('Plex URL:', style=Styles.default_label_style)
+        main_container.append(plex_url_label)
+        self.plex_url_entry = gui.Input(input_type='text', style=Styles.default_input_style)
+        self.plex_url_entry.set_value("e.g., http://localhost:32400")
+        main_container.append(self.plex_url_entry)
 
-        # dizquetv url entry
-        dizquetv_url_label = gui.Label('dizqueTV URL:', width='100%')
-        self.append(dizquetv_url_label)
-        self.dizquetv_url_entry = gui.Input(input_type='text', width='100%')
-        self.dizquetv_url_entry.set_value("eg. http://localhost:17685")
-        self.append(self.dizquetv_url_entry)
+        # Plex Token Entry
+        plex_token_label = gui.Label('Plex Token:', style=Styles.default_label_style)
+        main_container.append(plex_token_label)
+        self.plex_token_entry = gui.Input(input_type='text', style=Styles.default_input_style)
+        self.plex_token_entry.set_value("e.g., xxxxxxxxxxxxxx")
+        main_container.append(self.plex_token_entry)
+
+        # Plex Anime Library Entry
+        plex_anime_library_label = gui.Label('Plex Anime Library:', style=Styles.default_label_style)
+        main_container.append(plex_anime_library_label)
+        self.plex_anime_library_entry = gui.Input(input_type='text', style=Styles.default_input_style)
+        self.plex_anime_library_entry.set_value("e.g., Anime")
+        main_container.append(self.plex_anime_library_entry)
+
+        # Plex Toonami Library Entry
+        plex_toonami_library_label = gui.Label('Plex Toonami Library:', style=Styles.default_label_style)
+        main_container.append(plex_toonami_library_label)
+        self.plex_toonami_library_entry = gui.Input(input_type='text', style=Styles.default_input_style)
+        self.plex_toonami_library_entry.set_value("e.g., Toonami")
+        main_container.append(self.plex_toonami_library_entry)
+
+        # DizqueTV URL Entry
+        dizquetv_url_label = gui.Label('dizqueTV URL:', style=Styles.default_label_style)
+        main_container.append(dizquetv_url_label)
+        self.dizquetv_url_entry = gui.Input(input_type='text', style=Styles.default_input_style)
+        self.dizquetv_url_entry.set_value("e.g., http://localhost:17685")
+        main_container.append(self.dizquetv_url_entry)
 
         # Continue button
-        self.continue_button = gui.Button("Continue", width=200, height=30)
+        self.continue_button = gui.Button("Continue", width=200, height=30, style=Styles.default_button_style)
         self.continue_button.onclick.do(self.on_continue_button_click)
-        self.append(self.continue_button)
+        main_container.append(self.continue_button)
+
+        self.append(main_container)
 
     def on_continue_button_click(self, widget):
         self.logic = LogicController()
@@ -248,35 +302,48 @@ class Page3(BasePage, RedisListenerMixin):
         self.start_redis_listener_thread(self.redis_queue)
         self.after(100, self.process_redis_messages)
 
-        # Label for content preparation
-        label = gui.Label("Prepare my shows and bumps to be cut", style={'font-size': '24px', 'padding': '10px'})
-        self.append(label)
-        self.prepare_button = gui.Button("Prepare Content", width=200, height=30)
+        main_container = gui.VBox(width='80%', style={
+            'align-items': 'center',
+            'justify-content': 'flex-start',
+            'margin': 'auto',
+            'padding': '20px'
+        })
+
+        # Page title
+        page_title = gui.Label(self.app.page_titles.get('Page3', ''), style=Styles.title_label_style)
+        main_container.append(page_title)
+
+        # Prepare Content button
+        label = gui.Label("Prepare my shows and bumps to be cut", style=Styles.default_label_style)
+        main_container.append(label)
+        self.prepare_button = gui.Button("Prepare Content", width=200, height=30, style=Styles.default_button_style)
         self.prepare_button.onclick.do(self.prepare_content)
-        self.append(self.prepare_button)
+        main_container.append(self.prepare_button)
 
-        # Label for content get plex timestamps
-        label = gui.Label("Get Plex Timestamps", style={'font-size': '24px', 'padding': '10px'})
-        self.append(label)
-        self.get_plex_timestamps_button = gui.Button("Get Plex Timestamps", width=200, height=30)
+        # Get Plex Timestamps button
+        label = gui.Label("Get Plex Timestamps", style=Styles.default_label_style)
+        main_container.append(label)
+        self.get_plex_timestamps_button = gui.Button("Get Plex Timestamps", width=200, height=30, style=Styles.default_button_style)
         self.get_plex_timestamps_button.onclick.do(self.logic.get_plex_timestamps)
-        self.append(self.get_plex_timestamps_button)
+        main_container.append(self.get_plex_timestamps_button)
 
-        # Label for move filtered shows
-        label = gui.Label("Move Filtered Shows", style={'font-size': '24px', 'padding': '10px'})
-        self.append(label)
-        self.move_filtered_shows_button = gui.Button("Move Filtered Shows", width=200, height=30)
+        # Move Filtered Shows button
+        label = gui.Label("Move Filtered Shows", style=Styles.default_label_style)
+        main_container.append(label)
+        self.move_filtered_shows_button = gui.Button("Move Filtered Shows", width=200, height=30, style=Styles.default_button_style)
         self.move_filtered_shows_button.onclick.do(self.logic.move_filtered)
-        self.append(self.move_filtered_shows_button)
+        main_container.append(self.move_filtered_shows_button)
 
         # Status label
-        self.status_label = gui.Label("Status: Idle", width='100%')
-        self.append(self.status_label)
+        self.status_label = gui.Label("Status: Idle", style=Styles.default_label_style)
+        main_container.append(self.status_label)
 
         # Continue button
-        self.continue_button = gui.Button("Continue", width=200, height=30)
+        self.continue_button = gui.Button("Continue", width=200, height=30, style=Styles.default_button_style)
         self.continue_button.onclick.do(self.on_continue_button_click)
-        self.append(self.continue_button)
+        main_container.append(self.continue_button)
+
+        self.append(main_container)
 
     def on_continue_button_click(self, widget):
         self.logic._broadcast_status_update("Idle")
@@ -290,7 +357,6 @@ class Page3(BasePage, RedisListenerMixin):
         fmaker = ToonamiTools.FolderMaker(working_folder)
         easy_checker = self.ToonamiChecker(anime_folder)
         fmaker.run()
-        # Run easy_checker with retries
         for i in range(25):
             try:
                 unique_show_names, toonami_episodes = easy_checker.prepare_episode_data()
@@ -333,16 +399,17 @@ class Page3(BasePage, RedisListenerMixin):
         self.logic._broadcast_status_update("Content preparation complete")
 
     def display_show_selection(self, unique_show_names, easy_checker, toonami_episodes):
-        self.selection_container = gui.VBox()
+        self.selection_container = gui.VBox(style={'align-items': 'center', 'justify-content': 'center', 'margin-top': '20px'})
         self.checkboxes = {}
 
         for show in unique_show_names:
-            checkbox = gui.CheckBox(checked=True)  # Set the checkbox to be checked by default
-            checkbox_label = gui.Label(show)
+            checkbox = gui.CheckBox(checked=True, style={'margin-right': '10px'})
+            checkbox_label = gui.Label(show, style=Styles.default_label_style)
             self.checkboxes[show] = checkbox
-            self.selection_container.append(gui.HBox(children=[checkbox, checkbox_label]))
+            hbox = gui.HBox(children=[checkbox, checkbox_label], style={'align-items': 'center'})
+            self.selection_container.append(hbox)
 
-        done_button = gui.Button("Done", width=200, height=30)
+        done_button = gui.Button("Done", width=200, height=30, style=Styles.default_button_style)
         done_button.onclick.do(self.on_done_button_clicked, easy_checker, toonami_episodes)
         self.selection_container.append(done_button)
         self.append(self.selection_container)
@@ -360,18 +427,31 @@ class Page3(BasePage, RedisListenerMixin):
         self.remove_child(self.selection_container)
         self.prepare_content_continue()
 
-    # Optional: Handle additional Redis messages specific to this page
     def handle_redis_message(self, channel, data):
-        pass  # No additional messages to handle in this page
+        pass
 
 class Page4(BasePage):
     def __init__(self, app, *args, **kwargs):
         super(Page4, self).__init__(app, 'Page4', *args, **kwargs)
-        self.next_button = gui.Button("Next", width=200, height=30)
-        self.next_button.onclick.do(lambda x: self.app.set_current_page('Page5'))
-        self.append(self.next_button)
 
-        # Commercial Breaker goes here
+        main_container = gui.VBox(width='80%', style={
+            'align-items': 'center',
+            'justify-content': 'center',
+            'margin': 'auto',
+            'padding': '20px'
+        })
+
+        # Page title
+        page_title = gui.Label(self.app.page_titles.get('Page4', ''), style=Styles.title_label_style)
+        main_container.append(page_title)
+
+        # Next button
+        self.next_button = gui.Button("Next", width=200, height=30, style=Styles.default_button_style)
+        self.next_button.onclick.do(lambda x: self.app.set_current_page('Page5'))
+        main_container.append(self.next_button)
+
+        self.append(main_container)
+        # TODO: Implement Commercial Breaker functionality here
 
 class Page5(BasePage, RedisListenerMixin):
     def __init__(self, app, *args, **kwargs):
@@ -381,59 +461,72 @@ class Page5(BasePage, RedisListenerMixin):
         self.start_redis_listener_thread(self.redis_queue)
         self.after(100, self.process_redis_messages)
 
-        # Drop-down menu with options
-        label = gui.Label("What Toonami Version are you making today?", style={'font-size': '24px', 'padding': '10px'})
-        self.append(label)
+        main_container = gui.VBox(width='80%', style={
+            'align-items': 'center',
+            'justify-content': 'flex-start',
+            'margin': 'auto',
+            'padding': '20px'
+        })
+
+        # Page title
+        page_title = gui.Label(self.app.page_titles.get('Page5', ''), style=Styles.title_label_style)
+        main_container.append(page_title)
+
+        # Toonami version selection
+        label = gui.Label("What Toonami Version are you making today?", style=Styles.default_label_style)
+        main_container.append(label)
         options = ["OG", "2", "3", "Mixed", "Uncut OG", "Uncut 2", "Uncut 3", "Uncut Mixed"]
-        self.toonami_version_dropdown = gui.DropDown(width='100%')
+        self.toonami_version_dropdown = gui.DropDown(width='100%', style=Styles.default_input_style)
         self.toonami_version_dropdown.append(gui.DropDownItem("Select a Toonami Version"))
         for option in options:
             self.toonami_version_dropdown.append(gui.DropDownItem(option))
-        self.append(self.toonami_version_dropdown)
+        main_container.append(self.toonami_version_dropdown)
 
         # Channel number entry
-        label = gui.Label("What channel number do you want to use?", style={'font-size': '24px', 'padding': '10px'})
-        self.append(label)
-        self.channel_number_entry = gui.Input(input_type='text', width='100%')
-        self.channel_number_entry.set_value("eg. 60")
-        self.append(self.channel_number_entry)
+        label = gui.Label("What channel number do you want to use?", style=Styles.default_label_style)
+        main_container.append(label)
+        self.channel_number_entry = gui.Input(input_type='text', style=Styles.default_input_style)
+        self.channel_number_entry.set_value("e.g., 60")
+        main_container.append(self.channel_number_entry)
 
-        # Prepare cut anime for lineup
-        label = gui.Label("Prepare Cut Anime for Lineup", style={'font-size': '24px', 'padding': '10px'})
-        self.append(label)
-        self.prepare_cut_anime_button = gui.Button("Prepare Cut Anime for Lineup", width=200, height=30)
+        # Prepare Cut Anime for Lineup button
+        label = gui.Label("Prepare Cut Anime for Lineup", style=Styles.default_label_style)
+        main_container.append(label)
+        self.prepare_cut_anime_button = gui.Button("Prepare Cut Anime for Lineup", width=200, height=30, style=Styles.default_button_style)
         self.prepare_cut_anime_button.onclick.do(self.logic.prepare_cut_anime)
-        self.append(self.prepare_cut_anime_button)
+        main_container.append(self.prepare_cut_anime_button)
 
-        # Add special bumps to sheet
-        label = gui.Label("Add Special Bumps to Sheet", style={'font-size': '24px', 'padding': '10px'})
-        self.append(label)
-        self.add_special_bumps_button = gui.Button("Add Special Bumps to Sheet", width=200, height=30)
+        # Add Special Bumps to Sheet button
+        label = gui.Label("Add Special Bumps to Sheet", style=Styles.default_label_style)
+        main_container.append(label)
+        self.add_special_bumps_button = gui.Button("Add Special Bumps to Sheet", width=200, height=30, style=Styles.default_button_style)
         self.add_special_bumps_button.onclick.do(self.logic.add_special_bumps)
-        self.append(self.add_special_bumps_button)
+        main_container.append(self.add_special_bumps_button)
 
-        # Prepare Plex
-        label = gui.Label("Prepare Plex", style={'font-size': '24px', 'padding': '10px'})
-        self.append(label)
-        self.prepare_plex_button = gui.Button("Prepare Plex", width=200, height=30)
+        # Prepare Plex button
+        label = gui.Label("Prepare Plex", style=Styles.default_label_style)
+        main_container.append(label)
+        self.prepare_plex_button = gui.Button("Prepare Plex", width=200, height=30, style=Styles.default_button_style)
         self.prepare_plex_button.onclick.do(self.logic.create_prepare_plex)
-        self.append(self.prepare_plex_button)
+        main_container.append(self.prepare_plex_button)
 
-        # Create Toonami Channel
-        label = gui.Label("Create Toonami Channel", style={'font-size': '24px', 'padding': '10px'})
-        self.append(label)
-        self.create_toonami_channel_button = gui.Button("Create Toonami Channel", width=200, height=30)
+        # Create Toonami Channel button
+        label = gui.Label("Create Toonami Channel", style=Styles.default_label_style)
+        main_container.append(label)
+        self.create_toonami_channel_button = gui.Button("Create Toonami Channel", width=200, height=30, style=Styles.default_button_style)
         self.create_toonami_channel_button.onclick.do(self.create_toonami_channel)
-        self.append(self.create_toonami_channel_button)
+        main_container.append(self.create_toonami_channel_button)
 
         # Status label
-        self.status_label = gui.Label("Status: Idle", width='100%')
-        self.append(self.status_label)
+        self.status_label = gui.Label("Status: Idle", style=Styles.default_label_style)
+        main_container.append(self.status_label)
 
         # Continue button
-        self.continue_button = gui.Button("Continue", width=200, height=30)
+        self.continue_button = gui.Button("Continue", width=200, height=30, style=Styles.default_button_style)
         self.continue_button.onclick.do(self.on_continue_button_click)
-        self.append(self.continue_button)
+        main_container.append(self.continue_button)
+
+        self.append(main_container)
 
     def on_continue_button_click(self, widget):
         self.logic._broadcast_status_update("Idle")
@@ -444,9 +537,8 @@ class Page5(BasePage, RedisListenerMixin):
         channel_number = self.channel_number_entry.get_value()
         self.logic.create_toonami_channel(toonami_version, channel_number)
 
-    # Optional: Handle additional Redis messages specific to this page
     def handle_redis_message(self, channel, data):
-        pass  # No additional messages to handle in this page
+        pass
 
 class Page6(BasePage, RedisListenerMixin):
     def __init__(self, app, *args, **kwargs):
@@ -457,52 +549,65 @@ class Page6(BasePage, RedisListenerMixin):
         self.after(100, self.process_redis_messages)
         self.logic._broadcast_status_update("Idle")
 
+        main_container = gui.VBox(width='80%', style={
+            'align-items': 'center',
+            'justify-content': 'flex-start',
+            'margin': 'auto',
+            'padding': '20px'
+        })
+
+        # Page title
+        page_title = gui.Label(self.app.page_titles.get('Page6', ''), style=Styles.title_label_style)
+        main_container.append(page_title)
+
         # Toonami version selection
-        label = gui.Label("What Toonami Version are you making today?", style={'font-size': '24px', 'padding': '10px'})
-        self.append(label)
+        label = gui.Label("What Toonami Version are you making today?", style=Styles.default_label_style)
+        main_container.append(label)
         options = ["OG", "2", "3", "Mixed", "Uncut OG", "Uncut 2", "Uncut 3", "Uncut Mixed"]
-        self.toonami_version_dropdown = gui.DropDown(width='100%')
+        self.toonami_version_dropdown = gui.DropDown(width='100%', style=Styles.default_input_style)
         self.toonami_version_dropdown.append(gui.DropDownItem("Select a Toonami Version"))
         for option in options:
             self.toonami_version_dropdown.append(gui.DropDownItem(option))
-        self.append(self.toonami_version_dropdown)
+        main_container.append(self.toonami_version_dropdown)
 
         # Channel number entry
-        label = gui.Label("What channel number do you want to use?", style={'font-size': '24px', 'padding': '10px'})
-        self.append(label)
-        self.channel_number_entry = gui.Input(input_type='text', width='100%')
-        self.channel_number_entry.set_value("eg. 60")
-        self.append(self.channel_number_entry)
+        label = gui.Label("What channel number do you want to use?", style=Styles.default_label_style)
+        main_container.append(label)
+        self.channel_number_entry = gui.Input(input_type='text', style=Styles.default_input_style)
+        self.channel_number_entry.set_value("e.g., 60")
+        main_container.append(self.channel_number_entry)
 
         # Start from last episode checkbox
-        label = gui.Label("Start from last episode?", style={'font-size': '24px', 'padding': '10px'})
-        self.append(label)
-        self.start_from_last_episode_checkbox = gui.CheckBox()
+        label = gui.Label("Start from last episode?", style=Styles.default_label_style)
+        main_container.append(label)
+        self.start_from_last_episode_checkbox = gui.CheckBox(style={'margin': '5px'})
         self.start_from_last_episode_checkbox.set_value(False)
-        self.append(self.start_from_last_episode_checkbox)
+        main_container.append(self.start_from_last_episode_checkbox)
 
-        # Prepare toonami channel
-        label = gui.Label("Prepare Toonami Channel", style={'font-size': '24px', 'padding': '10px'})
-        self.append(label)
-        self.prepare_toonami_channel_button = gui.Button("Prepare Toonami Channel", width=200, height=30)
+        # Prepare Toonami Channel button
+        label = gui.Label("Prepare Toonami Channel", style=Styles.default_label_style)
+        main_container.append(label)
+        self.prepare_toonami_channel_button = gui.Button("Prepare Toonami Channel", width=200, height=30, style=Styles.default_button_style)
         self.prepare_toonami_channel_button.onclick.do(self.prepare_toonami_channel)
-        self.append(self.prepare_toonami_channel_button)
+        main_container.append(self.prepare_toonami_channel_button)
 
-        # Create toonami channel
-        label = gui.Label("Create Toonami Channel", style={'font-size': '24px', 'padding': '10px'})
-        self.append(label)
-        self.create_toonami_channel_button = gui.Button("Create Toonami Channel", width=200, height=30)
+        # Create Toonami Channel button
+        label = gui.Label("Create Toonami Channel", style=Styles.default_label_style)
+        main_container.append(label)
+        self.create_toonami_channel_button = gui.Button("Create Toonami Channel", width=200, height=30, style=Styles.default_button_style)
         self.create_toonami_channel_button.onclick.do(self.create_toonami_channel)
-        self.append(self.create_toonami_channel_button)
+        main_container.append(self.create_toonami_channel_button)
 
         # Status label
-        self.status_label = gui.Label("Status: Idle", width='100%')
-        self.append(self.status_label)
+        self.status_label = gui.Label("Status: Idle", style=Styles.default_label_style)
+        main_container.append(self.status_label)
 
         # Next button
-        self.next_button = gui.Button("Next", width=200, height=30)
+        self.next_button = gui.Button("Next", width=200, height=30, style=Styles.default_button_style)
         self.next_button.onclick.do(self.on_next_button_click)
-        self.append(self.next_button)
+        main_container.append(self.next_button)
+
+        self.append(main_container)
 
     def on_next_button_click(self, widget):
         self.logic._broadcast_status_update("Idle")
@@ -518,9 +623,8 @@ class Page6(BasePage, RedisListenerMixin):
         channel_number = self.channel_number_entry.get_value()
         self.logic.create_toonami_channel(toonami_version, channel_number)
 
-    # Optional: Handle additional Redis messages specific to this page
     def handle_redis_message(self, channel, data):
-        pass  # No additional messages to handle in this page
+        pass
 
 class Page7(BasePage):
     def __init__(self, app, *args, **kwargs):
@@ -528,11 +632,24 @@ class Page7(BasePage):
         self.logic = LogicController()
         self.logic._broadcast_status_update("Idle")
 
-        # Flex your toonami channel
-        label = gui.Label("Flex Your Toonami Channel", style={'font-size': '24px', 'padding': '10px'})
-        self.append(label)
+        main_container = gui.VBox(width='80%', style={
+            'align-items': 'center',
+            'justify-content': 'center',
+            'margin': 'auto',
+            'padding': '20px'
+        })
+
+        # Page title
+        page_title = gui.Label(self.app.page_titles.get('Page7', ''), style=Styles.title_label_style)
+        main_container.append(page_title)
+
+        # Flex Your Toonami Channel label
+        label = gui.Label("Flex Your Toonami Channel", style=Styles.default_label_style)
+        main_container.append(label)
 
         # TODO: Implement functionality for flexing the Toonami channel
+
+        self.append(main_container)
 
 class MainApp(App):
     def __init__(self, *args, **kwargs):
@@ -548,7 +665,7 @@ class MainApp(App):
         super(MainApp, self).__init__(*args, **kwargs)
 
     def main(self):
-        self.container = gui.Container(width='100%', height='100%')
+        self.container = gui.Container(width='100%', height='100%', style=Styles.default_container_style)
         self.pages = {
             'Page1': Page1(self),
             'Page2': Page2(self),
