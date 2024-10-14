@@ -413,10 +413,16 @@ class Page3(BasePage, RedisListenerMixin):
     def handle_redis_message(self, channel, data):
         pass
 
-class Page4(BasePage):
+class Page4(BasePage, RedisListenerMixin):
     def __init__(self, app, *args, **kwargs):
         super(Page4, self).__init__(app, 'Page4', *args, **kwargs)
         self.logic = CommercialBreakerLogic()
+        self.logic2 = LogicController()
+        self.redis_queue = Queue()
+        self.start_redis_listener_thread(self.redis_queue)
+        self.after(100, self.process_redis_messages)
+
+        # Create variables for input and output directories
         self.input_path = ''
         self.output_path = ''
         self.progress_value = 0
@@ -431,7 +437,7 @@ class Page4(BasePage):
 
     def create_widgets(self):
         # Page title
-        self.add_label(self.main_container, "Commercial Breaker - Remove Commercials from Videos")
+        self.add_label(self.main_container, "Commercial Breaker")
 
         # Checkbox container
         checkbox_container = gui.HBox(style={'justify-content': 'flex-start', 'margin': '10px'})
@@ -484,7 +490,6 @@ class Page4(BasePage):
         self.next_button = self.add_button(self.main_container, "Continue", self.on_continue_button_click)
 
     def on_continue_button_click(self, widget):
-        self.logic2 = LogicController()
         self.logic2._broadcast_status_update("Idle")
         self.app.set_current_page('Page5')
 
@@ -557,7 +562,7 @@ class Page4(BasePage):
         self.execute_in_main_thread(self.progress_bar.set_value, self.progress_value)
 
     def update_status(self, text):
-        self.execute_in_main_thread(self.status_label.set_text, text)
+        self.logic2._broadcast_status_update(text)
 
     def _run_and_notify(self, task, done_callback, task_name, destructive_mode=False, low_power_mode=False, fast_mode=False, reset_callback=None):
         self.update_status(f"Started task: {task_name}")
