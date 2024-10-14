@@ -1,0 +1,30 @@
+version: '3'
+services:
+  commercialbreaker:
+    build: .
+    ports:
+      - "8081:8081"
+    environment:
+      - ENVIRONMENT=production
+      - ANIME_FOLDER=/app/anime
+      - BUMP_FOLDER=/app/bump
+      - SPECIAL_BUMP_FOLDER=/app/special_bump
+      - WORKING_FOLDER=/app/working
+    volumes:
+      - /your_local anime_folder/:/app/anime:rw
+      - /your_local_bump_folder/:/app/bump:rw
+      - /your_local_special_bump_folder/:/app/special_bump:rw
+      - /your_local_working_folder/:/app/working:rw
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

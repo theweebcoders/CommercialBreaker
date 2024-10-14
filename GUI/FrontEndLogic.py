@@ -12,7 +12,7 @@ class LogicController():
     def __init__(self):
         self.db_path = f'{config.network}.db'
         self._setup_database()
-        self.redis_client = redis.Redis(host='localhost', port=6379, db=0)  # Connect to Redis
+        self.redis_client = redis.Redis(host='redis', port=6379, db=0)  # Connect to Redis
         self.plex_servers = []
         self.plex_libraries = []
         self.filter_complete_event = threading.Event()
@@ -84,6 +84,7 @@ class LogicController():
     def login_to_plex(self):
         def login_thread():
             try:
+                print("Logging in to Plex...")
                 # Create PlexServerList instance, fetch token and populate dropdown
                 self._broadcast_status_update("Logging in to Plex...")
                 self.server_list = ToonamiTools.PlexServerList()

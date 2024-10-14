@@ -189,6 +189,7 @@ class Page1(BasePage, RedisListenerMixin):
         self.main_container.append(buttons_container)
 
     def login_to_plex(self, widget):
+        print("You pressed the login button")
         self.logic.login_to_plex()
         self.PlexManager._wait_for_servers()
         self.update_dropdown()
@@ -416,14 +417,14 @@ class Page3(BasePage, RedisListenerMixin):
 class Page4(BasePage, RedisListenerMixin):
     def __init__(self, app, *args, **kwargs):
         super(Page4, self).__init__(app, 'Page4', *args, **kwargs)
-        self.logic = CommercialBreakerLogic()
-        self.logic2 = LogicController()
+        self.cblogic = CommercialBreakerLogic()
+        self.logic = LogicController()
         self.redis_queue = Queue()
         self.start_redis_listener_thread(self.redis_queue)
         self.after(100, self.process_redis_messages)
 
         # Initialize the working folder and default directories
-        self.working_folder = self.logic2._get_data("working_folder")
+        self.working_folder = self.logic._get_data("working_folder")
         self.default_input_folder = f"{self.working_folder}/toonami_filtered"
         self.default_output_folder = f"{self.working_folder}/cut"
 
@@ -493,7 +494,7 @@ class Page4(BasePage, RedisListenerMixin):
         self.next_button = self.add_button(self.main_container, "Continue", self.on_continue_button_click)
 
     def on_continue_button_click(self, widget):
-        self.logic2._broadcast_status_update("Idle")
+        self.logic._broadcast_status_update("Idle")
         self.app.set_current_page('Page5')
 
     # Checkbox event handlers
@@ -516,7 +517,7 @@ class Page4(BasePage, RedisListenerMixin):
     def detect_commercials(self, widget):
         if self.validate_input_output_dirs():
             threading.Thread(target=self._run_and_notify, args=(
-                self.logic.detect_commercials,
+                self.cblogic.detect_commercials,
                 self.done_detect_commercials,
                 "Detect Black Frames",
                 False,
@@ -528,7 +529,7 @@ class Page4(BasePage, RedisListenerMixin):
     def cut_videos(self, widget):
         if self.validate_input_output_dirs():
             threading.Thread(target=self._run_and_notify, args=(
-                self.logic.cut_videos,
+                self.cblogic.cut_videos,
                 self.done_cut_videos,
                 "Cut Video",
                 self.destructive_mode
@@ -538,7 +539,7 @@ class Page4(BasePage, RedisListenerMixin):
         if not self.output_path_input.get_value():
             self.update_status("Please specify an output directory.")
             return
-        self.logic.delete_files(self.output_path_input.get_value())
+        self.cblogic.delete_files(self.output_path_input.get_value())
         self.update_status("Clean up done!")
 
     # Utility methods
@@ -567,7 +568,7 @@ class Page4(BasePage, RedisListenerMixin):
         print("Progress reset")
 
     def update_status(self, text):
-        self.logic2._broadcast_status_update(text)
+        self.logic._broadcast_status_update(text)
         #refresh the status label
         self.status_label.set_text(text)
 
