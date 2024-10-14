@@ -7,6 +7,9 @@ import config
 import threading
 import os
 import psutil
+import redis
+import json
+from queue import Queue
 
 
 class Page1(ttk.Frame):
@@ -15,12 +18,9 @@ class Page1(ttk.Frame):
         self.controller = controller
         self.logic = logic
         self.libraries_selected = 0
-        # Subscribe to the announcement from the logic module
-        self.logic.subscribe_to_new_server_choices(self.update_dropdown)
-        self.logic.subscribe_to_new_library_choices(self.update_anime_dropdown)
-        self.logic.subscribe_to_new_library_choices(self.update_toonami_dropdown)
-        self.logic.subscribe_to_status_updates(self.update_status_label)
-
+        self.redis_queue = Queue()
+        self.controller.start_redis_listener_thread(self.redis_queue)
+        self.after(100, self.process_redis_messages)
 
         label = ttk.Label(self, text="Login with Plex", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
@@ -89,20 +89,54 @@ class Page1(ttk.Frame):
         self.continue_button = ttk.Button(button_frame, text="Continue",
                                         command=self.on_continue_button_click)
         
+
+    def process_redis_messages(self):
+        while not self.redis_queue.empty():
+            message = self.redis_queue.get()
+            if message['channel'].decode('utf-8') == 'status_updates':
+                self.update_status_label(message['data'].decode('utf-8'))
+            elif message['channel'].decode('utf-8') == 'new_server_choices':
+                self.update_dropdown()
+            elif message['channel'].decode('utf-8') == 'new_library_choices':
+                self.update_library_dropdowns()
+        
+        self.after(100, self.process_redis_messages)
+
+        
     def update_status_label(self, status):
         self.status_label.config(text=f"Status: {status}")
 
     def update_dropdown(self):
-        """Callback to update the dropdown when new server choices are announced."""
-        self.plex_server_dropdown['values'] = self.logic.plex_servers
+        try:
+            # Attempt to get the message without blocking
+            message = self.redis_queue.get_nowait()
+            if message['channel'].decode('utf-8') == 'plex_servers':
+                # Decode and load data from the message
+                server_list = json.loads(message['data'].decode('utf-8'))
+                self.plex_server_dropdown['values'] = server_list
+            else:
+                # If the message is not the one we are looking for, put it back (or handle differently)
+                self.redis_queue.put(message)
+        except self.redis_queue.empty():
+            # If no messages, reschedule to try again in 100 milliseconds
+            self.after(100, self.update_dropdown)
+        
 
-    def update_anime_dropdown(self):
-        """Callback to update the dropdown when new library choices are announced."""
-        self.plex_anime_library_dropdown['values'] = self.logic.plex_libraries
-
-    def update_toonami_dropdown(self):
-        """Callback to update the dropdown when new library choices are announced."""
-        self.plex_library_dropdown['values'] = self.logic.plex_libraries
+    def update_library_dropdowns(self):
+        try:
+            # Attempt to get the message without blocking
+            message = self.redis_queue.get_nowait()
+            if message['channel'].decode('utf-8') == 'plex_libraries':
+                # Decode and load data from the message
+                library_list = json.loads(message['data'].decode('utf-8'))
+                self.plex_anime_library_dropdown['values'] = library_list
+                self.plex_library_dropdown['values'] = library_list
+            else:
+                # If the message is not the one we are looking for, put it back (or handle differently)
+                self.redis_queue.put(message)
+        except self.redis_queue.empty():
+            # If no messages, reschedule to try again in 100 milliseconds
+            self.after(100, self.update_library_dropdowns)
 
 
     #if libraries_selected == 2, pack the continue button and hid the skip button
@@ -243,7 +277,9 @@ class Page4(ttk.Frame):
         self.logic = logic
         self.root_window = parent
         self.dont_move = False  # Set to False by default
-        self.logic.subscribe_to_status_updates(self.update_status_label)
+        self.redis_queue = Queue()
+        self.controller.start_redis_listener_thread(self.redis_queue)
+        self.after(100, self.process_redis_messages)
 
 
         label = ttk.Label(self, text="Prepare Your Content:", font=("Helvetica", 24))
@@ -277,6 +313,14 @@ class Page4(ttk.Frame):
                                     command=self.on_continue_button_click)
 
         self.continue_button.pack(side="right", padx=5, pady=5)
+
+    def process_redis_messages(self):
+        while not self.redis_queue.empty():
+            message = self.redis_queue.get()
+            if message['channel'].decode('utf-8') == 'status_updates':
+                self.update_status_label(message['data'].decode('utf-8'))
+        
+        self.after(100, self.process_redis_messages)
 
     def on_continue_button_click(self):
         self.logic.on_continue_fourth()
@@ -537,7 +581,9 @@ class Page6(ttk.Frame):
         label.pack(pady=10, padx=10)
         # Pass both the instance of Page6 and the main controller (MainApplication) to LogicController
         self.logic = logic
-        self.logic.subscribe_to_status_updates(self.update_status_label)
+        self.redis_queue = Queue()
+        self.controller.start_redis_listener_thread(self.redis_queue)
+        self.after(100, self.process_redis_messages)
 
         what_toonami_version_label = ttk.Label(self, text="What Toonami Version are you making today?")
         what_toonami_version_label.pack(pady=3)
@@ -586,6 +632,14 @@ class Page6(ttk.Frame):
                                     command=self.on_continue_button_click)
         self.continue_button.pack(side="right", padx=5, pady=5)
 
+    def process_redis_messages(self):
+        while not self.redis_queue.empty():
+            message = self.redis_queue.get()
+            if message['channel'].decode('utf-8') == 'status_updates':
+                self.update_status_label(message['data'].decode('utf-8'))
+        
+        self.after(100, self.process_redis_messages)
+
     def on_continue_button_click(self):
         self.logic.on_continue_sixth()
         self.controller.show_frame("Page7")
@@ -605,7 +659,9 @@ class Page7(ttk.Frame):
         self.controller = controller
         # Pass both the instance of Page7 and the main controller (MainApplication) to LogicController
         self.logic = logic
-        self.logic.subscribe_to_status_updates(self.update_status_label)
+        self.redis_queue = Queue()
+        self.controller.start_redis_listener_thread(self.redis_queue)
+        self.after(100, self.process_redis_messages)
 
 
         label = ttk.Label(self, text="Make a new Toonami Channel:", font=("Helvetica", 24))
@@ -654,6 +710,14 @@ class Page7(ttk.Frame):
 
         self.continue_button.pack(side="right", padx=5, pady=5)
 
+    def process_redis_messages(self):
+        while not self.redis_queue.empty():
+            message = self.redis_queue.get()
+            if message['channel'].decode('utf-8') == 'status_updates':
+                self.update_status_label(message['data'].decode('utf-8'))
+        
+        self.after(100, self.process_redis_messages)
+
     def on_continue_button_click(self):
         self.logic.on_continue_seventh()
         self.controller.show_frame("Page8")
@@ -678,7 +742,9 @@ class Page8(ttk.Frame):
         self.controller = controller
         # Pass both the instance of Page8 and the main controller (MainApplication) to LogicController
         self.logic = logic
-        self.logic.subscribe_to_status_updates(self.update_status_label)
+        self.redis_queue = Queue()
+        self.controller.start_redis_listener_thread(self.redis_queue)
+        self.after(100, self.process_redis_messages)
 
         label = ttk.Label(self, text="Flex your Toonami Channel:", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
@@ -731,6 +797,14 @@ class Page8(ttk.Frame):
         # Centering the label in the window
         self.status_label.pack(pady=10, padx=10, fill='x')
 
+    def process_redis_messages(self):
+        while not self.redis_queue.empty():
+            message = self.redis_queue.get()
+            if message['channel'].decode('utf-8') == 'status_updates':
+                self.update_status_label(message['data'].decode('utf-8'))
+        
+        self.after(100, self.process_redis_messages)
+
     def update_status_label(self, status):
         self.status_label.config(text=f"Status: {status}")
 
@@ -768,6 +842,19 @@ class MainApplication(tk.Tk):
 
 
         self.show_frame("Page1")
+
+    def listen_for_redis_updates(self, redis_queue):
+        redis_client = self.logic.redis_client
+        pubsub = redis_client.pubsub()
+        pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices', 'plex_servers', 'plex_libraries')
+
+        for message in pubsub.listen():
+            if message['type'] == 'message':
+                redis_queue.put(message)
+
+    def start_redis_listener_thread(self, redis_queue):
+        threading.Thread(target=self.listen_for_redis_updates, args=(redis_queue,), daemon=True).start()
+        
 
     def set_theme(self):
         if self.dark_mode:
