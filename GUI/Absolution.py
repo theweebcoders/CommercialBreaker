@@ -432,9 +432,12 @@ class Page5(BasePage, RedisListenerMixin):
 
         # Continue button
         self.continue_button = gui.Button("Continue", width=200, height=30)
-        self.continue_button.onclick.do(lambda x: self.app.set_current_page('Page6'))
-        self.continue_button.onclick.do(lambda x: self.logic._broadcast_status_update("Idle"))
+        self.continue_button.onclick.do(self.on_continue_button_click)
         self.append(self.continue_button)
+
+    def on_continue_button_click(self, widget):
+        self.logic._broadcast_status_update("Idle")
+        self.app.set_current_page('Page6')
 
     def create_toonami_channel(self, widget):
         toonami_version = self.toonami_version_dropdown.get_value()
@@ -498,9 +501,12 @@ class Page6(BasePage, RedisListenerMixin):
 
         # Next button
         self.next_button = gui.Button("Next", width=200, height=30)
-        self.next_button.onclick.do(lambda x: self.app.set_current_page('Page7'))
-        self.next_button.onclick.do(lambda x: self.logic._broadcast_status_update("Idle"))
+        self.next_button.onclick.do(self.on_next_button_click)
         self.append(self.next_button)
+
+    def on_next_button_click(self, widget):
+        self.logic._broadcast_status_update("Idle")
+        self.app.set_current_page('Page7')
 
     def prepare_toonami_channel(self, widget):
         toonami_version = self.toonami_version_dropdown.get_value()
