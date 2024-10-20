@@ -519,6 +519,8 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 
 ### The WEB UI/Redis To do list
 
+- [ ] Allow redis state to be set via a argument when running main.py
+
 - [ ] The login to Plex button does not work in the docker container
 
 - [ ] Set Commercial Breaker status callback to use redis
