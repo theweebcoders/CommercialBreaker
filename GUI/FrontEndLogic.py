@@ -9,10 +9,20 @@ from queue import Queue
 
 
 class LogicController():
+    use_redis = True  # Set the flag before these sections
+
     def __init__(self):
         self.db_path = f'{config.network}.db'
         self._setup_database()
-        self.redis_client = redis.Redis(host='redis', port=6379, db=0)  # Connect to Redis
+        self.use_redis = LogicController.use_redis
+        if self.use_redis:
+            # If Redis is used, include the following
+            self.redis_client = redis.Redis(host='localhost', port=6379, db=0)  # Connect to Redis
+        else:
+            # Else
+            self._new_server_choice_subscribers = []
+            self._new_library_choice_subscribers = []
+            self._status_update_subscribers = []
         self.plex_servers = []
         self.plex_libraries = []
         self.filter_complete_event = threading.Event()
@@ -43,43 +53,61 @@ class LogicController():
             cursor.execute("SELECT value FROM app_data WHERE key = ?", (key,))
             result = cursor.fetchone()
             return result[0] if result else None
-        
+
     def _check_table_exists(self, table_name):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
             return cursor.fetchone() is not None
 
-    def _publish_status_update(self, channel, message):
-        self.redis_client.publish(channel, message)
+    if use_redis:
+        # If Redis is used, include the following
+        def _publish_status_update(self, channel, message):
+            self.redis_client.publish(channel, message)
 
-    def _broadcast_status_update(self, message):
-        """Publish status update to Redis channel."""
-        self.redis_client.publish('status_updates', message)
+        def _broadcast_status_update(self, message):
+            """Publish status update to Redis channel."""
+            self.redis_client.publish('status_updates', message)
 
-    def publish_plex_servers(self):
-        plex_servers_json = json.dumps(self.plex_servers)
-        self._publish_status_update('plex_servers', plex_servers_json)
+        def publish_plex_servers(self):
+            plex_servers_json = json.dumps(self.plex_servers)
+            self._publish_status_update('plex_servers', plex_servers_json)
 
-    def publish_plex_libaries(self):
-        plex_libraries_json = json.dumps(self.plex_libraries)
-        self._publish_status_update('plex_libraries', plex_libraries_json)
+        def publish_plex_libaries(self):
+            plex_libraries_json = json.dumps(self.plex_libraries)
+            self._publish_status_update('plex_libraries', plex_libraries_json)
 
-    def get_token(self):
-        plex_token = self._get_data("plex_token")
-        return plex_token
-        
+        def get_token(self):
+            plex_token = self._get_data("plex_token")
+            return plex_token
+    else:
+        # Else
+        def subscribe_to_new_server_choices(self, callback):
+            if callable(callback):
+                self._new_server_choice_subscribers.append(callback)
+
+        def subscribe_to_new_library_choices(self, callback):
+            if callable(callback):
+                self._new_library_choice_subscribers.append(callback)
+
+        def subscribe_to_status_updates(self, callback):
+            """Subscribe to status updates."""
+            if callable(callback):
+                self._status_update_subscribers.append(callback)
+
+        def _broadcast_status_update(self, message):
+            """Notify all subscribers about a status update."""
+            for subscriber in self._status_update_subscribers:
+                subscriber(message)
 
     def is_filtered_complete(self):
         return self.filter_complete_event.is_set()
-        
+
     def reset_filter_event(self):
         self.filter_complete_event.clear()
 
     def set_filter_event(self):
         self.filter_complete_event.set()
-
-
 
     def login_to_plex(self):
         def login_thread():
@@ -96,8 +124,13 @@ class LogicController():
                 self._broadcast_status_update("Plex servers fetched!")
 
                 # Announce that new server choices are available
-                self._publish_status_update("new_server_choices", "new_server_choices")
-                self.publish_plex_servers()
+                if self.use_redis:
+                    self._publish_status_update("new_server_choices", "new_server_choices")
+                    self.publish_plex_servers()
+                else:
+                    for subscriber in self._new_server_choice_subscribers:
+                        subscriber(self.plex_servers)
+                        print(self.plex_servers)
 
             except Exception as e:
                 print(f"An error occurred while logging in to Plex: {e}")
@@ -108,38 +141,66 @@ class LogicController():
     def on_server_selected(self, selected_server):
         self.fetch_libraries(selected_server)
 
-    def fetch_libraries(self, selected_server):
-        def fetch_libraries_thread():
-            try:
-                # Create PlexLibraryManager and PlexLibraryFetcher instances
-                self._broadcast_status_update(f"Fetching libraries for {selected_server}...")
-                plex_token = self.get_token()
-                if plex_token is None:
-                    raise Exception("Could not fetch Plex Token")
-                else:
-                    self.library_manager = ToonamiTools.PlexLibraryManager(selected_server, plex_token)
-                    plex_url = self.library_manager.run()
-                    self._set_data("plex_url", plex_url)
-                    if plex_url is None:
-                        raise Exception("Could not fetch Plex URL")
+ # There are Two versions of fetch_libraries depending on if it is with or without redis
+    if use_redis:
+        # If using Redis, include the following
+        def fetch_libraries(self, selected_server):
+            def fetch_libraries_thread():
+                try:
+                    # Create PlexLibraryManager and PlexLibraryFetcher instances
+                    self._broadcast_status_update(f"Fetching libraries for {selected_server}...")
+                    plex_token = self.get_token()
+                    if plex_token is None:
+                        raise Exception("Could not fetch Plex Token")
                     else:
+                        self.library_manager = ToonamiTools.PlexLibraryManager(selected_server, plex_token)
+                        plex_url = self.library_manager.run()
+                        self._set_data("plex_url", plex_url)
+                        if plex_url is None:
+                            raise Exception("Could not fetch Plex URL")
+                        else:
+                            self.library_fetcher = ToonamiTools.PlexLibraryFetcher(plex_url, plex_token)
+                            self.library_fetcher.run()
 
-                        self.library_fetcher = ToonamiTools.PlexLibraryFetcher(plex_url, plex_token)
-                        self.library_fetcher.run()
+                            # Update the list of libraries
+                            self.plex_libraries = self.library_fetcher.libraries
+                            self._broadcast_status_update("Libraries fetched successfully!")
 
-                        # Update the list of libraries
-                        self.plex_libraries = self.library_fetcher.libraries
-                        self._broadcast_status_update("Libraries fetched successfully!")
+                            # Announce that new library choices are available
+                            self._publish_status_update("new_library_choices", "new_library_choices")
+                            self.publish_plex_libaries()
 
-                        # announce that new library choices are available
-                        self._publish_status_update("new_library_choices", "new_library_choices")
-                        self.publish_plex_libaries()
+                except Exception as e:  # Replace with more specific exceptions if known
+                    print(f"An error occurred while fetching libraries: {e}")
 
-            except Exception as e:  # Replace with more specific exceptions if known
-                print(f"An error occurred while fetching libraries: {e}")
+            thread = threading.Thread(target=fetch_libraries_thread)
+            thread.start()
+    else:
+        # Else use the following
+        def fetch_libraries(self, selected_server):
+            def fetch_libraries_thread():
+                try:
+                    # Create PlexLibraryManager and PlexLibraryFetcher instances
+                    self._broadcast_status_update(f"Fetching libraries for {selected_server}...")
+                    self.library_manager = ToonamiTools.PlexLibraryManager(selected_server, self.server_list.plex_token)
+                    self.library_manager.run()
 
-        thread = threading.Thread(target=fetch_libraries_thread)
-        thread.start()
+                    self.library_fetcher = ToonamiTools.PlexLibraryFetcher(self.library_manager.plex_url, self.server_list.plex_token)
+                    self.library_fetcher.run()
+
+                    # Update the list of libraries
+                    self.plex_libraries = self.library_fetcher.libraries
+                    self._broadcast_status_update("Libraries fetched successfully!")
+
+                    # Announce that new library choices are available
+                    for subscriber in self._new_library_choice_subscribers:
+                        subscriber()
+
+                except Exception as e:  # Replace with more specific exceptions if known
+                    print(f"An error occurred while fetching libraries: {e}")
+
+            thread = threading.Thread(target=fetch_libraries_thread)
+            thread.start()
 
     def on_continue_first(self, selected_anime_library, selected_toonami_library, dizquetv_url):
         # Use the database value if the widget value starts with "eg. ", otherwise use the widget value
@@ -153,11 +214,21 @@ class LogicController():
         if dizquetv_url.startswith("eg. ") or not dizquetv_url:
             dizquetv_url = self._get_data("dizquetv_url")
 
+        ## if not redis use the following
+        plex_url = self.library_manager.plex_url
+        if plex_url.startswith("eg. ") or not plex_url:
+            plex_url = self._get_data("plex_url")
+
+        plex_token = self.library_manager.plex_token
+        if plex_token.startswith("eg. ") or not plex_token:
+                plex_token = self._get_data("plex_token")
+        else:
+            plex_url = self._get_data("plex_url")
+            plex_token = self._get_data("plex_token")
+
         # Save the fetched data to the database
         self._set_data("selected_anime_library", selected_anime_library)
         self._set_data("selected_toonami_library", selected_toonami_library)
-        plex_url = self._get_data("plex_url")
-        plex_token = self._get_data("plex_token")
         self._set_data("dizquetv_url", dizquetv_url)
 
         # Optional: Print values for verification
