@@ -6,15 +6,17 @@ import threading
 import time
 import json
 from queue import Queue
-
+import sys
 
 class LogicController():
-    use_redis = True  # Set the flag before these sections
+    # Initialize the use_redis class variable before the init method
+    use_redis = '--use_redis' in sys.argv or '--webui' in sys.argv or '--clydes' in sys.argv
+
 
     def __init__(self):
         self.db_path = f'{config.network}.db'
         self._setup_database()
-        self.use_redis = LogicController.use_redis
+        self.use_redis = self.__class__.use_redis  # Use class variable
         if self.use_redis:
             # If Redis is used, include the following
             self.redis_client = redis.Redis(host='localhost', port=6379, db=0)  # Connect to Redis

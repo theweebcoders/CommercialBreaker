@@ -10,6 +10,7 @@ def main():
     group.add_argument('--combreak', action='store_true', help="Run the standalone Commercial Breaker GUI")
     group.add_argument('--webui', action='store_true', help="Run the web interface")
     group.add_argument('--combreakcli', action='store_true', help="Run the CLI interface for the Commercial Breaker")
+    parser.add_argument('--use_redis', action='store_true', help="Use Redis for caching or message brokering")  # New argument
     args = parser.parse_args()
 
     # Default to TOM if no arguments are given
@@ -17,11 +18,11 @@ def main():
         args.tom = True
 
     if args.tom:
-        TOM()  # Run the GUI interface for TOM
+        TOM()  # The function can access use_redis if needed
     elif args.clydes:
-        clydes()  # Run the CLI interface
+        clydes()
     elif args.combreak:
-        CommercialBreaker()  # Run the Commercial Breaker GUI
+        CommercialBreaker()
     elif args.webui:
         Absolution()
     elif args.combreakcli:
