@@ -1,7 +1,8 @@
-version: '3'
 services:
   commercialbreaker:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "8081:8081"
     environment:
@@ -11,13 +12,40 @@ services:
       - SPECIAL_BUMP_FOLDER=/app/special_bump
       - WORKING_FOLDER=/app/working
     volumes:
-      - /your_local anime_folder/:/app/anime:rw
-      - /your_local_bump_folder/:/app/bump:rw
-      - /your_local_special_bump_folder/:/app/special_bump:rw
-      - /your_local_working_folder/:/app/working:rw
+      - type: bind
+        source: ${ANIME_FOLDER_PATH:-./data/anime}
+        target: /app/anime
+      - type: bind
+        source: ${BUMP_FOLDER_PATH:-./data/bump}
+        target: /app/bump
+      - type: bind
+        source: ${SPECIAL_BUMP_FOLDER_PATH:-./data/special_bump}
+        target: /app/special_bump
+      - type: bind
+        source: ${WORKING_FOLDER_PATH:-./data/working}
+        target: /app/working
+      - type: bind
+        source: ./ComBreak
+        target: /app/ComBreak
+        read_only: true
+      - type: bind
+        source: ./CLI
+        target: /app/CLI
+        read_only: true
+      - type: bind
+        source: ./GUI
+        target: /app/GUI
+        read_only: true
+      - type: bind
+        source: ./ToonamiTools
+        target: /app/ToonamiTools
+        read_only: true
+      - type: bind
+        source: ./Tools
+        target: /app/Tools
+        read_only: true
     depends_on:
       - redis
-    restart: unless-stopped
 
   redis:
     image: redis:latest
