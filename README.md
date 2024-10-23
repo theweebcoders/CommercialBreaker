@@ -525,8 +525,6 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 
 - [ ] Make changes since this will be a docker container
 
-    - [ ] removing folder entry page from web UI because it's going to be at a docker container so it won't need the folder browsing because the folder structure will be known and mapped when setting up the docker container but when I test I need to put in the folders already in the database through one of my other front ends
-
     - [ ] On the last page we are redoing how flex works as the webui will be for the docker containter and so we can just make the docker containers talk to eachother
 
 ### *Critical Issues*
