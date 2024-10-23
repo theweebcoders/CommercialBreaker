@@ -298,17 +298,23 @@ class Page3(BasePage, RedisListenerMixin):
 
         # Get Plex Timestamps button
         self.add_label(self.main_container, "Get Plex Timestamps")
-        self.get_plex_timestamps_button = self.add_button(self.main_container, "Get Plex Timestamps", self.logic.get_plex_timestamps)
+        self.get_plex_timestamps_button = self.add_button(self.main_container, "Get Plex Timestamps", self.get_plex_timestamps)
 
         # Move Filtered Shows button
         self.add_label(self.main_container, "Move Filtered Shows")
-        self.move_filtered_shows_button = self.add_button(self.main_container, "Move Filtered Shows", self.logic.move_filtered)
+        self.move_filtered_shows_button = self.add_button(self.main_container, "Move Filtered Shows", self.move_filtered)
 
         # Status label
         self.status_label = self.add_label(self.main_container, "Status: Idle")
 
         # Continue button
         self.continue_button = self.add_button(self.main_container, "Continue", self.on_continue_button_click)
+
+    def get_plex_timestamps(self, widget):
+        self.logic.get_plex_timestamps()
+
+    def move_filtered(self, widget):
+        self.logic.move_filtered()
 
     def on_continue_button_click(self, widget):
         self.logic._broadcast_status_update("Idle")
@@ -609,15 +615,15 @@ class Page5(BasePage, RedisListenerMixin):
 
         # Prepare Cut Anime for Lineup button
         self.add_label(self.main_container, "Prepare Cut Anime for Lineup")
-        self.prepare_cut_anime_button = self.add_button(self.main_container, "Prepare Cut Anime for Lineup", self.logic.prepare_cut_anime)
+        self.prepare_cut_anime_button = self.add_button(self.main_container, "Prepare Cut Anime for Lineup", self.prepare_cut_anime)
 
         # Add Special Bumps to Sheet button
         self.add_label(self.main_container, "Add Special Bumps to Sheet")
-        self.add_special_bumps_button = self.add_button(self.main_container, "Add Special Bumps to Sheet", self.logic.add_special_bumps)
+        self.add_special_bumps_button = self.add_button(self.main_container, "Add Special Bumps to Sheet", self.add_special_bumps)
 
         # Prepare Plex button
         self.add_label(self.main_container, "Prepare Plex")
-        self.prepare_plex_button = self.add_button(self.main_container, "Prepare Plex", self.logic.create_prepare_plex)
+        self.prepare_plex_button = self.add_button(self.main_container, "Prepare Plex", self.create_prepare_plex)
 
         # Create Toonami Channel button
         self.add_label(self.main_container, "Create Toonami Channel")
@@ -629,6 +635,18 @@ class Page5(BasePage, RedisListenerMixin):
         # Continue button
         self.continue_button = self.add_button(self.main_container, "Continue", self.on_continue_button_click)
 
+    #wrapper for the prepare_cut_anime method
+    def prepare_cut_anime(self, widget):
+        self.logic.prepare_cut_anime()
+
+    #wrapper for the add_special_bumps method
+    def add_special_bumps(self, widget):
+        self.logic.add_special_bumps()
+
+    #wrapper for create_prepare_plex method
+    def create_prepare_plex(self, widget):
+        self.logic.create_prepare_plex()
+        
     def on_continue_button_click(self, widget):
         self.logic._broadcast_status_update("Idle")
         self.app.set_current_page('Page6')
