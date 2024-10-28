@@ -11,15 +11,20 @@ import sys
 class LogicController():
     # Initialize the use_redis class variable before the init method
     use_redis = '--use_redis' in sys.argv or '--webui' in sys.argv or '--clydes' in sys.argv
+    docker = '--docker' in sys.argv
 
 
     def __init__(self):
         self.db_path = f'{config.network}.db'
         self._setup_database()
         self.use_redis = self.__class__.use_redis  # Use class variable
+        self.docker = self.__class__.docker
         if self.use_redis:
             # If Redis is used, include the following
-            self.redis_client = redis.Redis(host='localhost', port=6379, db=0)  # Connect to Redis
+            if self.docker:
+                self.redis_client = redis.Redis(host='redis', port=6379, db=0)  # Connect to Redis
+            else:
+                self.redis_client = redis.Redis(host='localhost', port=6379, db=0)
         else:
             # Else
             self._new_server_choice_subscribers = []
@@ -185,8 +190,9 @@ class LogicController():
                     # Create PlexLibraryManager and PlexLibraryFetcher instances
                     self._broadcast_status_update(f"Fetching libraries for {selected_server}...")
                     self.library_manager = ToonamiTools.PlexLibraryManager(selected_server, self.server_list.plex_token)
-                    self.library_manager.run()
-
+                    plex_url = self.library_manager.run()
+                    self._set_data("plex_url", plex_url)  # Add this line
+                    
                     self.library_fetcher = ToonamiTools.PlexLibraryFetcher(self.library_manager.plex_url, self.server_list.plex_token)
                     self.library_fetcher.run()
 
@@ -206,7 +212,6 @@ class LogicController():
 
     def on_continue_first(self, selected_anime_library, selected_toonami_library, dizquetv_url):
         # Use the database value if the widget value starts with "eg. ", otherwise use the widget value
-
         if selected_anime_library.startswith("eg. ") or not selected_anime_library:
             selected_anime_library = self._get_data("selected_anime_library")
 
@@ -215,26 +220,19 @@ class LogicController():
 
         if dizquetv_url.startswith("eg. ") or not dizquetv_url:
             dizquetv_url = self._get_data("dizquetv_url")
-
-        ## if not redis use the following
-        plex_url = self.library_manager.plex_url
-        if plex_url.startswith("eg. ") or not plex_url:
-            plex_url = self._get_data("plex_url")
-
-        plex_token = self.library_manager.plex_token
-        if plex_token.startswith("eg. ") or not plex_token:
-                plex_token = self._get_data("plex_token")
-        else:
-            plex_url = self._get_data("plex_url")
-            plex_token = self._get_data("plex_token")
-
+        
         # Save the fetched data to the database
         self._set_data("selected_anime_library", selected_anime_library)
         self._set_data("selected_toonami_library", selected_toonami_library)
         self._set_data("dizquetv_url", dizquetv_url)
 
         # Optional: Print values for verification
-        print(selected_anime_library, selected_toonami_library, plex_url, plex_token, dizquetv_url)
+        print("Saved values:")
+        print(f"Anime Library: {selected_anime_library}")
+        print(f"Toonami Library: {selected_toonami_library}")
+        print(f"Plex URL: {self._get_data('plex_url')}")
+        print(f"DizqueTV URL: {dizquetv_url}")
+        
         self._broadcast_status_update("Idle")
 
     def on_continue_second(self, selected_anime_library, selected_toonami_library, plex_url, plex_token, dizquetv_url):

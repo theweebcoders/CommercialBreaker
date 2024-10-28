@@ -72,4 +72,4 @@ ENV ANIME_FOLDER=/app/anime \
 EXPOSE 8081
 
 # Command to run the auto-folder setup script and the application
-CMD ["sh", "-c", "python3 AutoDockerFolders.py && python3 main.py --webui"]
+CMD ["sh", "-c", "python3 AutoDockerFolders.py && python3 main.py --webui --docker"]

@@ -10,15 +10,16 @@ def main():
     group.add_argument('--combreak', action='store_true', help="Run the standalone Commercial Breaker GUI")
     group.add_argument('--webui', action='store_true', help="Run the web interface")
     group.add_argument('--combreakcli', action='store_true', help="Run the CLI interface for the Commercial Breaker")
-    parser.add_argument('--use_redis', action='store_true', help="Use Redis for caching or message brokering")  # New argument
+    parser.add_argument('--use_redis', action='store_true', help="Use Redis for caching or message brokering")
+    parser.add_argument('--docker', action='store_true', help="Do not use this unless you are running the application in a Docker container")
     args = parser.parse_args()
 
-    # Default to TOM if no arguments are given
-    if not (args.clydes or args.combreak or args.webui or args.combreakcli):
+    # Set TOM as default if no other interface is specified
+    if not any([args.clydes, args.combreak, args.webui, args.combreakcli]):
         args.tom = True
 
     if args.tom:
-        TOM()  # The function can access use_redis if needed
+        TOM()
     elif args.clydes:
         clydes()
     elif args.combreak:
