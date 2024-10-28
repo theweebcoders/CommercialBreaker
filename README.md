@@ -517,85 +517,46 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 
 ## **Immediate Attention**
 
-### The WEB UI/Redis To do list
+### Critical Issues
+- [ ] Resolve lineup V8 issue causing unused triple bump to appear at top
+- [ ] Fix requirement to run "continue from last" twice for continued Toonami channel
 
-- [ ] Set Commercial Breaker status callback to use redis
+### **Web UI Issues**
+- [ ] Add dark mode to WebUI
 
-- [ ] Set filter events using redis
+### **Clydes Improvements**
+- [ ] Add comma-separated format instruction for show exclusion list
+- [ ] Enhance number input for show exclusion
 
-- [ ] Make changes since this will be a docker container
+## **Testing Requirements**
 
-    - [ ] On the last page we are redoing how flex works as the webui will be for the docker containter and so we can just make the docker containers talk to eachother
+### *General Testing*
+- [ ] Test edge case lineup generation logic
 
-### *Critical Issues*
+## **Ongoing Tasks**
+- [ ] Add how to use Clydes to the readme
+- [ ] Make it so Clydes can rerun prepare show cut 
+- [ ] Bug Testing
+    - [ ] Create automated tests for each tool
+    - [ ] Test on Linux
+    - [x] Test on Mac
 
-### **Known Issues**
-
+## **Known Issues**
 - [ ] Anime added via Toonami Checker and not cut will cause issues with the lineup
-    - This is because multibump reorderd added the bump assumeing the Anime will exist. This will cause the multibump to be added but no anime will follow it. It also can cause issues with NS2 to NS3 logic causing disorganized bump structure.
-    - **Possible Fixes**
-    - When Running cut rerun multibump reorderd based on cut anime?
+    - This is because multibump reordered added the bump assuming the Anime will exist
+    - This causes the multibump to be added but no anime will follow it
+    - Can cause issues with NS2 to NS3 logic causing disorganized bump structure
+    - **Possible Fix:** When running cut, rerun multibump reordered based on cut anime
 - [ ] Still a lot of broken connections
 - [ ] If you add special bumps to a list it makes a _bonus table and it's never used
 - [ ] Adding flex assumes you are remoting into a server with a docker container for dizquetv
-    - [ ] Allow for a local json manipulation
-- [ ] Add to the readme to move the cut anime and bumps to the toonami library but not just here in the readme like actual instructions
-
-  
-## **Ongoing Tasks**
-
-- [ ] Add how to use Clydes to the readme
-- [ ] Make it so Clydes can rerun prepare show cut 
-- [ ] Create dockerized version of the program with clydes as the interface
-- [ ] Bug Testing
-    - [ ] Create test cases for each tool
-    - [ ] Test on Linux
-    - [x] Test on Mac
-    
-### General Tasks
-
-### Content Management
-  
-## **Upcoming Tasks**
-
-### Generalized Improvements
-
-- [ ] Find an alternative to DizqueTV that allows for mid episode flex or add it to DizqueTV myself
-- [ ] Add episode descriptions to cut Anime
-- [ ] Add boolean "Allow Disjointed Lineup" set to False by default
-  - [ ] If False, when you reach a bump that does not connect to another bump, rollback, try again, and add to "Broken Connections" table.
-    - [ ] When no bumps can be added stop there and write the "Broken Connections" table to database
-
-### GUI Enhancements
-
-- [ ] Display status updates within the GUI
-    - [ ] Use something like status callback
-    
-- [ ] Develop a web-based UI and put the whole program in a docker container
-  
-### Additional Features
-
-- [x] Make "Toonami" varible so it can be changed to whatever you want eg Disney Channel
-    - [ ] Do more testing but allow this to be adjusted in the gui along with IMDB URL
-
-### Documentation & Compatibility
-
-- [ ] Ensure Linux compatibility
+    - [ ] Allow for local json manipulation
+- [ ] Add to the readme to move the cut anime and bumps to the toonami library
 
 ## **Long-Term Goals**
-
-- [ ] Justify spending more than 2 years of man hours including six months of my own time on a project that will only be used by a handful of people and cannot be monetized in any way.
+- [ ] Justify spending more than 2 years of man hours including six months of my own time on a project that will only be used by a handful of people and cannot be monetized in any way
 - [ ] Create a video tutorial
-
-## **Possible Future Considerations**
-
 - [ ] Complete project in my lifetime
-
-## **Low-Priority Tasks**
-
-### When Procrastination Strikes
-
-- [ ] Enhance UI aesthetics
 
 # FAQs
 
