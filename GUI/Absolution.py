@@ -580,11 +580,14 @@ class Page4(BasePage, RedisListenerMixin):
 
     def _run_and_notify(self, task, done_callback, task_name, destructive_mode=False, low_power_mode=False, fast_mode=False, reset_callback=None):
         self.update_status(f"Started task: {task_name}")
+        current_input_path = self.input_path_input.get_value()
+        current_output_path = self.output_path_input.get_value()
+        
         if task_name == "Detect Black Frames":
-            task(self.input_path, self.output_path, self.update_progress, self.update_status, low_power_mode, fast_mode, reset_callback)
+            task(current_input_path, current_output_path, self.update_progress, self.update_status, low_power_mode, fast_mode, reset_callback)
         elif task_name == "Cut Video":
             self.reset_progress_bar()
-            task(self.input_path, self.output_path, self.update_progress, self.update_status, destructive_mode)
+            task(current_input_path, current_output_path, self.update_progress, self.update_status, destructive_mode)
         self.update_status(f"Finished task: {task_name}")
         done_callback(task_name)
 
