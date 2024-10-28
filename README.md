@@ -518,7 +518,6 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 ## **Immediate Attention**
 
 ### Critical Issues
-- [ ] Resolve lineup V8 issue causing unused triple bump to appear at top
 - [ ] Fix requirement to run "continue from last" twice for continued Toonami channel
 
 ### **Web UI Issues**
