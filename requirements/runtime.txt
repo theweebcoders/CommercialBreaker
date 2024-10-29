@@ -10,7 +10,9 @@ psutil>5.9.4
 sv_ttk>=2.5.5
 ttkthemes>=3.2.2
 unidecode>=1.3.7
-argeparse>=1.4.0
-windows-curses>=2.3.2
+paramiko>=2.7.2
+redis>=4.0.0
+argparse>=1.4.0
 remi>=2022.7.27
-# ffmpeg is this used?
+opencv-python-headless>=4.5.5.64
+ffmpeg-python>=0.2.0

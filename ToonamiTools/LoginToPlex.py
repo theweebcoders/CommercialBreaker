@@ -89,6 +89,7 @@ class PlexLibraryManager:
 
     def run(self):
         self.GetPlexDetails()
+        return self.plex_url
 
 
 class PlexLibraryFetcher:

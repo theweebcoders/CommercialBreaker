@@ -194,8 +194,9 @@ class CommercialBreakerCLI:
         """Notify that the commercials have been detected."""
         print(task_name, "Done!")
 
-    def run(self):
+    def commercial_breaker(self):
         # Display initial folder settings
+
         print("Commercial Breaker will use the following folders:")
         print(f"Anime to be cut: {self.input_path}")
         print(f"Cut anime: {self.output_path}")
@@ -247,8 +248,14 @@ class CommercialBreakerCLI:
         print("We are done processing the anime. Would you like to delete the .txt files in the output directory? (y/n): ")
         if self.confirm("Would you like to delete the .txt files in the output directory? (y/n): "):
             self.delete_txt_files()
+
+    def run(self):
+        if self.confirm("Would you like to run Commercial Breaker? This process can take a long time to complete. (y/n): "):
+            self.commercial_breaker()
+            
 def main():
-    CommercialBreakerCLI().run()
-    
+    cli = CommercialBreakerCLI()
+    cli.run()
+
 if __name__ == "__main__":
     main()

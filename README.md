@@ -50,6 +50,8 @@ All tools are accessible via the GUI (graphical user interface), making them eas
 
 This application requires Python 3.11 and Git to be installed on your system. If not already installed, download and install [Python](https://www.python.org/downloads/) and [Git](https://git-scm.com/downloads). You also need an active internet connection to use the apps as they connect to IMDB. You can see the URLs in the config file.
 
+**If you plan on running CommercialBreaker via Clydes or Absolution, you will also need to have a redis server running or use the docker compose and that will start a redis server for you.**
+
 # How to Install
 
 Open a terminal and type the following commands one at a time: Each line is its own command
@@ -75,13 +77,63 @@ Download ffmpeg, ffplay, and ffprobe from https://www.ffmpeg.org/ and put them i
 
 **Note:** If updateing from a previous version please delete config.py and run cp example-config.py config.py again
 
-# How to Run
+
+# How to Run (TOM)
 
 In the terminal window, type the following command:
 
 ```bash
 python3 main.py --tom
 ```
+
+This will start the TOM interface. You can now use the TOM interface to set up your Toonami channel.
+
+# How to set up the Docker Container
+
+If you want to run this in a docker container, you will need to set up the environment variables in the .env file. You can see an example of this in the example.env file already in the folder. See the **How to Use (Absolution)** section for more info on this and how to, well, use Absolution.
+
+To build the docker container, type the following command in the terminal:
+
+```bash
+docker compose up -d
+```
+
+This will build the docker container and start the web interface. As well as the redis server. You can access the web interface by opening a web browser and navigating to http://localhost:8081 unless you are running this on a server. In that case, you will need to replace "localhost" with the IP address of the server.
+
+## Alternative Run options
+
+There is more than one way to run CommercialBreaker.
+
+ Although we think TOM is the easiest way to run the program, we understand that some users may prefer to run the program from the command line or via a web interface. 
+
+ These are best if you are running the program on a server or in docker container.
+
+### Command Line (Clydes)
+
+To run the program from the command line, type the following command:
+
+```bash
+python3 main.py --clydes
+```
+
+This is a question-based interface that will guide you through the process of setting up your Toonami channel.
+
+### Web Interface (Absolution)
+
+To run the program via a web interface, type the following command:
+
+```bash
+python3 main.py --webui
+```
+
+This will start a web server on your local machine. You can access the web interface by opening a web browser and 
+navigating to 
+
+http://localhost:8081
+
+**Note: If you are running the program on a server, you will need to replace "localhost" with the IP address of the server.**
+
+**Reminder: If you are running CommercialBreaker via Clydes or Absolution, you will also need to have a redis server running.**
 
 # How to name your files
 
@@ -188,9 +240,9 @@ Pattern Key:
 # Support your local Mad Scientist
 <a href="https://www.buymeacoffee.com/tim000x3" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="41" width="174"></a>
 
-# How to use
+# How to use TOM
 
-TOM (Toonami Operations Module) is the GUI for the CommercialBreaker and Toonami Tools. It is the cockpit of your very own Toonami broadcast! It is the interface for all the tools in this pack. It is the bridge of the Absolution. It is the command center of your Toonami invasion. It is the... you get the idea. It's the GUI.
+TOM (Toonami Operations Module) is the default GUI for the CommercialBreaker and Toonami Tools. It is the cockpit of your very own Toonami broadcast! It is the interface for all the tools in this pack. It is the bridge of the Absolution. It is the command center of your Toonami invasion. It is the... you get the idea. It's the GUI.
 
 Welcome to the cockpit of your very own Toonami broadcast! Main.py is not just a script; it's the TOM (Toonami Operations Module) that pilots your anime universe. Guided by a sleek Tkinter GUI, it's your interactive dashboard for navigating through the asteroid field of options and commands. Like TOM communicating with the Absolution's AI, SARA, this script serves as your interface for rallying the troops—each specialized tool in your arsenal—to execute their designated missions.
 
@@ -358,6 +410,50 @@ Just enter the channel number you want to add Flex to as well as the duration of
 
 Just click the "Add Flex" button it will automatically add Flex to your channel. It will take a few minutes, but when it's done, you will see there is now Flex between the to ads and back bumps.
 
+# How to use Absolution
+
+Absolution is a web interface for the CommercialBreaker and Toonami Tools. It is the bridge of the Absolution. It is the command center of your Toonami invasion. It is the... you get the idea. It's the Web Interface.
+
+The good news is that the Absolution is mostly the same as TOM. So instead of repeating everything, we are just going to tell you what's different.
+
+## The Differences
+
+The first thing you to undertand is this is a web interface and it's intended to be run in a docker container. If you are not running this in a docker container you're gonna have a bad time. The reasons will become clear as we go on.
+
+### The web interface will not ask you for your folders
+
+The webui is intended to be run in a docker container. This means that the folders are going to be mounted to the container. 
+
+So how does it know where your folders are? Well, you need to set some environment variables.
+
+You need to set the following environment variables:
+
+    ANIME_FOLDER - This is the folder that contains your Anime
+    BUMPS_FOLDER - This is the folder that contains your bumps
+    SPECIAL_BUMPS_FOLDER - This is the folder that contains your special bumps
+    WORKING_FOLDER - This is the folder that we will use for cutting your Anime
+
+You set these variables in the .env file in the CommercialBreaker folder. You can see an example of this in the example.env file already in the folder.
+
+## The web interface is incomplete
+
+### Logining into Plex (Absolution)
+
+When you click the "Login with Plex" button, a new window will open to log in to Plex... unless you are running this in a docker container. If you are running this in a docker container, you will need to look at the log and find the URL to log in to Plex. You will need to copy this URL and paste it into a browser. We are working on a fix for this, but for now, this is how you do it.
+
+### Flex
+
+The web interface is not complete at this current time it cannot add Flex to your channel. We are working on this and hope to have it done soon.
+
+# How to use Clydes
+
+Clydes is a command-line interface for the CommercialBreaker and Toonami Tools. It is the bridge of the Absolution. It is the command center of your Toonami invasion. It is the... you get the idea. It's the CLI.
+
+Clydes is a question-based interface answer the questions and it will guide you through the process of setting up your Toonami channel.
+
+To be honest, we don't recommend you use this. Not that it's bad, it's just that TOM or Absolution are much easier to use but we know some people think the command line makes them look cool. They use arch btw.
+
+
 # How it works
 
 ## Cut videos at Commercial breaks (AKA CommercialBreaker)
@@ -505,74 +601,45 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 
 ## **Immediate Attention**
 
-### *Critical Issues*
+### Critical Issues
+- [ ] Fix requirement to run "continue from last" twice for continued Toonami channel
 
-### **Known Issues**
+### **Web UI Issues**
+- [ ] Add dark mode to WebUI
 
+### **Clydes Improvements**
+- [ ] Add comma-separated format instruction for show exclusion list
+- [ ] Enhance number input for show exclusion
+
+## **Testing Requirements**
+
+### *General Testing*
+- [ ] Test edge case lineup generation logic
+
+## **Ongoing Tasks**
+- [ ] Add how to use Clydes to the readme
+- [ ] Make it so Clydes can rerun prepare show cut 
+- [ ] Bug Testing
+    - [ ] Create automated tests for each tool
+    - [ ] Test on Linux
+    - [x] Test on Mac
+
+## **Known Issues**
 - [ ] Anime added via Toonami Checker and not cut will cause issues with the lineup
-    - This is because multibump reorderd added the bump assumeing the Anime will exist. This will cause the multibump to be added but no anime will follow it. It also can cause issues with NS2 to NS3 logic causing disorganized bump structure.
-    - **Possible Fixes**
-    - When Running cut rerun multibump reorderd based on cut anime?
+    - This is because multibump reordered added the bump assuming the Anime will exist
+    - This causes the multibump to be added but no anime will follow it
+    - Can cause issues with NS2 to NS3 logic causing disorganized bump structure
+    - **Possible Fix:** When running cut, rerun multibump reordered based on cut anime
 - [ ] Still a lot of broken connections
 - [ ] If you add special bumps to a list it makes a _bonus table and it's never used
 - [ ] Adding flex assumes you are remoting into a server with a docker container for dizquetv
-    - [ ] Allow for a local json manipulation
-- [ ] Add to the readme to move the cut anime and bumps to the toonami library but not just here in the readme like actual instructions
-
-  
-## **Ongoing Tasks**
-
-- [ ] Make it so Clydes can rerun prepare show cut 
-- [ ] Create commercial breaker inteface for Clydes
-- [ ] Bug Testing
-    - [ ] Create test cases for each tool
-    - [ ] Test on Linux
-    - [x] Test on Mac
-    
-### General Tasks
-
-### Content Management
-  
-## **Upcoming Tasks**
-
-### Generalized Improvements
-
-- [ ] Find an alternative to DizqueTV that allows for mid episode flex or add it to DizqueTV myself
-- [ ] Add episode descriptions to cut Anime
-- [ ] Add boolean "Allow Disjointed Lineup" set to False by default
-  - [ ] If False, when you reach a bump that does not connect to another bump, rollback, try again, and add to "Broken Connections" table.
-    - [ ] When no bumps can be added stop there and write the "Broken Connections" table to database
-
-### GUI Enhancements
-
-- [ ] Display status updates within the GUI
-    - [ ] Use something like status callback
-    
-- [ ] Develop a web-based UI and put the whole program in a docker container
-  
-### Additional Features
-
-- [x] Make "Toonami" varible so it can be changed to whatever you want eg Disney Channel
-    - [ ] Do more testing but allow this to be adjusted in the gui along with IMDB URL
-
-### Documentation & Compatibility
-
-- [ ] Ensure Linux compatibility
+    - [ ] Allow for local json manipulation
+- [ ] Add to the readme to move the cut anime and bumps to the toonami library
 
 ## **Long-Term Goals**
-
-- [ ] Justify spending more than 2 years of man hours including six months of my own time on a project that will only be used by a handful of people and cannot be monetized in any way.
+- [ ] Justify spending more than 2 years of man hours including six months of my own time on a project that will only be used by a handful of people and cannot be monetized in any way
 - [ ] Create a video tutorial
-
-## **Possible Future Considerations**
-
 - [ ] Complete project in my lifetime
-
-## **Low-Priority Tasks**
-
-### When Procrastination Strikes
-
-- [ ] Enhance UI aesthetics
 
 # FAQs
 

@@ -7,6 +7,9 @@ import config
 import threading
 import os
 import psutil
+import redis
+import json
+from queue import Queue
 
 
 class Page1(ttk.Frame):
@@ -15,22 +18,31 @@ class Page1(ttk.Frame):
         self.controller = controller
         self.logic = logic
         self.libraries_selected = 0
-        # Subscribe to the announcement from the logic module
-        self.logic.subscribe_to_new_server_choices(self.update_dropdown)
-        self.logic.subscribe_to_new_library_choices(self.update_anime_dropdown)
-        self.logic.subscribe_to_new_library_choices(self.update_toonami_dropdown)
-        self.logic.subscribe_to_status_updates(self.update_status_label)
 
+# do something to pick one
+        # Start the Redis listener thread
+        # -------------------------------
+        if LogicController.use_redis:
+            self.redis_queue = Queue()
+            self.controller.start_redis_listener_thread(self.redis_queue)
+            self.after(100, self.process_redis_messages)
+            # -------------------------------
+        # Pubsub stuff
+        # ----------------
+        else:
+            self.logic.subscribe_to_new_server_choices(self.update_dropdown)
+            self.logic.subscribe_to_new_library_choices(self.update_anime_dropdown)
+            self.logic.subscribe_to_new_library_choices(self.update_toonami_dropdown)
+            self.logic.subscribe_to_status_updates(self.update_status_label)
+            # ----------------
 
         label = ttk.Label(self, text="Login with Plex", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
 
-        # Login button
         login_with_plex_button = ttk.Button(self, text="Login with Plex",
                                             command=self.logic.login_to_plex)
         login_with_plex_button.pack(pady=3)
 
-        # Drop down menu for plex servers
         self.plex_server_name = tk.StringVar()
         self.plex_server_name.set("Select a Plex Server")
         self.plex_server_dropdown = ttk.Combobox(self)
@@ -38,85 +50,117 @@ class Page1(ttk.Frame):
         self.plex_server_dropdown.set("Select a Plex Server")
         self.plex_server_dropdown.pack(pady=3)
 
-        # Drop down menu for selecting anime library
         self.plex_anime_library_name = tk.StringVar()
         self.plex_anime_library_name.set("Select your Anime Library")
         self.plex_anime_library_dropdown = ttk.Combobox(self, textvariable=self.plex_anime_library_name)
-        #when you select an anime library libraries += 1
         self.plex_anime_library_dropdown.bind("<<ComboboxSelected>>", self.add_1_to_libraries_selected)
         self.plex_anime_library_dropdown.set("Select your Anime Library")
         self.plex_anime_library_dropdown.pack(pady=3)
 
-        # Drop down menu for selecting toonami library
         self.plex_library_name = tk.StringVar()
         self.plex_library_name.set("Select your Toonami Library")
         self.plex_library_dropdown = ttk.Combobox(self, textvariable=self.plex_library_name)
         self.plex_library_dropdown['values'] = ("Select your Toonami Library")
-        #when you select a toonami library libraries += 1
         self.plex_library_dropdown.bind("<<ComboboxSelected>>", self.add_1_to_libraries_selected)
         self.plex_library_dropdown.set("Select your Toonami Library")
         self.plex_library_dropdown.pack(pady=3)
 
-        # Ask for DizqueTV URL
         dizquetv_url_label = ttk.Label(self, text="dizqueTV URL:")
         dizquetv_url_label.pack(pady=3)
         self.dizquetv_url_entry = ttk.Entry(self)
         self.dizquetv_url_entry.insert(0, "eg. http://localhost:17685")
         self.dizquetv_url_entry.pack(pady=3)
 
-        # Status label
         self.status_label = tk.Label(self, text="Status: Idle",
                                      foreground='darkgray',
                                      font=('Arial', 16, 'bold'),
                                      relief='flat')
-        # Centering the label in the window
         self.status_label.pack(pady=10, padx=10, fill='x')
 
-        # Create a new frame to hold the buttons
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
 
-        # Dark mode toggle button
         toggle_button = ttk.Button(button_frame, text="Toggle Dark Mode", command=self.controller.toggle_theme)
         toggle_button.pack(side="left", padx=5, pady=5)
 
-        # Initially, pack the 'Skip' button into the button_frame
         self.skip_button = ttk.Button(button_frame, text="Skip",
                                         command=lambda: controller.show_frame("Page2"))
         self.skip_button.pack(side="right", padx=5, pady=5)
 
-        # Create the 'Continue' button but don't pack it yet
         self.continue_button = ttk.Button(button_frame, text="Continue",
                                         command=self.on_continue_button_click)
-        
+ 
+ # do something to pick one       
+    # Process messages from the Redis queue
+    # -------------------------------------
+    if LogicController.use_redis:
+        def process_redis_messages(self):
+            while not self.redis_queue.empty():
+                message = self.redis_queue.get()
+                if message['channel'].decode('utf-8') == 'status_updates':
+                    self.update_status_label(message['data'].decode('utf-8'))
+                elif message['channel'].decode('utf-8') == 'new_server_choices':
+                    self.update_dropdown()
+                elif message['channel'].decode('utf-8') == 'new_library_choices':
+                    self.update_library_dropdowns()
+            
+            self.after(100, self.process_redis_messages)
+
+        def update_dropdown(self, *args, **kwargs):
+            try:
+                message = self.redis_queue.get_nowait()
+                if message['channel'].decode('utf-8') == 'plex_servers':
+                    server_list = json.loads(message['data'].decode('utf-8'))
+                    self.plex_server_dropdown['values'] = server_list
+                else:
+                    self.redis_queue.put(message)
+            except self.redis_queue.empty():
+                self.after(100, self.update_dropdown)
+            
+
+        def update_library_dropdowns(self, *args, **kwargs):
+            try:
+                message = self.redis_queue.get_nowait()
+                if message['channel'].decode('utf-8') == 'plex_libraries':
+                    library_list = json.loads(message['data'].decode('utf-8'))
+                    self.plex_anime_library_dropdown['values'] = library_list
+                    self.plex_library_dropdown['values'] = library_list
+                else:
+                    self.redis_queue.put(message)
+            except self.redis_queue.empty():
+                self.after(100, self.update_library_dropdowns)
+
+# ---------------------------------------------------------------------
+
+
+# pubsub stuff
+# ----------------
+    else:
+        def update_dropdown(self, *args, **kwargs):
+            """Callback to update the dropdown when new server choices are announced."""
+            self.plex_server_dropdown['values'] = self.logic.plex_servers
+
+        def update_anime_dropdown(self, *args, **kwargs):
+            """Callback to update the dropdown when new library choices are announced."""
+            self.plex_anime_library_dropdown['values'] = self.logic.plex_libraries
+
+        def update_toonami_dropdown(self, *args, **kwargs):
+            """Callback to update the dropdown when new library choices are announced."""
+            self.plex_library_dropdown['values'] = self.logic.plex_libraries
+# ---------------------------------
+
+
     def update_status_label(self, status):
         self.status_label.config(text=f"Status: {status}")
 
-    def update_dropdown(self):
-        """Callback to update the dropdown when new server choices are announced."""
-        self.plex_server_dropdown['values'] = self.logic.plex_servers
-
-    def update_anime_dropdown(self):
-        """Callback to update the dropdown when new library choices are announced."""
-        self.plex_anime_library_dropdown['values'] = self.logic.plex_libraries
-
-    def update_toonami_dropdown(self):
-        """Callback to update the dropdown when new library choices are announced."""
-        self.plex_library_dropdown['values'] = self.logic.plex_libraries
-
-
-    #if libraries_selected == 2, pack the continue button and hid the skip button
     def show_continue_button(self):
         if self.libraries_selected == 2:
             self.skip_button.pack_forget()
             self.continue_button.pack(side="right", padx=5, pady=5)
 
-
     def add_1_to_libraries_selected(self, event):
         self.libraries_selected += 1
         self.show_continue_button()
-
-
 
     def on_continue_button_click(self):
         selected_anime_library = self.plex_anime_library_dropdown.get()
@@ -132,7 +176,6 @@ class Page2(ttk.Frame):
         label = ttk.Label(self, text="Enter your details:", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
 
-        # Pass both the instance of Page2 and the main controller (MainApplication) to LogicController
         self.logic = logic
 
         plex_url_label = ttk.Label(self, text="Plex URL:")
@@ -165,14 +208,11 @@ class Page2(ttk.Frame):
         self.dizquetv_url_entry.insert(0, "eg. http://localhost:17685")
         self.dizquetv_url_entry.pack(pady=3)
 
-        # Create a new frame to hold the button
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
 
-        # Create the 'Continue' button but don't pack it yet
         self.continue_button = ttk.Button(self, text="Continue",
                                     command=self.on_continue_button_click)
-        #pad it 5 pixels from the right and bottom edges of the button_frame
         self.continue_button.pack(side="right", padx=5, pady=5)
 
     def on_continue_button_click(self):
@@ -191,7 +231,6 @@ class Page3(ttk.Frame):
         self.controller = controller
         label = ttk.Label(self, text="Select your folders:", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
-        # Pass both the instance of Page3 and the main controller (MainApplication) to LogicController
         self.logic = logic
 
         self.anime_folder_entry = ttk.Entry(self)
@@ -218,14 +257,11 @@ class Page3(ttk.Frame):
                                    command=lambda: self.working_folder_entry.insert(0, filedialog.askdirectory()))
         working_button.pack(pady=3)
 
-        # Create a new frame to hold the button
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
 
-        # Create the 'Continue' button but don't pack it yet
         self.continue_button = ttk.Button(self, text="Continue",
                                     command=self.on_continue_button_click)
-        #pad it 5 pixels from the right and bottom edges of the button_frame
         self.continue_button.pack(side="right", padx=5, pady=5)
 
     def on_continue_button_click(self):
@@ -242,8 +278,21 @@ class Page4(ttk.Frame):
         self.controller = controller
         self.logic = logic
         self.root_window = parent
-        self.dont_move = False  # Set to False by default
-        self.logic.subscribe_to_status_updates(self.update_status_label)
+        self.dont_move = False
+
+    # do something to pick one
+        if LogicController.use_redis:
+            # Start the Redis listener thread
+            # -------------------------------
+            self.redis_queue = Queue()
+            self.controller.start_redis_listener_thread(self.redis_queue)
+            self.after(100, self.process_redis_messages)
+            # -------------------------------
+           
+        else:
+            self.logic.subscribe_to_status_updates(self.update_status_label)
+            # ----------------
+
 
 
         label = ttk.Label(self, text="Prepare Your Content:", font=("Helvetica", 24))
@@ -261,15 +310,12 @@ class Page4(ttk.Frame):
                                         command=self.logic.move_filtered)
         move_filtered_button.pack(pady=3)
 
-        # Status label
         self.status_label = tk.Label(self, text="Status: Idle",
                                      foreground='darkgray',
                                      font=('Arial', 16, 'bold'),
                                      relief='flat')
-        # Centering the label in the window
         self.status_label.pack(pady=10, padx=10, fill='x')
 
-        # Create a new frame to hold the button
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
 
@@ -277,6 +323,19 @@ class Page4(ttk.Frame):
                                     command=self.on_continue_button_click)
 
         self.continue_button.pack(side="right", padx=5, pady=5)
+
+    if LogicController.use_redis:
+         # -------------------------------------
+            def process_redis_messages(self):
+                while not self.redis_queue.empty():
+                    message = self.redis_queue.get()
+                    if message['channel'].decode('utf-8') == 'status_updates':
+                        self.update_status_label(message['data'].decode('utf-8'))
+                
+                self.after(100, self.process_redis_messages)
+        # -------------------------------------
+            # Pubsub stuff
+            # ----------------
 
     def on_continue_button_click(self):
         self.logic.on_continue_fourth()
@@ -300,27 +359,21 @@ class Page4(ttk.Frame):
         selection_window = tk.Toplevel(self.root_window)
         selection_window.title("Select Shows")
 
-        # Create a frame to contain the checkboxes and a scrollbar
         frame = tk.Frame(selection_window)
         frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # Create a canvas to host the frame with the checkboxes
         canvas = tk.Canvas(frame)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # Add a scrollbar to the canvas
         scrollbar = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # Configure the canvas to use the scrollbar
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
 
-        # Create a frame to host the checkboxes inside the canvas
         checkbox_frame = tk.Frame(canvas)
         canvas.create_window((0, 0), window=checkbox_frame, anchor="nw")
 
-        # Sort the unique_show_names
         sorted_unique_show_names = sorted(unique_show_names)
 
         checkboxes = [tk.IntVar(value=1) for _ in sorted_unique_show_names]
@@ -329,7 +382,6 @@ class Page4(ttk.Frame):
 
         ttk.Button(selection_window, text="Continue", command=on_continue).pack()
 
-        # Wait for the selection_window to close before returning the result
         self.root_window.wait_window(selection_window)
 
         return selected_shows
@@ -347,36 +399,29 @@ class Page5(ttk.Frame):
         self.create_widgets()
 
     def tkraise(self):
-        # main_app = self.controller
         working_folder = self.TOM_logic._get_data("working_folder")
         cut_folder = working_folder + "/cut"
         toonami_filtered_folder = working_folder + "/toonami_filtered"
 
-        # Set the input and output directories in the Commercial Breaker GUI
         self.set_input_output_dirs(toonami_filtered_folder, cut_folder)
 
-        # Call the original tkraise method to display the frame
         super().tkraise()
 
 
     def create_widgets(self):
         """Create the widgets for the GUI."""
-        # Create a new frame to hold the checkboxes
         self.checkbox_frame = tk.Frame(self.master)
         self.checkbox_frame.pack(side="bottom", fill="x")
 
-        # Destructive Mode checkbox
         self.destructive_mode = tk.BooleanVar()
         self.destructive_checkbox = ttk.Checkbutton(self.checkbox_frame, text='Destructive Mode', variable=self.destructive_mode)
         self.destructive_checkbox.pack(side="left")  # 'left' will align the checkbox to the left
 
-        # Fast Mode checkbox
         self.fast_mode = tk.BooleanVar()
         self.fast_mode.trace("w", self.toggle_low_power_mode) # Add a callback when the value changes
         self.fast_checkbox = ttk.Checkbutton(self.checkbox_frame, text='Fast Mode', variable=self.fast_mode)
         self.fast_checkbox.pack(side="left")  # 'left' will align the checkbox to the left
 
-        # Low Power Mode checkbox
         self.low_power_mode = tk.BooleanVar()
         self.low_power_mode.trace("w", self.toggle_fast_mode) # Add a callback when the value changes
         self.low_power_checkbox = ttk.Checkbutton(self.checkbox_frame, text='Low Power Mode', variable=self.low_power_mode)
@@ -535,9 +580,19 @@ class Page6(ttk.Frame):
         self.controller = controller
         label = ttk.Label(self, text="Choose Your Action:", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
-        # Pass both the instance of Page6 and the main controller (MainApplication) to LogicController
         self.logic = logic
-        self.logic.subscribe_to_status_updates(self.update_status_label)
+
+    # do something to pick one
+        if LogicController.use_redis:
+            # Start the Redis listener thread
+            # -------------------------------
+            self.redis_queue = Queue()
+            self.controller.start_redis_listener_thread(self.redis_queue)
+            self.after(100, self.process_redis_messages)
+            # -------------------------------
+        else:
+            self.logic.subscribe_to_status_updates(self.update_status_label)
+            # ----------------
 
         what_toonami_version_label = ttk.Label(self, text="What Toonami Version are you making today?")
         what_toonami_version_label.pack(pady=3)
@@ -570,21 +625,29 @@ class Page6(ttk.Frame):
                                                   command=self.create_toonami_channel)
         create_toonami_channel_button.pack(pady=3)
 
-        # Status label
         self.status_label = tk.Label(self, text="Status: Idle",
                                      foreground='darkgray',
                                      font=('Arial', 16, 'bold'),
                                      relief='flat')
-        # Centering the label in the window
         self.status_label.pack(pady=10, padx=10, fill='x')
 
-        # Create a new frame to hold the button
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
 
         self.continue_button = ttk.Button(self, text="Continue",
                                     command=self.on_continue_button_click)
         self.continue_button.pack(side="right", padx=5, pady=5)
+
+    if LogicController.use_redis:
+         # -------------------------------------
+            def process_redis_messages(self):
+                while not self.redis_queue.empty():
+                    message = self.redis_queue.get()
+                    if message['channel'].decode('utf-8') == 'status_updates':
+                        self.update_status_label(message['data'].decode('utf-8'))
+                
+                self.after(100, self.process_redis_messages)
+        # -------------------------------------
 
     def on_continue_button_click(self):
         self.logic.on_continue_sixth()
@@ -603,10 +666,19 @@ class Page7(ttk.Frame):
     def __init__(self, parent, controller, logic):
         ttk.Frame.__init__(self, parent)
         self.controller = controller
-        # Pass both the instance of Page7 and the main controller (MainApplication) to LogicController
         self.logic = logic
-        self.logic.subscribe_to_status_updates(self.update_status_label)
 
+    # do something to pick one
+        if LogicController.use_redis:
+            # Start the Redis listener thread
+            # -------------------------------
+            self.redis_queue = Queue()
+            self.controller.start_redis_listener_thread(self.redis_queue)
+            self.after(100, self.process_redis_messages)
+            # -------------------------------
+        else:
+            self.logic.subscribe_to_status_updates(self.update_status_label)
+            # ----------------
 
         label = ttk.Label(self, text="Make a new Toonami Channel:", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
@@ -637,15 +709,12 @@ class Page7(ttk.Frame):
         create_toonami_channel_button = ttk.Button(self, text="Create Toonami Channel", command=self.create_toonami_channel_cont)
         create_toonami_channel_button.pack(pady=3)
 
-        # Status label
         self.status_label = tk.Label(self, text="Status: Idle",
                                      foreground='darkgray',
                                      font=('Arial', 16, 'bold'),
                                      relief='flat')
-        # Centering the label in the window
         self.status_label.pack(pady=10, padx=10, fill='x')
 
-        # Create a new frame to hold the button
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
 
@@ -653,6 +722,17 @@ class Page7(ttk.Frame):
                                     command=self.on_continue_button_click)
 
         self.continue_button.pack(side="right", padx=5, pady=5)
+
+    if LogicController.use_redis:
+        # -------------------------------------
+            def process_redis_messages(self):
+                while not self.redis_queue.empty():
+                    message = self.redis_queue.get()
+                    if message['channel'].decode('utf-8') == 'status_updates':
+                        self.update_status_label(message['data'].decode('utf-8'))
+                
+                self.after(100, self.process_redis_messages)
+        # -------------------------------------
 
     def on_continue_button_click(self):
         self.logic.on_continue_seventh()
@@ -676,9 +756,21 @@ class Page8(ttk.Frame):
     def __init__(self, parent, controller, logic):
         ttk.Frame.__init__(self, parent)
         self.controller = controller
-        # Pass both the instance of Page8 and the main controller (MainApplication) to LogicController
         self.logic = logic
-        self.logic.subscribe_to_status_updates(self.update_status_label)
+
+    # do something to pick one
+        if LogicController.use_redis:
+            # Start the Redis listener thread
+            # -------------------------------
+            self.redis_queue = Queue()
+            self.controller.start_redis_listener_thread(self.redis_queue)
+            self.after(100, self.process_redis_messages)
+            # -------------------------------
+            
+        # Pubsub stuff
+        else:
+            self.logic.subscribe_to_status_updates(self.update_status_label)
+            # ----------------
 
         label = ttk.Label(self, text="Flex your Toonami Channel:", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
@@ -723,13 +815,22 @@ class Page8(ttk.Frame):
         add_flex_button = ttk.Button(self, text="Add Flex", command=self.flex)
         add_flex_button.pack(pady=3)
 
-        # Status label
         self.status_label = tk.Label(self, text="Status: Idle",
                                      foreground='darkgray',
                                      font=('Arial', 16, 'bold'),
                                      relief='flat')
-        # Centering the label in the window
         self.status_label.pack(pady=10, padx=10, fill='x')
+
+    if LogicController.use_redis:
+        # -------------------------------------
+            def process_redis_messages(self):
+                while not self.redis_queue.empty():
+                    message = self.redis_queue.get()
+                    if message['channel'].decode('utf-8') == 'status_updates':
+                        self.update_status_label(message['data'].decode('utf-8'))
+                
+                self.after(100, self.process_redis_messages)
+        # -------------------------------------
 
     def update_status_label(self, status):
         self.status_label.config(text=f"Status: {status}")
@@ -768,6 +869,22 @@ class MainApplication(tk.Tk):
 
 
         self.show_frame("Page1")
+# don't use this if not needed
+# Listen for Redis updates
+# ------------------------
+    if LogicController.use_redis:
+        def listen_for_redis_updates(self, redis_queue):
+            redis_client = self.logic.redis_client
+            pubsub = redis_client.pubsub()
+            pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices', 'plex_servers', 'plex_libraries')
+
+            for message in pubsub.listen():
+                if message['type'] == 'message':
+                    redis_queue.put(message)
+
+        def start_redis_listener_thread(self, redis_queue):
+            threading.Thread(target=self.listen_for_redis_updates, args=(redis_queue,), daemon=True).start()
+        # ------------------------
 
     def set_theme(self):
         if self.dark_mode:
