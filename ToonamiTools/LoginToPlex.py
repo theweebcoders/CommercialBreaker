@@ -1,5 +1,7 @@
 import asyncio
 import webbrowser
+import redis
+import sys
 from plexauth import PlexAuth
 from plexapi.myplex import MyPlexAccount
 from plexapi.server import PlexServer
@@ -7,23 +9,33 @@ from plexapi.server import PlexServer
 
 
 class PlexServerList:
-    """
-    This class is responsible for fetching and storing the list of Plex servers. It allows the program to fetch the Plex libraries. It also handles the process of obtaining a Plex token for authentication.
-    This is important to the program for users to interact with their Plex servers so they can use things saved on their Plex servers in the program and save some outputs to their Plex servers.
-    """
+    use_redis = ('--use_redis' in sys.argv or '--webui' in sys.argv or '--clydes' in sys.argv) and '--tom' not in sys.argv
+
     def __init__(self):
-        """
-        Creates an empty list to store the Plex servers and sets the Plex token to None.
-        This allows the program to store the Plex servers and the Plex token in this module.
-        """
         self.plex_servers = []
         self.plex_token = None
+        self.use_redis = self.__class__.use_redis  # Use class variable
+        if self.use_redis:
+            try:
+                self.redis_client = redis.Redis(host='redis', port=6379, db=0)
+                # Attempt a simple ping to check if the connection works
+                if self.redis_client.ping():
+                    print("Connected to 'redis' host.")
+                else:
+                    raise Exception("Unable to connect to 'redis' host.")
+            except Exception as e:
+                print(f"Connection to 'redis' host failed: {e}. Trying 'localhost'...")
+                try:
+                    self.redis_client = redis.Redis(host='localhost', port=6379, db=0)
+                    if self.redis_client.ping():
+                        print("Connected to 'localhost'.")
+                    else:
+                        raise Exception("Unable to connect to 'localhost'.")
+                except Exception as e:
+                    print(f"Connection to 'localhost' failed: {e}. Redis client will not be used.")
+                    self.redis_client = None
 
     def GetPlexToken(self):
-        """
-        This function sets up a new event loop for asyncio, which is used to handle the asynchronous tasks required for fetching the Plex token.
-        The Plex token is needed to authenticate the program with the user's Plex acccount so the program can interact with the user's Plex servers.
-        """
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
@@ -40,8 +52,16 @@ class PlexServerList:
             }
             async with PlexAuth(PAYLOAD) as plexauth:
                 await plexauth.initiate_auth()
-                print("Complete auth at URL: {}".format(plexauth.auth_url()))
-                webbrowser.open(plexauth.auth_url())  # Open the URL in a web browser
+                auth_url = plexauth.auth_url()
+                
+                # Send the auth URL through Redis
+                if self.use_redis:
+                    self.redis_client.publish('plex_auth_url', auth_url)
+                    self.redis_client.publish('status_updates', "Plex authentication window opened. Please complete the login process.")
+                else:
+                    # Fallback for non-web UI
+                    webbrowser.open(auth_url)
+                
                 return await plexauth.token()
 
         self.plex_token = loop.run_until_complete(fetch_token())

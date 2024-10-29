@@ -128,7 +128,7 @@ class RedisListenerMixin:
     def listen_for_redis_updates(self, redis_queue):
         redis_client = self.logic.redis_client
         pubsub = redis_client.pubsub()
-        pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices', 'plex_servers', 'plex_libraries')
+        pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices', 'plex_servers', 'plex_libraries', 'plex_auth_url')
 
         for message in pubsub.listen():
             if message['type'] == 'message':
@@ -188,6 +188,13 @@ class Page1(BasePage, RedisListenerMixin):
 
         self.main_container.append(buttons_container)
 
+        #javascript to open the Plex auth URL in a new tab
+        self.app.execute_javascript("""
+            window.pywebview.api.open_plex_auth_url = function(url) {
+                window.open(url, '_blank');
+            }
+        """)
+
     def login_to_plex(self, widget):
         print("You pressed the login button")
         self.logic.login_to_plex()
@@ -246,7 +253,11 @@ class Page1(BasePage, RedisListenerMixin):
         self.app.set_current_page('Page3')
 
     def handle_redis_message(self, channel, data):
-        if channel == 'new_server_choices':
+        if channel == 'plex_auth_url':
+            #open the Plex auth URL via javascript
+            self.app.execute_javascript(f"window.open('{data}', '_blank')")
+            print(f"Opening Plex auth URL: {data}")
+        elif channel == 'new_server_choices':
             self.update_dropdown()
         elif channel == 'new_library_choices':
             self.update_library_dropdowns()
