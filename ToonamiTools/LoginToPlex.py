@@ -57,10 +57,12 @@ class PlexServerList:
                 # Send the auth URL through Redis
                 if self.use_redis:
                     self.redis_client.publish('plex_auth_url', auth_url)
-                    self.redis_client.publish('status_updates', "Plex authentication window opened. Please complete the login process.")
+                    # print the URL to the console with a line break followed by the url
+                    print("Please open the following URL in your browser to authenticate with Plex: \n" + auth_url)
                 else:
                     # Fallback for non-web UI
                     webbrowser.open(auth_url)
+                    print("Please open the following URL in your browser to authenticate with Plex: \n" + auth_url)
                 
                 return await plexauth.token()
 

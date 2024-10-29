@@ -357,7 +357,7 @@ class ClydesApp:
     def listen_for_redis_updates(self, redis_queue):
         redis_client = self.logic.redis_client
         pubsub = redis_client.pubsub()
-        pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices', 'plex_servers', 'plex_libraries')
+        pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices', 'plex_servers', 'plex_libraries', 'plex_auth_url')
 
         for message in pubsub.listen():
             if message['type'] == 'message':
