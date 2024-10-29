@@ -52,7 +52,7 @@ This application requires Python 3.11 and Git to be installed on your system. If
 
 **If you plan on running CommercialBreaker via Clydes or Absolution, you will also need to have a redis server running or use the docker compose and that will start a redis server for you.**
 
-# How to Install
+# How to Install (Desktop)
 
 Open a terminal and type the following commands one at a time: Each line is its own command
 
@@ -88,7 +88,9 @@ python3 main.py --tom
 
 This will start the TOM interface. You can now use the TOM interface to set up your Toonami channel.
 
-# How to set up the Docker Container
+**If you don't plan on using the docker container, you can proceed to How to Name Your Files.**
+
+# How to install (Docker)
 
 If you want to run this in a docker container, you will need to set up the environment variables in the .env file. You can see an example of this in the example.env file already in the folder. See the **How to Use (Absolution)** section for more info on this and how to, well, use Absolution.
 
@@ -100,13 +102,13 @@ docker compose up -d
 
 This will build the docker container and start the web interface. As well as the redis server. You can access the web interface by opening a web browser and navigating to http://localhost:8081 unless you are running this on a server. In that case, you will need to replace "localhost" with the IP address of the server.
 
-## Alternative Run options
+## Alternative Run options (Desktop/Server)
 
 There is more than one way to run CommercialBreaker.
 
  Although we think TOM is the easiest way to run the program, we understand that some users may prefer to run the program from the command line or via a web interface. 
 
- These are best if you are running the program on a server or in docker container.
+ These are best if you are running the program on a server, but you can run them on your desktop as well.
 
 ### Command Line (Clydes)
 
