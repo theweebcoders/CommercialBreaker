@@ -5,22 +5,21 @@ import re
 import requests
 import sqlite3
 from unidecode import unidecode
-import config
-
+from bs4 import BeautifulSoup
 
 class ToonamiShowsFetcher:
     def __init__(self):
         self.api_url = "https://en.wikipedia.org/w/api.php"
-        
+                
     def get_toonami_shows(self):
         """
         Fetches data of shows aired on Toonami from Wikipedia API and returns it as a pandas DataFrame.
         """
         params = {
             "action": "parse",
-            "page": "Toonami",
+            "page": "List of programs broadcast by Toonami",
             "format": "json",
-            "prop": "wikitext",
+            "prop": "text",
         }
 
         response = requests.get(self.api_url, params=params)
@@ -28,36 +27,78 @@ class ToonamiShowsFetcher:
             raise Exception("Failed to fetch data from Wikipedia API")
 
         data = response.json()
-        wikitext = data["parse"]["wikitext"]["*"]
+        html_content = data["parse"]["text"]["*"]
 
-        # Dynamically find the programming section
-        programming_section_start = wikitext.find("== Cartoon Network (1997–2008) / Kids' WB (2001–2002) ==")
-        programming_section_end = wikitext.find("== References ==")
-        
-        if programming_section_start == -1 or programming_section_end == -1:
-            raise Exception("Programming section not found in the wikitext")
+        soup = BeautifulSoup(html_content, 'html.parser')
 
-        program_section = wikitext[programming_section_start:programming_section_end]
-        program_lines = program_section.split("\n")
-
+        # Initialize lists to hold titles and years
         titles = []
         years = []
-        current_year = None
 
-        for line in program_lines:
-            year_match = re.match(r"^'''(\d{4})'''", line)
-            if year_match:
-                current_year = year_match.group(1)
-            elif line.startswith("*"):
-                title = re.sub(r'\[\[|\]\]', '', line.strip('* ').split('|')[-1])
-                titles.append(title)
-                years.append(current_year)
+        # Find all tables with class 'wikitable'
+        tables = soup.find_all('table', {'class': 'wikitable'})
 
-        # Output for verification
-        print("Titles:", titles)
-        print("Years:", years)
-        
-        return pd.DataFrame({'Title': titles, 'Year': years})
+        for table in tables:
+            # Get the headers from the table
+            header_row = table.find('tr')
+            if not header_row:
+                continue
+            headers = [th.get_text(strip=True) for th in header_row.find_all('th')]
+            # Remove footnotes from headers (e.g., 'Airdate[a]' -> 'Airdate')
+            headers = [re.sub(r'\[.*?\]', '', h) for h in headers]
+            # Normalize headers
+            headers = [h.strip().lower() for h in headers]
+
+            # Check if 'title' or 'program' and 'year(s) aired' or 'airdate' are in headers
+            if ('title' in headers or 'program' in headers) and any(h in headers for h in ['year(s) aired', 'airdate']):
+                # This is a programming table
+                # Get indices for 'title'/'program' and 'year(s) aired' or 'airdate'
+                if 'title' in headers:
+                    title_idx = headers.index('title')
+                else:
+                    title_idx = headers.index('program')
+
+                if 'year(s) aired' in headers:
+                    year_idx = headers.index('year(s) aired')
+                else:
+                    year_idx = headers.index('airdate')
+
+                for row in table.find_all('tr')[1:]:  # Skip the header row
+                    cols = row.find_all(['td', 'th'])
+                    if len(cols) >= max(title_idx, year_idx) + 1:
+                        title = cols[title_idx].get_text(strip=True)
+                        year = cols[year_idx].get_text(strip=True)
+                        # Clean up the title by removing references in brackets
+                        title = re.sub(r'\[.*?\]', '', title)
+                        # Remove any extra spaces
+                        title = title.strip()
+                        # Filter out rows where title is empty or looks like a date/time
+                        if title and not re.match(r'^\d', title) and '–' not in title:
+                            titles.append(title)
+                            years.append(year)
+
+        # Clean up 'Year' data
+        cleaned_years = []
+        for y in years:
+            # Remove footnotes
+            y = re.sub(r'\[.*?\]', '', y)
+            # Extract all four-digit years
+            extracted_years = re.findall(r'\b(?:19|20)\d{2}\b', y)
+            if extracted_years:
+                # Join multiple years with a comma
+                cleaned_year = ', '.join(extracted_years)
+            else:
+                # If no year found, keep the original
+                cleaned_year = y
+            cleaned_years.append(cleaned_year)
+
+        # Create DataFrame
+        df = pd.DataFrame({'Title': titles, 'Year': cleaned_years})
+
+        # Remove duplicates
+        df = df.drop_duplicates(subset='Title')
+
+        return df
     
 class ToonamiChecker:
     def __init__(self, anime_folder):
