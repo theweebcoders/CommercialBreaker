@@ -22,8 +22,22 @@ class PlexManager:
             self._wait_for_libraries()
             anime_library_name = self._choose_library("Anime")
             toonami_library_name = self._choose_library("Toonami")
-            dizquetv_url = input("Enter the dizqueTV URL: ")
-            self.logic.on_continue_first(anime_library_name, toonami_library_name, dizquetv_url)
+            
+            print("Choose the service you want to use:")
+            print("1. DizqueTV")
+            print("2. Tunarr")
+            service_choice = input("Enter the number of your choice: ").strip()
+            
+            if service_choice == '1':
+                platform_type = 'dizquetv'
+                default_url = "http://localhost:17685"
+            else:
+                platform_type = 'tunarr'
+                default_url = "http://localhost:8000"
+                
+            platform_url = input(f"Enter the platform URL (default: {default_url}): ") or default_url
+            self.logic.on_continue_first(anime_library_name, toonami_library_name, platform_url, platform_type)
+
         # If user chooses not to login, manually enter Plex credentials
         elif login == 'n':
             self._manual_plex_entry()
@@ -60,8 +74,29 @@ class PlexManager:
         plex_token = input("Enter your Plex token: ")
         anime_library_name = input("Enter the name of your Anime library: ")
         toonami_library_name = input("Enter the name of your Toonami library: ")
-        dizquetv_url = input("Enter the dizqueTV URL: ")
-        self.logic.on_continue_second(anime_library_name, toonami_library_name, plex_url, plex_token, dizquetv_url)
+        
+        print("Choose the service you want to use:")
+        print("1. DizqueTV")
+        print("2. Tunarr")
+        service_choice = input("Enter the number of your choice: ").strip()
+        
+        if service_choice == '1':
+            platform_type = 'dizquetv'
+            default_url = "http://localhost:17685"
+        else:
+            platform_type = 'tunarr'
+            default_url = "http://localhost:8000"
+            
+        platform_url = input(f"Enter the platform URL (default: {default_url}): ") or default_url
+        
+        self.logic.on_continue_second(
+            anime_library_name, 
+            toonami_library_name, 
+            plex_url, 
+            plex_token, 
+            platform_url, 
+            platform_type
+        )
 
 class FolderManager:
     def __init__(self, logic):

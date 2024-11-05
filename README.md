@@ -4,7 +4,7 @@ Hey there, space cowboy. Remember those long Toonami nights filled with anime an
 
 Welcome aboard the Absolution, where we're on a mission to boldly put the commercials back into your favorite anime. Why? Because we can. Because it's a kind of nostalgia that just feels right.
 
-We've got two Python apps in our hyperdrive: CommercialBreaker and Toonami Tools. They'll slice up your anime and make room for those memory-ridden ads you secretly miss. Want your Plex server to feel like a marathon Toonami night? We got you. Got DizqueTV all set up? Even better.
+We've got two Python apps in our hyperdrive: CommercialBreaker and Toonami Tools. They'll slice up your anime and make room for those memory-ridden ads you secretly miss. Want your Plex server to feel like a marathon Toonami night? We got you. Got DizqueTV all set up? Even better. You one of those fancy new tunarr users? We've got you covered too.
 
 So, who's the bigger otaku here? The person adding commercials back into their anime, or the mad scientist who spent a year and six months in the coding mines to make it happen? No matter, we're all in this giant robot together.
 
@@ -246,7 +246,7 @@ TOM (Toonami Operations Module) is the default GUI for the CommercialBreaker and
 
 Welcome to the cockpit of your very own Toonami broadcast! Main.py is not just a script; it's the TOM (Toonami Operations Module) that pilots your anime universe. Guided by a sleek Tkinter GUI, it's your interactive dashboard for navigating through the asteroid field of options and commands. Like TOM communicating with the Absolution's AI, SARA, this script serves as your interface for rallying the troops—each specialized tool in your arsenal—to execute their designated missions.
 
-From the bridge of this command center, you can engage with your Plex server, select your libraries, and initiate the journey. Once the coordinates are set, Main.py takes you into hyperspace, activating each tool in sequence, be it the Clydes in LoginToPlex.py or the hyperdrive in PlexToDizqueTV.py.
+From the bridge of this command center, you can engage with your Plex server, select your libraries, and initiate the journey. Once the coordinates are set, Main.py takes you into hyperspace, activating each tool in sequence, be it the lift off sequence of LoginToPlex.py or the hyperdrive in PlexToDizqueTV.py.
 
 So gear up, Space Cowboy, because with this tool, you're not just watching anime; you're launching a Toonami invasion right from your living room.
 
@@ -270,9 +270,15 @@ Click the drop-down menu labeled "Select your Anime Library" and select the libr
 
 Click the drop-down menu labeled "Select your Toonami Library" and select the library you want to use. This is the library that will contain your cut Anime and bumps. You will want to make a new library for this, as it is going to be a mess. Don't worry Anime can be in more than one library without taking up more space or affecting your other libraries. 
 
-**Step 5** Enter your DizqueTV URL
+**Step 5** Select your platfrom
 
-Enter the URL of your DizqueTV server. This is the URL you use to access your DizqueTV server in a browser. It should look something like this: http://192.168.255.255:3000
+This is where you decide if you are a dizquetv boo or a tunarr bro. There are two buttons each clearly labeld as DizqueTV and Tunarr. Click the one you use. 
+
+**Warning: Flex Injection is only available for DizqueTV users. If you are a Tunarr user, you will not be able to use this feature. See FAQ**
+
+**Step 6** Enter your DizqueTV or Tunarr URL
+
+Enter the URL of your DizqueTV or Tunarr server. This is the URL you use to access your DizqueTV or Tunarr server in a browser. It should look something like this: http://192.168.255.255:3000
 
 You will notice a button labeled "Skip" at the bottom right of the window. If you don't login with Plex or choose your libraries, this will show up and take you to the next step. If you do login with plex and choose your libraries, this will turn into a button labeled "Continue" and take you to the next step.
 
@@ -282,7 +288,7 @@ Also if your not a creature of the night like us, you can toggle dark mode on an
 
 ## Step 1 - Enter Details - A Little Detour
 
-If, for some reason, you don't want to login with Plex or can't, you can enter your Plex URL and Token manually. You will also have to enter the URL of your DizqueTV, and the names of your Anime Library and Toonami Library. Just type them in and click "Continue" at the bottom right of the window.
+If, for some reason, you don't want to login with Plex or can't, you can enter your Plex URL and Token manually. You will also have to enter the URL for your DizqueTV or Tunarr, select your platfrom via the same buttons as page one, and enter the names of your Anime Library and Toonami Library. Just type them in and click "Continue" at the bottom right of the window.
 
 ## Step 2 - Select Folders - Deploy the Clydes
 
@@ -355,7 +361,7 @@ This is going to do some stuff to make Plex play a little nicer, like split any 
 
 **Step 5** Create Channel
 
-This will create your channel. It will take a few minutes, but when it's done you there will be a new channel on your DizqueTV server.
+This will create your channel. It will take a few minutes, but when it's done you there will be a new channel on your DizqueTV or Tunarr server depending on what you selected in step 1.
 
 That's it! Congratulations! You have made a Toonami Channel!
 
@@ -385,12 +391,14 @@ This will do some final prep work in the background. It will wont take long but 
 
 **Step 5** Create Toonami Channel
 
-This will create your channel. It will take a few minutes, but when it's done, there will be a new channel on your DizqueTV server.
+This will create your channel. It will take a few minutes, but when it's done, there will be a new channel on your DizqueTV or Tunarr server depending on what you selected in step 1.
 
 
 ## Step 7 - Flex Your Toonami Channel - Commerecial Break
 
 So you finished making a Toonami Channel and want to finally add your commercials (as is the whole point of the project). Great! This tool will modify your channel to automatically add Flex between the to ads and back bumps. (See FAQ for more info on Flex)
+
+**NOTE: This is currently only available for DizqueTV users. If you are a Tunarr user, you will not be able to use this feature. See FAQ**
 
 **Step 1** Create a Filler list
 
@@ -454,7 +462,7 @@ To be honest, we don't recommend you use this. Not that it's bad, it's just that
 
 ## Cut videos at Commercial breaks (AKA CommercialBreaker)
 
-**If you are using this tool to make a Toonami Channel with DizqueTV, we recommend you run just use this through the GUI. It's much easier and will save you a lot of time. As it possible weeks* (See FAQ for more info) to run this on a large library.**
+**If you are using this tool to make a Toonami Channel with DizqueTV or Tunarr, we recommend you run just use this through the GUI. It's much easier and will save you a lot of time. As it possible weeks* (See FAQ for more info) to run this on a large library.**
 
 This tool will cut your videos at the black frames, at the intros given by PlexTimestamps, or chapter markers (if you have them), so you can insert commercials and bumps between the breaks.
 
@@ -513,9 +521,9 @@ LoginToPlex is the key to unlocking your Plex server's potential. While manual e
 
 ### Toonami Checker
 
-This tool will check your anime library and against the Toonami IMDB to find what shows you have that were on Toonami.
+This tool will check your anime library and against the Toonami IMDB/Wikipedia (we keep changeing it due to api changes) to find what shows you have that were on Toonami.
 
-This is a script that scrapes show titles and related data from IMDB, using URLs stored in the config file. The script features a  GUI, which permits users to selectively include or exclude shows during the data collection process. Once the scraping is complete, the gathered information is written to two tables in a SQLite database: one table dedicated to the shows and another for all the episodes.
+This is a script that scrapes show titles and related data from IMDB/Wikipedia, using URLs stored in the config file. The script features a  GUI, which permits users to selectively include or exclude shows during the data collection process. Once the scraping is complete, the gathered information is written to two tables in a SQLite database: one table dedicated to the shows and another for all the episodes.
 
 ### Lineup Prep
 
@@ -575,6 +583,10 @@ This is another tool that addresses an eccentricity of Plex: even after items ar
 
 PlexToDizqueTV is the ultimate maestro, orchestrating the final transfer of your customized Plex anime library to a dizqueTV channel. With the option to select your desired version of Toonami—be it uncut, cut, or merged—right from the GUI, this tool crafts a dizqueTV channel that mirrors your selection. Utilizing both the Plex and dizqueTV APIs, it bridges the gap between your Plex library and dizqueTV, translating the contents of a designated SQLite table into a channel-compatible format. This tool stands as the final act, transforming your diligently curated anime library into a live channel, tailored to your specific preferences.
 
+### Plex to Tunarr
+
+PlexToTunarr is the ultimate maestro, orchestrating the final transfer of your customized Plex anime library to a Tunarr channel. With the option to select your desired version of Toonami—be it uncut, cut, or merged—right from the GUI, this tool crafts a Tunarr channel that mirrors your selection. This process is similar to PlexToDizqueTV, but it's method is a bit more jank. We are essentially running POST requests to the Tunarr web interface the same way your browser would. This tool stands as the final act, transforming your diligently curated anime library into a live channel, tailored to your specific preferences. 
+
 ### FlexInjector
 
 Flexinjector is a tool that modifies your channel to automatically add Flex between the to ads and back bumps by editing the JSON file of your channel. It does this by downloading the json via SSH inserting flex in the format DizqueTV expects it and reuploading the edited JSON.
@@ -596,6 +608,13 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 # To-Do List
 
 ## **Immediate Attention**
+
+### Tunarr To Do
+
+- [ ] If channel already exists delete it
+- [ ] Adjust flex Injector to work with Tunarr (it works the same way as DizqueTV just shove it in the JSON)
+  - [ ] Find out why I couldn't create a Filler list in Tunarr
+- [ ] Add Tunarr to the readme
 
 ### Critical Issues
 - [ ] Fix requirement to run "continue from last" twice for continued Toonami channel
@@ -658,6 +677,10 @@ Q: Okay, although I appreciate authenticity, I always thought [MY FAVORITE ANIME
 Q: How did you know I was thinking of Steins;Gate?
 
   We know all. We see all. We are all.
+
+Q: Why does flex injector not work with Tunarr?
+
+  Fun fact, it would be really easy to make it work with Tunarr. Here's the problem, we can't test it. When we tried added a filler list to tunarr we kept getting an error. We have no idea why. We tried everything we could think of. We even tried to add a filler list by editing the database for tunarr directly. So until we can figure out how to add a filler list to Tunarr we can't test it. We can't test it we can't make it work and we only release tested jank. Jank non the less but tested jank.
 
 
 Q: Cut stopped running after cutting a few of my shows, and now some of them are cut, but the names of the parts are weird.

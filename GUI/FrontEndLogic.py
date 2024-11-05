@@ -210,58 +210,56 @@ class LogicController():
             thread = threading.Thread(target=fetch_libraries_thread)
             thread.start()
 
-    def on_continue_first(self, selected_anime_library, selected_toonami_library, dizquetv_url):
-        # Use the database value if the widget value starts with "eg. ", otherwise use the widget value
+    def on_continue_first(self, selected_anime_library, selected_toonami_library, platform_url, platform_type='dizquetv'):
+        """
+        Updated to handle a single platform URL and its type
+        """
         if selected_anime_library.startswith("eg. ") or not selected_anime_library:
             selected_anime_library = self._get_data("selected_anime_library")
 
         if selected_toonami_library.startswith("eg. ") or not selected_toonami_library:
             selected_toonami_library = self._get_data("selected_toonami_library")
 
-        if dizquetv_url.startswith("eg. ") or not dizquetv_url:
-            dizquetv_url = self._get_data("dizquetv_url")
+        if platform_url.startswith("eg. ") or not platform_url:
+            platform_url = self._get_data("platform_url")
         
         # Save the fetched data to the database
         self._set_data("selected_anime_library", selected_anime_library)
         self._set_data("selected_toonami_library", selected_toonami_library)
-        self._set_data("dizquetv_url", dizquetv_url)
+        self._set_data("platform_url", platform_url)
+        self._set_data("platform_type", platform_type)
 
-        # Optional: Print values for verification
         print("Saved values:")
         print(f"Anime Library: {selected_anime_library}")
         print(f"Toonami Library: {selected_toonami_library}")
         print(f"Plex URL: {self._get_data('plex_url')}")
-        print(f"DizqueTV URL: {dizquetv_url}")
+        print(f"Platform URL: {platform_url} ({platform_type})")
         
         self._broadcast_status_update("Idle")
 
-    def on_continue_second(self, selected_anime_library, selected_toonami_library, plex_url, plex_token, dizquetv_url):
+    def on_continue_second(self, selected_anime_library, selected_toonami_library, plex_url, plex_token, platform_url, platform_type='dizquetv'):
         # Check each widget value, if it starts with "eg. ", fetch the value from the database
-
         if selected_anime_library.startswith("eg. ") or not selected_anime_library:
             selected_anime_library = self._get_data("selected_anime_library")
-
         if selected_toonami_library.startswith("eg. ") or not selected_toonami_library:
             selected_toonami_library = self._get_data("selected_toonami_library")
-
         if plex_url.startswith("eg. ") or not plex_url:
             plex_url = self._get_data("plex_url")
-
         if plex_token.startswith("eg. ") or not plex_token:
             plex_token = self._get_data("plex_token")
-
-        if dizquetv_url.startswith("eg. ") or not dizquetv_url:
-            dizquetv_url = self._get_data("dizquetv_url")
+        if platform_url.startswith("eg. ") or not platform_url:
+            platform_url = self._get_data("platform_url")
 
         # Save the fetched data to the database
         self._set_data("selected_anime_library", selected_anime_library)
         self._set_data("selected_toonami_library", selected_toonami_library)
         self._set_data("plex_url", plex_url)
         self._set_data("plex_token", plex_token)
-        self._set_data("dizquetv_url", dizquetv_url)
+        self._set_data("platform_url", platform_url)
+        self._set_data("platform_type", platform_type)
 
         # Optional: Print values for verification
-        print(selected_anime_library, selected_toonami_library, plex_url, plex_token, dizquetv_url)
+        print(selected_anime_library, selected_toonami_library, plex_url, plex_token, platform_url, platform_type)
         self._broadcast_status_update("Idle")
 
     def on_continue_third(self, anime_folder, bump_folder, special_bump_folder, working_folder):
@@ -422,18 +420,35 @@ class LogicController():
         thread.start()
 
     def create_toonami_channel(self, toonami_version, channel_number):
+        """
+        Create a Toonami channel using the stored platform settings
+        """
         def create_toonami_channel_thread():
             self._broadcast_status_update("Creating Toonami channel...")
             plex_url = self._get_data("plex_url")
             plex_token = self._get_data("plex_token")
             plex_library_name = self._get_data("selected_toonami_library")
+            platform_url = self._get_data("platform_url")
+            platform_type = self._get_data("platform_type")
             toon_config = config.TOONAMI_CONFIG.get(toonami_version, {})
             table = toon_config["table"]
-            dizquetv_url = self._get_data("dizquetv_url")
-            ptod = ToonamiTools.PlexToDizqueTVSimplified(plex_url, plex_token, plex_library_name, table, dizquetv_url, channel_number)
-            ptod.run()
+
+            if platform_type == 'dizquetv':
+                ptod = ToonamiTools.PlexToDizqueTVSimplified(
+                    plex_url, plex_token, plex_library_name, table, 
+                    platform_url, channel_number
+                )
+                ptod.run()
+            else:  # tunarr
+                ptot = ToonamiTools.PlexToTunarr(
+                    plex_url, plex_token, plex_library_name, table,
+                    platform_url, int(channel_number)
+                )
+                ptot.run()
+
             self._broadcast_status_update("Toonami channel created!")
             self.filter_complete_event.set()
+
         thread = threading.Thread(target=create_toonami_channel_thread)
         thread.start()
 

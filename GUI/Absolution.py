@@ -29,6 +29,28 @@ class Styles:
         'padding': '10px',
         'margin': '5px'
     }
+    selected_button_style = {
+        'font-size': '16px',
+        'padding': '10px 20px',
+        'margin': '5px',
+        'border-radius': '8px',
+        'background-color': '#2563eb',
+        'color': 'white',
+        'transition': 'all 0.2s ease',
+        'box-shadow': '0 4px 6px rgba(0, 0, 0, 0.1)',
+        'transform': 'scale(1.05)'
+    }
+    unselected_button_style = {
+        'font-size': '16px',
+        'padding': '10px 20px',
+        'margin': '5px',
+        'border-radius': '8px',
+        'background-color': '#f3f4f6',
+        'color': '#374151',
+        'transition': 'all 0.2s ease',
+        'box-shadow': 'none',
+        'transform': 'scale(1)'
+    }
     default_input_style = {
         'font-size': '16px',
         'padding': '5px',
@@ -166,8 +188,29 @@ class Page1(BasePage, RedisListenerMixin):
         self.add_label(self.main_container, "Select your Toonami Library")
         self.plex_library_dropdown = self.add_dropdown(self.main_container, ["Select your Toonami Library"], self.add_1_to_libraries_selected)
 
-        # DizqueTV URL Entry
-        self.dizquetv_url_entry = self.add_labeled_input(self.main_container, "dizqueTV URL:", "e.g., http://localhost:17685")
+        # Platform Selection
+        platform_container = gui.HBox(style={
+            'justify-content': 'center',
+            'margin': '20px',
+            'gap': '20px'
+        })
+        self.add_label(platform_container, "Select Platform:")
+        
+        # Create platform selection buttons
+        self.dizquetv_button = gui.Button("DizqueTV", width=150, height=40, style=Styles.selected_button_style)
+        self.tunarr_button = gui.Button("Tunarr", width=150, height=40, style=Styles.unselected_button_style)
+        
+        self.dizquetv_button.onclick.do(lambda w: self.on_platform_change('dizquetv'))
+        self.tunarr_button.onclick.do(lambda w: self.on_platform_change('tunarr'))
+        
+        platform_container.append([self.dizquetv_button, self.tunarr_button])
+        
+        self.main_container.append(platform_container)
+        self.selected_platform = 'dizquetv'  # Default selection
+
+        # Platform URL Entry
+        self.url_label = self.add_label(self.main_container, "Platform URL:")
+        self.platform_url_entry = self.add_input(self.main_container, "e.g., http://localhost:17685")
 
         # Status label
         self.status_label = self.add_label(self.main_container, "Status: Idle")
@@ -188,12 +231,23 @@ class Page1(BasePage, RedisListenerMixin):
 
         self.main_container.append(buttons_container)
 
-        #javascript to open the Plex auth URL in a new tab
         self.app.execute_javascript("""
             window.pywebview.api.open_plex_auth_url = function(url) {
                 window.open(url, '_blank');
             }
         """)
+
+    def on_platform_change(self, platform):
+        """Handle platform selection button clicks"""
+        self.selected_platform = platform
+        if platform == 'dizquetv':
+            self.dizquetv_button.style.update(Styles.selected_button_style)
+            self.tunarr_button.style.update(Styles.unselected_button_style)
+            self.platform_url_entry.set_value("e.g., http://localhost:17685")
+        else:
+            self.dizquetv_button.style.update(Styles.unselected_button_style)
+            self.tunarr_button.style.update(Styles.selected_button_style)
+            self.platform_url_entry.set_value("e.g., http://localhost:8000")
 
     def login_to_plex(self, widget):
         print("You pressed the login button")
@@ -245,10 +299,12 @@ class Page1(BasePage, RedisListenerMixin):
     def on_continue_button_click(self, widget):
         selected_anime_library = self.plex_anime_library_dropdown.get_value()
         selected_toonami_library = self.plex_library_dropdown.get_value()
-        dizquetv_url = self.dizquetv_url_entry.get_value()
+        platform_url = self.platform_url_entry.get_value()
+        
         self.logic._set_data("selected_anime_library", selected_anime_library)
         self.logic._set_data("selected_toonami_library", selected_toonami_library)
-        self.logic._set_data("dizquetv_url", dizquetv_url)
+        self.logic._set_data("platform_url", platform_url)
+        self.logic._set_data("platform_type", self.selected_platform)
         self.logic._broadcast_status_update("Idle")
         self.app.set_current_page('Page3')
 
@@ -265,6 +321,8 @@ class Page1(BasePage, RedisListenerMixin):
 class Page2(BasePage):
     def __init__(self, app, *args, **kwargs):
         super(Page2, self).__init__(app, 'Page2', *args, **kwargs)
+        self.logic = LogicController()
+        self.selected_platform = 'dizquetv'  # Default selection
 
         # Plex URL Entry
         self.plex_url_entry = self.add_labeled_input(self.main_container, 'Plex URL:', "e.g., http://localhost:32400")
@@ -278,11 +336,42 @@ class Page2(BasePage):
         # Plex Toonami Library Entry
         self.plex_toonami_library_entry = self.add_labeled_input(self.main_container, 'Plex Toonami Library:', "e.g., Toonami")
 
-        # DizqueTV URL Entry
-        self.dizquetv_url_entry = self.add_labeled_input(self.main_container, 'dizqueTV URL:', "e.g., http://localhost:17685")
+        # Platform Selection
+        platform_container = gui.HBox(style={
+            'justify-content': 'center',
+            'margin': '20px',
+            'gap': '20px'
+        })
+        self.add_label(platform_container, "Select Platform:")
+        
+        # Create platform selection buttons
+        self.dizquetv_button = gui.Button("DizqueTV", width=150, height=40, style=Styles.selected_button_style)
+        self.tunarr_button = gui.Button("Tunarr", width=150, height=40, style=Styles.unselected_button_style)
+        
+        self.dizquetv_button.onclick.do(lambda w: self.on_platform_change('dizquetv'))
+        self.tunarr_button.onclick.do(lambda w: self.on_platform_change('tunarr'))
+        
+        platform_container.append([self.dizquetv_button, self.tunarr_button])
+        
+        self.main_container.append(platform_container)
+
+        # Platform URL Entry
+        self.platform_url_entry = self.add_labeled_input(self.main_container, 'Platform URL:', "e.g., http://localhost:17685")
 
         # Continue button
         self.continue_button = self.add_button(self.main_container, "Continue", self.on_continue_button_click)
+
+    def on_platform_change(self, platform):
+        """Handle platform selection button clicks"""
+        self.selected_platform = platform
+        if platform == 'dizquetv':
+            self.dizquetv_button.style.update(Styles.selected_button_style)
+            self.tunarr_button.style.update(Styles.unselected_button_style)
+            self.platform_url_entry.set_value("e.g., http://localhost:17685")
+        else:
+            self.dizquetv_button.style.update(Styles.unselected_button_style)
+            self.tunarr_button.style.update(Styles.selected_button_style)
+            self.platform_url_entry.set_value("e.g., http://localhost:8000")
 
     def on_continue_button_click(self, widget):
         self.logic = LogicController()
@@ -290,8 +379,9 @@ class Page2(BasePage):
         plex_token = self.plex_token_entry.get_value()
         plex_anime_library = self.plex_anime_library_entry.get_value()
         plex_toonami_library = self.plex_toonami_library_entry.get_value()
-        dizquetv_url = self.dizquetv_url_entry.get_value()
-        self.logic.on_continue_second(plex_url, plex_token, plex_anime_library, plex_toonami_library, dizquetv_url)
+        platform_url = self.platform_url_entry.get_value()
+        platform_type = self.selected_platform        
+        self.logic.on_continue_second(plex_url, plex_token, plex_anime_library, plex_toonami_library, platform_url, platform_type)
         self.app.set_current_page('Page3')
 
 class Page3(BasePage, RedisListenerMixin):

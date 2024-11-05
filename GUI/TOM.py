@@ -65,11 +65,30 @@ class Page1(ttk.Frame):
         self.plex_library_dropdown.set("Select your Toonami Library")
         self.plex_library_dropdown.pack(pady=3)
 
-        dizquetv_url_label = ttk.Label(self, text="dizqueTV URL:")
-        dizquetv_url_label.pack(pady=3)
-        self.dizquetv_url_entry = ttk.Entry(self)
-        self.dizquetv_url_entry.insert(0, "eg. http://localhost:17685")
-        self.dizquetv_url_entry.pack(pady=3)
+        # Platform Selection Frame
+        platform_frame = ttk.Frame(self)
+        platform_frame.pack(pady=3)
+        
+        platform_label = ttk.Label(platform_frame, text="Select Platform:")
+        platform_label.pack(side="left", padx=5)
+        
+        self.platform_var = tk.StringVar(value="dizquetv")
+        dizquetv_radio = ttk.Radiobutton(platform_frame, text="DizqueTV", 
+                                        variable=self.platform_var, value="dizquetv",
+                                        command=self.update_url_placeholder)
+        dizquetv_radio.pack(side="left", padx=5)
+        
+        tunarr_radio = ttk.Radiobutton(platform_frame, text="Tunarr", 
+                                      variable=self.platform_var, value="tunarr",
+                                      command=self.update_url_placeholder)
+        tunarr_radio.pack(side="left", padx=5)
+
+        # Platform URL
+        self.url_label = ttk.Label(self, text="Platform URL:")
+        self.url_label.pack(pady=3)
+        self.platform_url_entry = ttk.Entry(self)
+        self.platform_url_entry.insert(0, "eg. http://localhost:17685")
+        self.platform_url_entry.pack(pady=3)
 
         self.status_label = tk.Label(self, text="Status: Idle",
                                      foreground='darkgray',
@@ -162,11 +181,21 @@ class Page1(ttk.Frame):
         self.libraries_selected += 1
         self.show_continue_button()
 
+    def update_url_placeholder(self):
+        """Update the URL placeholder based on selected platform"""
+        self.platform_url_entry.delete(0, tk.END)
+        if self.platform_var.get() == "dizquetv":
+            self.platform_url_entry.insert(0, "eg. http://localhost:17685")
+        else:
+            self.platform_url_entry.insert(0, "eg. http://localhost:8000")
+
     def on_continue_button_click(self):
         selected_anime_library = self.plex_anime_library_dropdown.get()
         selected_toonami_library = self.plex_library_dropdown.get()
-        dizquetv_url = self.dizquetv_url_entry.get()
-        self.logic.on_continue_first(selected_anime_library, selected_toonami_library, dizquetv_url)
+        platform_url = self.platform_url_entry.get()
+        platform_type = self.platform_var.get()
+        self.logic.on_continue_first(selected_anime_library, selected_toonami_library, 
+                                   platform_url, platform_type)
         self.controller.show_frame("Page3")
 
 class Page2(ttk.Frame):
@@ -202,11 +231,19 @@ class Page2(ttk.Frame):
         self.plex_library_name_entry.insert(0, "eg. Toonami")
         self.plex_library_name_entry.pack(pady=3)
 
-        dizquetv_url_label = ttk.Label(self, text="dizqueTV URL:")
+        dizquetv_url_label = ttk.Label(self, text="dizqueTV or tunarr URL:")
         dizquetv_url_label.pack(pady=3)
         self.dizquetv_url_entry = ttk.Entry(self)
         self.dizquetv_url_entry.insert(0, "eg. http://localhost:17685")
         self.dizquetv_url_entry.pack(pady=3)
+
+        platform_type_label = ttk.Label(self, text= "Platform Type:")
+        platform_type_label.pack(pady=3)
+        self.platform_type = tk.StringVar(value="dizquetv")
+        dizquetv_radio = ttk.Radiobutton(self, text="DizqueTV", variable=self.platform_type, value="dizquetv")
+        dizquetv_radio.pack(pady=3)
+        tunarr_radio = ttk.Radiobutton(self, text="Tunarr", variable=self.platform_type, value="tunarr")
+        tunarr_radio.pack(pady=3)
 
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
@@ -221,7 +258,8 @@ class Page2(ttk.Frame):
         selected_anime_library = self.plex_anime_library_name_entry.get()
         selected_toonami_library = self.plex_library_name_entry.get()
         dizquetv_url = self.dizquetv_url_entry.get()
-        self.logic.on_continue_second(plex_url, plex_token, selected_anime_library, selected_toonami_library, dizquetv_url)
+        platform_type = self.platform_type.get()
+        self.logic.on_continue_second(plex_url, plex_token, selected_anime_library, selected_toonami_library, dizquetv_url, platform_type)
         self.controller.show_frame("Page3")
 
 
