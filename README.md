@@ -75,6 +75,8 @@ Create a folder in your home directory called "Tools."
 
 Download ffmpeg, ffplay, and ffprobe from https://www.ffmpeg.org/ and put them in the Tools folder or install them using the following the instruction given on the ffmpeg website. The program can call the ffmpeg, ffplay, and ffprobe executables directly, but to do so they need to be in the same folder as the program. (See FAQ)
 
+Alternatively, we recommend installing it with [Chocolatey](https://chocolatey.org/install) if you are on Windows or [Homebrew](https://brew.sh/) if you are on Mac. It simplifies the process quite a bit.
+
 **Note:** If updateing from a previous version please delete config.py and run cp example-config.py config.py again
 
 
@@ -668,6 +670,9 @@ Q: WEEKS??? 
   
   Also side note some sources have better chapter markers than others. One of our sources has the chapter marker on one show just 3 seconds after the end credits start so it was bit annoying so we recommend you check the chapter markers before you start cutting. 
 
+Q: I got [WinError 2] The system cannot find the file specified
+
+  So did we once. We spent more hours chasing this "bug" than we want to admit just to relize we forgot to install ffmpeg on the test computer. If you also forgot don't feel too bad, we made the thing and also forgot. 
 
 Q: Okay, although I appreciate authenticity, I always thought [MY FAVORITE ANIME] should have been on Toonami. Can I add it?
 
