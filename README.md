@@ -810,6 +810,8 @@ Until next time, Space Cowboy!
 
 ### aislynne - Bringer of tea and snacks
 
+### Lex J - Toonami Test Pilot
+
 ## Actual Pros
 
 ### erotemic - Reducer of Jank
