@@ -10,3 +10,4 @@ temp.py
 logs
 .vscode/launch.json
 /venv/
+/tom_env/
