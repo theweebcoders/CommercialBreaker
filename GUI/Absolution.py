@@ -16,46 +16,71 @@ class Styles:
     default_label_style = {
         'font-size': '16px',
         'padding': '5px',
-        'margin': '5px'
+        'margin': '5px',
+        'font-family': 'inherit',
+        'color': '#a5f3fc'
     }
     title_label_style = {
-        'font-size': '24px',
+        'font-family': 'Arial, sans-serif',
+        'font-size': '2.5rem',
+        'letter-spacing': '0.05em',
         'padding': '10px',
         'font-weight': 'bold',
-        'margin': '10px'
+        'margin': '10px',
+        'color': '#0ff',
+        'text-shadow': '0 0 5px #00ccff, 0 0 10px #0099ff, 0 0 20px #0066ff, 0 0 40px #003399'
     }
     default_button_style = {
-        'font-size': '16px',
+        'font-family': 'inherit',
+        'color': '#a5f3fc',
+        'background': 'transparent',
+        'border': '1px solid rgba(0, 140, 255, 0.4)',
+        'box-shadow': '0 0 10px rgba(0, 140, 255, 0.2)',
+        'clip-path': 'polygon(0 10px, 10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px))',
         'padding': '10px',
-        'margin': '5px'
+        'margin': '5px',
+        'transition': 'all 0.3s ease'
     }
     selected_button_style = {
         'font-size': '16px',
+        'font-family': 'inherit',
         'padding': '10px 20px',
         'margin': '5px',
         'border-radius': '8px',
-        'background-color': '#2563eb',
-        'color': 'white',
+        'background': 'transparent',
+        'background-color': 'rgba(37, 99, 235, 0.3)',
+        'color': '#a5f3fc',
         'transition': 'all 0.2s ease',
-        'box-shadow': '0 4px 6px rgba(0, 0, 0, 0.1)',
-        'transform': 'scale(1.05)'
+        'box-shadow': '0 0 15px rgba(0, 140, 255, 0.3)',
+        'transform': 'scale(1.05)',
+        'border': '1px solid rgba(0, 140, 255, 0.6)'
     }
     unselected_button_style = {
         'font-size': '16px',
+        'font-family': 'inherit',
         'padding': '10px 20px',
         'margin': '5px',
         'border-radius': '8px',
-        'background-color': '#f3f4f6',
-        'color': '#374151',
+        'background': 'transparent',
+        'background-color': 'transparent',
+        'color': '#a5f3fc',
         'transition': 'all 0.2s ease',
         'box-shadow': 'none',
-        'transform': 'scale(1)'
+        'transform': 'scale(1)',
+        'border': '1px solid rgba(0, 140, 255, 0.2)'
     }
     default_input_style = {
         'font-size': '16px',
+        'font-family': 'inherit',
         'padding': '5px',
         'margin': '5px',
-        'width': '100%'
+        'color': '#a5f3fc',
+        'background': 'rgba(0, 20, 40, 0.6)',
+        'border': '1px solid rgba(0, 140, 255, 0.4)',
+        'clip-path': 'polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px))',
+        'width': '100%',
+        'appearance': 'none',
+        '-webkit-appearance': 'none',
     }
     default_container_style = {
         'display': 'flex',
@@ -64,8 +89,19 @@ class Styles:
         'justify-content': 'flex-start',
         'width': '100%',
         'height': '100%',
-        'background-color': '#F0F0F0',
+        'background-color': '#000924',
+        'background-image': 'linear-gradient(45deg, rgba(0, 140, 255, 0.2) 1px, transparent 1px), linear-gradient(-45deg, rgba(0, 140, 255, 0.3) 1px, transparent 1px)',
+        'background-size': '30px 30px',
+        'animation': 'grid-scroll 20s linear infinite',
+        'color': '#a5f3fc',
+        'font-family': 'Arial, sans-serif',
         'overflow': 'auto'
+    }
+    transparent_style = {
+        'background': 'transparent',
+        'background-color': 'transparent',
+        'box-shadow': 'none',
+        'border': 'none'
     }
 
 class BasePage(gui.Container):
@@ -83,11 +119,15 @@ class BasePage(gui.Container):
             'align-items': 'center',
             'justify-content': 'flex-start',
             'margin': 'auto',
-            'padding': '20px'
+            'padding': '20px',
+            'background': 'none',
+            'box-shadow': 'none',
+            'border': 'none'
         })
 
     def add_page_title(self, container, title_text):
         page_title = gui.Label(title_text, style=Styles.title_label_style)
+        page_title.add_class('main-title') 
         container.append(page_title)
 
     def add_label(self, container, text):
@@ -121,8 +161,12 @@ class BasePage(gui.Container):
         return dropdown
 
     def add_checkbox(self, container, label_text, default_value=False):
-        hbox = gui.HBox(style={'align-items': 'center', 'margin': '5px'})
-        checkbox = gui.CheckBox()
+        hbox = gui.HBox(style={
+            'align-items': 'center',
+            'margin': '5px',
+            **Styles.transparent_style
+        })
+        checkbox = gui.CheckBox(style=Styles.transparent_style)
         checkbox.set_value(default_value)
         label = gui.Label(label_text, style=Styles.default_label_style)
         hbox.append(checkbox)
@@ -192,7 +236,9 @@ class Page1(BasePage, RedisListenerMixin):
         platform_container = gui.HBox(style={
             'justify-content': 'center',
             'margin': '20px',
-            'gap': '20px'
+            'gap': '20px',
+            'background': 'transparent',
+            'background-color': 'transparent'
         })
         self.add_label(platform_container, "Select Platform:")
         
@@ -218,7 +264,9 @@ class Page1(BasePage, RedisListenerMixin):
         # Continue and Skip buttons
         buttons_container = gui.HBox(style={
             'justify-content': 'center',
-            'margin-top': '20px'
+            'margin-top': '20px',
+            'background': 'transparent',
+            'background-color': 'transparent'
         })
         self.continue_button = gui.Button("Continue", width=200, height=30, style=Styles.default_button_style)
         self.continue_button.onclick.do(self.on_continue_button_click)
@@ -340,7 +388,9 @@ class Page2(BasePage):
         platform_container = gui.HBox(style={
             'justify-content': 'center',
             'margin': '20px',
-            'gap': '20px'
+            'gap': '20px',
+            'background': 'transparent',
+            'background-color': 'transparent'
         })
         self.add_label(platform_container, "Select Platform:")
         
@@ -479,13 +529,17 @@ class Page3(BasePage, RedisListenerMixin):
             'justify-content': 'flex-start',
             'margin-top': '20px',
             'width': '100%',
+            **Styles.transparent_style
         })
         self.checkboxes = {}
 
         label_width = '200px'
 
         for show in unique_show_names_sorted:
-            checkbox = gui.CheckBox(checked=True, style={'margin-right': '10px'})
+            checkbox = gui.CheckBox(checked=True, style={
+                'margin-right': '10px',
+                **Styles.transparent_style
+            })
             checkbox_label = gui.Label(show, style={
                 **Styles.default_label_style,
                 'width': label_width,
@@ -496,6 +550,7 @@ class Page3(BasePage, RedisListenerMixin):
                 'align-items': 'center',
                 'justify-content': 'flex-start',
                 'width': '100%',
+                **Styles.transparent_style
             })
             self.selection_container.append(hbox)
 
@@ -555,27 +610,33 @@ class Page4(BasePage, RedisListenerMixin):
         self.add_label(self.main_container, "Commercial Breaker")
 
         # Checkbox container
-        checkbox_container = gui.HBox(style={'justify-content': 'flex-start', 'margin': '10px'})
+        checkbox_container = gui.HBox(style={
+            'justify-content': 'flex-start',
+            'margin': '10px',
+            **Styles.transparent_style
+        })
 
         # Destructive Mode checkbox
-        self.destructive_checkbox = gui.CheckBoxLabel('Destructive Mode', False)
+        self.destructive_checkbox = self.add_checkbox(checkbox_container, 'Destructive Mode', False)
         self.destructive_checkbox.onchange.do(self.on_destructive_mode_changed)
-        checkbox_container.append(self.destructive_checkbox)
 
         # Fast Mode checkbox
-        self.fast_checkbox = gui.CheckBoxLabel('Fast Mode', False)
+        self.fast_checkbox = self.add_checkbox(checkbox_container, 'Fast Mode', False)
         self.fast_checkbox.onchange.do(self.on_fast_mode_changed)
-        checkbox_container.append(self.fast_checkbox)
 
         # Low Power Mode checkbox
-        self.low_power_checkbox = gui.CheckBoxLabel('Low Power Mode', False)
+        self.low_power_checkbox = self.add_checkbox(checkbox_container, 'Low Power Mode', False)
         self.low_power_checkbox.onchange.do(self.on_low_power_mode_changed)
-        checkbox_container.append(self.low_power_checkbox)
 
         self.main_container.append(checkbox_container)
 
         # Progress bar and status label
-        progress_container = gui.VBox(style={'align-items': 'center', 'margin-top': '20px'})
+        progress_container = gui.VBox(style={
+            'align-items': 'center',
+            'margin-top': '20px',
+            'background': 'transparent',
+            'background-color': 'transparent'
+        })
 
         progress_label = gui.Label("Progress:", style=Styles.default_label_style)
         progress_container.append(progress_label)
@@ -589,7 +650,12 @@ class Page4(BasePage, RedisListenerMixin):
         self.main_container.append(progress_container)
 
         # Action buttons
-        buttons_container = gui.HBox(style={'justify-content': 'center', 'margin-top': '20px'})
+        buttons_container = gui.HBox(style={
+            'justify-content': 'center',
+            'margin-top': '20px',
+            'background': 'transparent',
+            'background-color': 'transparent'
+        })
 
         detect_button = self.add_button(buttons_container, "Detect", self.detect_commercials)
         cut_button = self.add_button(buttons_container, "Cut", self.cut_videos)
@@ -839,7 +905,11 @@ class MainApp(App):
         super(MainApp, self).__init__(*args, **kwargs)
 
     def main(self):
-        self.container = gui.Container(width='100%', height='100%', style=Styles.default_container_style)
+        container = gui.Container(width='100%', height='100%')
+        container.style.update(Styles.default_container_style)
+        
+        self.container = gui.Container(width='100%', height='100%')
+        self.container.style.update(Styles.default_container_style)
         self.pages = {
             'Page1': Page1(self),
             'Page2': Page2(self),
@@ -853,7 +923,7 @@ class MainApp(App):
         return self.container
 
     def set_current_page(self, page_name):
-        if page_name in self.pages:
+        if (page_name in self.pages):
             self.container.empty()
             self.container.append(self.pages[page_name])
 
