@@ -620,6 +620,9 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 
 ### Critical Issues
 - [ ] Fix requirement to run "continue from last" twice for continued Toonami channel
+- [ ] WebUI has no way of getting folders outside of being in a docker container
+- [ ] Suuuper unclear you need to scroll down to the done button when checkboxs show up on webui
+  - [ ] Hide other elements for a sec??
 
 ### **Web UI Issues**
 - [ ] Add dark mode to WebUI
