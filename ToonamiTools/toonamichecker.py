@@ -17,7 +17,7 @@ class ToonamiShowsFetcher:
         """
         params = {
             "action": "parse",
-            "page": "List of programs broadcast by Toonami",
+            "page": f"List of programs broadcast by {config.network}",
             "format": "json",
             "prop": "text",
         }
