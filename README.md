@@ -609,6 +609,11 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 
 # To-Do List
 
+# Beta Changes to test
+
+- [ ] Huge merger refactor!
+- [ ] PlexToTunarr flex support (borked due to api changes)
+
 ## **Immediate Attention**
 
 ### Tunarr To Do
