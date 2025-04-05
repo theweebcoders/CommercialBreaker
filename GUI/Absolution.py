@@ -103,16 +103,105 @@ class Styles:
         'box-shadow': 'none',
         'border': 'none'
     }
+    # New navigation-related styles
+    navigation_bar_style = {
+        'display': 'flex',
+        'flex-direction': 'row',
+        'align-items': 'center',
+        'justify-content': 'space-between',
+        'width': '100%',
+        'padding': '10px 20px',
+        'background-color': 'rgba(0, 20, 40, 0.8)',
+        'border-bottom': '2px solid rgba(0, 140, 255, 0.6)',
+        'box-shadow': '0 0 20px rgba(0, 140, 255, 0.3)',
+        'margin-bottom': '20px',
+    }
+    nav_indicator_active = {
+        'width': '14px',
+        'height': '14px',
+        'border-radius': '50%',
+        'margin': '0 3px',
+        'background-color': '#0ff',
+        'box-shadow': '0 0 10px rgba(0, 255, 255, 0.8), 0 0 20px rgba(0, 140, 255, 0.4)',
+        'transition': 'all 0.3s ease',
+        'cursor': 'pointer'
+    }
+    nav_indicator_inactive = {
+        'width': '12px',
+        'height': '12px',
+        'border-radius': '50%',
+        'margin': '0 3px',
+        'background-color': 'rgba(0, 140, 255, 0.4)',
+        'transition': 'all 0.3s ease',
+        'cursor': 'pointer'
+    }
+    nav_indicator_optional = {
+        'width': '10px',
+        'height': '10px',
+        'border-radius': '50%',
+        'margin': '0 3px',
+        'border': '1px dashed rgba(0, 140, 255, 0.6)',
+        'background-color': 'transparent',
+        'transition': 'all 0.3s ease',
+        'cursor': 'pointer'
+    }
+    nav_text_active = {
+        'font-size': '14px',
+        'color': '#0ff',
+        'margin': '0 5px',
+        'font-weight': 'bold',
+        'text-shadow': '0 0 5px #00ccff',
+    }
+    nav_text_inactive = {
+        'font-size': '14px',
+        'color': '#a5f3fc',
+        'margin': '0 5px',
+        'opacity': '0.8',
+    }
+    nav_separator = {
+        'width': '15px',
+        'height': '1px',
+        'background-color': 'rgba(0, 140, 255, 0.4)',
+        'margin': '0 2px',
+    }
 
 class BasePage(gui.Container):
     def __init__(self, app, title_key, *args, **kwargs):
         super(BasePage, self).__init__(*args, **kwargs)
         self.app = app
+        self.title_key = title_key  # Store the title key for later reference
         self.set_size('100%', '100%')
         self.style.update(Styles.default_container_style)
+        
+        # Add the navigation bar at the top
+        self.nav_bar = NavigationBar(app, title_key)
+        self.append(self.nav_bar)
+        
+        # Create the main content container
         self.main_container = self.create_main_container()
         self.append(self.main_container)
         self.add_page_title(self.main_container, self.app.page_titles.get(title_key, ''))
+
+    def refresh_nav_bar(self):
+        # Store reference to main container before removing
+        main_container = self.main_container if hasattr(self, 'main_container') else None
+        
+        # Remove the existing navigation bar
+        if hasattr(self, 'nav_bar'):
+            self.remove_child(self.nav_bar)
+        
+        # Create a new navigation bar with current state
+        self.nav_bar = NavigationBar(self.app, self.title_key)
+        
+        # Clear all children
+        self.empty()
+        
+        # Add the nav_bar first
+        self.append(self.nav_bar)
+        
+        # Then add back the main container if it exists
+        if main_container:
+            self.append(main_container)
 
     def create_main_container(self):
         return gui.VBox(width='80%', style={
@@ -206,6 +295,191 @@ class RedisListenerMixin:
     def update_status_label(self, status):
         self.status_label.set_text(f"Status: {status}")
 
+class NavigationBar(gui.Container):
+    def __init__(self, app, current_page, *args, **kwargs):
+        super(NavigationBar, self).__init__(*args, **kwargs)
+        self.app = app
+        self.current_page = current_page
+        self.set_size('100%', 'auto')
+        self.style.update({
+            'display': 'flex',
+            'flex-direction': 'row',
+            'align-items': 'center',
+            'justify-content': 'space-between',
+            'padding': '10px 20px',
+            'background-color': 'rgba(0, 20, 40, 0.7)',
+            'border-bottom': '1px solid rgba(0, 140, 255, 0.4)',
+            'margin-bottom': '20px',
+        })
+        
+        # Left container for back button
+        left_container = gui.HBox(style={
+            'align-items': 'center',
+            'background': 'transparent',
+            'background-color': 'transparent'
+        })
+        
+        # Back button
+        back_button = gui.Button('← Back', width=100, height=30, style=Styles.default_button_style)
+        back_button.onclick.do(self.on_back_button_click)
+        left_container.append(back_button)
+        
+        # Right container for home/start over button
+        right_container = gui.HBox(style={
+            'align-items': 'center',
+            'background': 'transparent',
+            'background-color': 'transparent'
+        })
+        
+        # Home/Start Over button with larger icon
+        home_button = gui.Button('↻ Start Over', width=140, height=30, style=Styles.default_button_style)
+        home_button.onclick.do(self.on_home_button_click)
+        right_container.append(home_button)
+        
+        # Center container for progress indicators
+        center_container = gui.HBox(style={
+            'align-items': 'center',
+            'justify-content': 'center',
+            'flex-grow': '1',
+            'background': 'transparent',
+            'background-color': 'transparent'
+        })
+        
+        # Create page indicators
+        self.create_page_indicators(center_container)
+        
+        # Add containers to navbar
+        self.append(left_container)
+        self.append(center_container)
+        self.append(right_container)
+    
+    def create_page_indicators(self, container):
+        # Use the app's visited_page2 flag to determine if we show Page2
+        show_page2 = self.current_page == 'Page2' or self.app.visited_page2
+        
+        # Define all pages in sequence with their titles and visual number
+        pages = []
+        
+        # Always add Page1
+        pages.append({
+            'id': 'Page1', 
+            'title': 'Login', 
+            'optional': False, 
+            'visual_num': 1
+        })
+        
+        # Only add Page2 if we're on it or have visited it
+        if show_page2:
+            pages.append({
+                'id': 'Page2', 
+                'title': 'Manual Setup', 
+                'optional': True, 
+                'visual_num': 2
+            })
+        
+        # Add remaining pages with dynamic visual numbers
+        offset = 1 if not show_page2 else 0
+        pages.append({
+            'id': 'Page3', 
+            'title': 'Content Prep', 
+            'optional': False, 
+            'visual_num': 3 - offset
+        })
+        pages.append({
+            'id': 'Page4', 
+            'title': 'Commercial Breaker', 
+            'optional': False, 
+            'visual_num': 4 - offset
+        })
+        pages.append({
+            'id': 'Page5', 
+            'title': 'Channel Creation', 
+            'optional': False, 
+            'visual_num': 5 - offset
+        })
+        pages.append({
+            'id': 'Page6', 
+            'title': 'Additional Channels', 
+            'optional': False, 
+            'visual_num': 6 - offset
+        })
+        pages.append({
+            'id': 'Page7', 
+            'title': 'Flex Channel', 
+            'optional': False, 
+            'visual_num': 7 - offset
+        })
+        
+        # Display page indicators
+        for i, page in enumerate(pages):
+            # Create indicator style based on current page
+            is_current = (page['id'] == self.current_page)
+            indicator_style = {
+                'width': '12px',
+                'height': '12px',
+                'border-radius': '50%',
+                'margin': '0 2px',
+                'background-color': '#0ff' if is_current else 'rgba(0, 140, 255, 0.4)',
+                'box-shadow': '0 0 8px rgba(0, 255, 255, 0.8)' if is_current else 'none',
+                'cursor': 'pointer'
+            }
+            
+            # Create text style
+            text_style = {
+                'font-size': '14px',
+                'color': '#0ff' if is_current else '#a5f3fc',
+                'margin': '0 5px',
+                'font-weight': 'bold' if is_current else 'normal',
+                'text-shadow': '0 0 5px #00ccff' if is_current else 'none'
+            }
+            
+            # Create page indicator
+            indicator_container = gui.HBox(style={
+                'align-items': 'center',
+                'margin': '0 8px',
+                'background': 'transparent',
+                'background-color': 'transparent'
+            })
+            
+            # Add dot indicator
+            dot = gui.Container(width=12, height=12, style=indicator_style)
+            dot.attributes['page_id'] = page['id']
+            dot.onclick.do(self.on_indicator_click)
+            indicator_container.append(dot)
+            
+            # Add page number and title
+            label_text = f"{page['visual_num']} - {page['title']}"
+            if page['optional']:
+                label_text += " (Optional)"
+                
+            label = gui.Label(label_text, style=text_style)
+            indicator_container.append(label)
+            
+            # Add to container
+            container.append(indicator_container)
+            
+            # Add separator if not the last page
+            if i < len(pages) - 1:
+                separator = gui.Container(width=15, height=1, style={
+                    'background-color': 'rgba(0, 140, 255, 0.4)',
+                    'margin': '0 2px'
+                })
+                container.append(separator)
+    
+    def on_back_button_click(self, widget):
+        # Let the app handle the back navigation with its history tracking
+        self.app.go_back()
+    
+    def on_home_button_click(self, widget):
+        # Start over from Page1
+        self.app.start_over()
+    
+    def on_indicator_click(self, widget):
+        # Navigate to the clicked page
+        page_id = widget.attributes.get('page_id')
+        if page_id:
+            self.app.set_current_page(page_id)
+
 class Page1(BasePage, RedisListenerMixin):
     def __init__(self, app, *args, **kwargs):
         super(Page1, self).__init__(app, 'Page1', *args, **kwargs)
@@ -274,7 +548,7 @@ class Page1(BasePage, RedisListenerMixin):
         buttons_container.append(self.continue_button)
 
         self.skip_button = gui.Button("Skip", width=200, height=30, style=Styles.default_button_style)
-        self.skip_button.onclick.do(lambda x: self.app.set_current_page('Page2'))
+        self.skip_button.onclick.do(self.on_skip_button_click)
         buttons_container.append(self.skip_button)
 
         self.main_container.append(buttons_container)
@@ -354,6 +628,7 @@ class Page1(BasePage, RedisListenerMixin):
         self.logic._set_data("platform_url", platform_url)
         self.logic._set_data("platform_type", self.selected_platform)
         self.logic._broadcast_status_update("Idle")
+        self.app.visited_page2 = False
         self.app.set_current_page('Page3')
 
     def handle_redis_message(self, channel, data):
@@ -365,6 +640,11 @@ class Page1(BasePage, RedisListenerMixin):
             self.update_dropdown()
         elif channel == 'new_library_choices':
             self.update_library_dropdowns()
+
+    def on_skip_button_click(self, widget):
+        # Skip button should take us to Manual Setup (Page2)
+        self.app.visited_page2 = True
+        self.app.set_current_page('Page2')
 
 class Page2(BasePage):
     def __init__(self, app, *args, **kwargs):
@@ -432,6 +712,7 @@ class Page2(BasePage):
         platform_url = self.platform_url_entry.get_value()
         platform_type = self.selected_platform        
         self.logic.on_continue_second(plex_url, plex_token, plex_anime_library, plex_toonami_library, platform_url, platform_type)
+        self.app.visited_page2 = True
         self.app.set_current_page('Page3')
 
 class Page3(BasePage, RedisListenerMixin):
@@ -902,6 +1183,24 @@ class MainApp(App):
             "Page6": "Step 5 - Let's Make Another Channel! - Toonami's Back Bitches",
             "Page7": "Step 6 - Flex Your Toonami Channel - Commercial Break"
         }
+        
+        # Track whether Page2 was ever visited
+        self.visited_page2 = False
+        
+        # Keep track of navigation history for proper back button behavior
+        self.navigation_history = []
+        
+        # Custom page flow to respect skipping of optional Page2
+        self.page_flow = {
+            'Page1': None,  # No previous page
+            'Page2': 'Page1',
+            'Page3': 'Page1',  # Default if Page2 wasn't used
+            'Page4': 'Page3',
+            'Page5': 'Page4',
+            'Page6': 'Page5',
+            'Page7': 'Page6'
+        }
+        
         super(MainApp, self).__init__(*args, **kwargs)
 
     def main(self):
@@ -910,6 +1209,27 @@ class MainApp(App):
         
         self.container = gui.Container(width='100%', height='100%')
         self.container.style.update(Styles.default_container_style)
+        
+        # Add custom CSS for the navigation indicators
+        self.execute_javascript("""
+        var style = document.createElement('style');
+        style.innerHTML = `
+            @keyframes grid-scroll {
+                0% { background-position: 0 0; }
+                100% { background-position: 60px 60px; }
+            }
+            
+            .nav-indicator {
+                transition: all 0.3s ease;
+            }
+            
+            .nav-indicator:hover {
+                transform: scale(1.2);
+            }
+        `;
+        document.head.appendChild(style);
+        """)
+        
         self.pages = {
             'Page1': Page1(self),
             'Page2': Page2(self),
@@ -919,13 +1239,67 @@ class MainApp(App):
             'Page6': Page6(self),
             'Page7': Page7(self),
         }
+        
         self.set_current_page('Page1')
         return self.container
 
     def set_current_page(self, page_name):
-        if (page_name in self.pages):
+        if page_name in self.pages:
+            # Mark Page2 as visited if we're going there
+            if page_name == 'Page2':
+                self.visited_page2 = True
+                
+                # Refresh all navigation bars to reflect this change
+                for page_id, page in self.pages.items():
+                    if hasattr(page, 'refresh_nav_bar'):
+                        page.refresh_nav_bar()
+            
+            # Add to navigation history
+            self.navigation_history.append(page_name)
+            
+            # Clear the container and add the new page
             self.container.empty()
             self.container.append(self.pages[page_name])
+            
+            # Pass reference to the LogicController if page has it
+            if hasattr(self.pages[page_name], 'logic'):
+                self.logic = self.pages[page_name].logic
+                
+            # Broadcast status update
+            if hasattr(self, 'logic') and hasattr(self.logic, '_broadcast_status_update'):
+                self.logic._broadcast_status_update(f"Navigated to {self.page_titles.get(page_name, page_name)}")
+    
+    def go_back(self):
+        # Must have at least two pages in history to go back
+        if len(self.navigation_history) <= 1:
+            return
+            
+        # Remove current page from history
+        current_page = self.navigation_history.pop()  
+        previous_page = self.navigation_history[-1]  # Get the previous page
+        
+        # Special handling for Page3 going back
+        if current_page == 'Page3' and previous_page == 'Page2' and not self.visited_page2:
+            # Skip back to Page1 if we never actually visited Page2
+            self.navigation_history.pop()  # Remove Page2 from history
+            previous_page = 'Page1'
+            
+        # Go to the previous page - we need to pop again since set_current_page will add it
+        self.navigation_history.pop()
+        self.set_current_page(previous_page)
+    
+    def start_over(self):
+        # Reset visited_page2 flag
+        self.visited_page2 = False
+        
+        # Refresh all navigation bars to reflect this change
+        for page_id, page in self.pages.items():
+            if hasattr(page, 'refresh_nav_bar'):
+                page.refresh_nav_bar()
+        
+        # Clear history and go to Page1
+        self.navigation_history = []
+        self.set_current_page('Page1')
 
 def WebServer():
     # Starts the webserver
