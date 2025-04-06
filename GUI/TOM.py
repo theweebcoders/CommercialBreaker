@@ -647,6 +647,12 @@ class Page6(ttk.Frame):
         self.channel_number_entry.insert(0, "eg. 60")
         self.channel_number_entry.pack(pady=3)
 
+        flex_duration_label = ttk.Label(self, text="Enter your Flex duration Minutes:Seconds (How long should a commercial break be)")
+        flex_duration_label.pack(pady=3)
+        self.flex_duration_entry = ttk.Entry(self)
+        self.flex_duration_entry.insert(0, "eg. 4:20")
+        self.flex_duration_entry.pack(pady=3)
+
         prepare_cut_anime_button = ttk.Button(self, text="Prepare Cut Anime for Lineup",
                                              command=self.logic.prepare_cut_anime)
         prepare_cut_anime_button.pack(pady=3)
@@ -662,6 +668,10 @@ class Page6(ttk.Frame):
         create_toonami_channel_button = ttk.Button(self, text="Create Toonami Channel",
                                                   command=self.create_toonami_channel)
         create_toonami_channel_button.pack(pady=3)
+
+        add_flex_button = ttk.Button(self, text="Add Flex",
+                                     command=self.add_flex)
+        add_flex_button.pack(pady=3)
 
         self.status_label = tk.Label(self, text="Status: Idle",
                                      foreground='darkgray',
@@ -699,6 +709,10 @@ class Page6(ttk.Frame):
         channel_number = self.channel_number_entry.get()
         self.logic.create_toonami_channel(toonami_version, channel_number)
 
+    def add_flex(self):
+        channel_number = self.channel_number_entry.get()
+        flex_duration = self.flex_duration_entry.get()
+        self.logic.add_flex(channel_number, flex_duration)
 
 class Page7(ttk.Frame):
     def __init__(self, parent, controller, logic):
@@ -737,6 +751,12 @@ class Page7(ttk.Frame):
         self.channel_number_entry.insert(0, "eg. 60")
         self.channel_number_entry.pack(pady=3)
 
+        flex_duration_label = ttk.Label(self, text="Enter your Flex duration Minutes:Seconds (How long should a commercial break be)")
+        flex_duration_label.pack(pady=3)
+        self.flex_duration_entry = ttk.Entry(self)
+        self.flex_duration_entry.insert(0, "eg. 3:00")
+        self.flex_duration_entry.pack(pady=3)
+
         self.start_from_last_episode = tk.BooleanVar(value=True)
         start_from_last_episode_checkbox = ttk.Checkbutton(self, text="Start from last episode", variable=self.start_from_last_episode)
         start_from_last_episode_checkbox.pack(pady=3)
@@ -756,10 +776,9 @@ class Page7(ttk.Frame):
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
 
-        self.continue_button = ttk.Button(self, text="Continue",
-                                    command=self.on_continue_button_click)
-
-        self.continue_button.pack(side="right", padx=5, pady=5)
+        add_flex_button = ttk.Button(self, text="Add Flex",
+                                     command=self.add_flex)
+        add_flex_button.pack(pady=3)
 
     if LogicController.use_redis:
         # -------------------------------------
@@ -771,10 +790,6 @@ class Page7(ttk.Frame):
                 
                 self.after(100, self.process_redis_messages)
         # -------------------------------------
-
-    def on_continue_button_click(self):
-        self.logic.on_continue_seventh()
-        self.controller.show_frame("Page8")
 
     def update_status_label(self, status):
         self.status_label.config(text=f"Status: {status}")
@@ -789,101 +804,10 @@ class Page7(ttk.Frame):
         channel_number = self.channel_number_entry.get()
         self.logic.create_toonami_channel(toonami_version, channel_number)
 
-
-class Page8(ttk.Frame):
-    def __init__(self, parent, controller, logic):
-        ttk.Frame.__init__(self, parent)
-        self.controller = controller
-        self.logic = logic
-
-    # do something to pick one
-        if LogicController.use_redis:
-            # Start the Redis listener thread
-            # -------------------------------
-            self.redis_queue = Queue()
-            self.controller.start_redis_listener_thread(self.redis_queue)
-            self.after(100, self.process_redis_messages)
-            # -------------------------------
-            
-        # Pubsub stuff
-        else:
-            self.logic.subscribe_to_status_updates(self.update_status_label)
-            # ----------------
-
-        label = ttk.Label(self, text="Flex your Toonami Channel:", font=("Helvetica", 24))
-        label.pack(pady=10, padx=10)
-
-        ssh_host_label = ttk.Label(self, text="Enter The IP address for your server:")
-        ssh_host_label.pack(pady=3)
-        self.ssh_host_entry = ttk.Entry(self)
-        self.ssh_host_entry.insert(0, "eg. 192.168.255.255")
-        self.ssh_host_entry.pack(pady=3)
-
-        ssh_user_label = ttk.Label(self, text="Enter the username for your server:")
-        ssh_user_label.pack(pady=3)
-        self.ssh_user_entry = ttk.Entry(self)
-        self.ssh_user_entry.insert(0, "eg. root")
-        self.ssh_user_entry.pack(pady=3)
-
-        ssh_pass_label = ttk.Label(self, text="Enter the password for your server:")
-        ssh_pass_label.pack(pady=3)
-        self.ssh_pass_entry = ttk.Entry(self)
-        self.ssh_pass_entry.insert(0, "eg. password")
-        self.ssh_pass_entry = ttk.Entry(self, show="*")
-        self.ssh_pass_entry.pack(pady=3)
-
-        self.dizquetv_docker_name_label = ttk.Label(self, text="Enter the name of your dizqueTV docker container:")
-        self.dizquetv_docker_name_label.pack(pady=3)
-        self.dizquetv_docker_name_entry = ttk.Entry(self)
-        self.dizquetv_docker_name_entry.insert(0, "eg. dizquetv")
-        self.dizquetv_docker_name_entry.pack(pady=3)
-
-        self.dizquetv_channel_number_label = ttk.Label(self, text="Enter the channel number you want to add flex to:")
-        self.dizquetv_channel_number_label.pack(pady=3)
-        self.dizquetv_channel_number_entry = ttk.Entry(self)
-        self.dizquetv_channel_number_entry.insert(0, "eg. 60")
-        self.dizquetv_channel_number_entry.pack(pady=3)
-
-        self.dizquetv_flex_duration_label = ttk.Label(self, text="Enter the duration of the flex in Minutes:Sesconds")
-        self.dizquetv_flex_duration_label.pack(pady=3)
-        self.dizquetv_flex_duration_entry = ttk.Entry(self)
-        self.dizquetv_flex_duration_entry.insert(0, "eg. 4:20")
-        self.dizquetv_flex_duration_entry.pack(pady=3)
-
-        add_flex_button = ttk.Button(self, text="Add Flex", command=self.flex)
-        add_flex_button.pack(pady=3)
-
-        self.status_label = tk.Label(self, text="Status: Idle",
-                                     foreground='darkgray',
-                                     font=('Arial', 16, 'bold'),
-                                     relief='flat')
-        self.status_label.pack(pady=10, padx=10, fill='x')
-
-    if LogicController.use_redis:
-        # -------------------------------------
-            def process_redis_messages(self):
-                while not self.redis_queue.empty():
-                    message = self.redis_queue.get()
-                    if message['channel'].decode('utf-8') == 'status_updates':
-                        self.update_status_label(message['data'].decode('utf-8'))
-                
-                self.after(100, self.process_redis_messages)
-        # -------------------------------------
-
-    def update_status_label(self, status):
-        self.status_label.config(text=f"Status: {status}")
-
-    def flex(self):
-        ssh_host = self.ssh_host_entry.get()
-        ssh_user = self.ssh_user_entry.get()
-        ssh_pass = self.ssh_pass_entry.get()
-        dizquetv_docker_name = self.dizquetv_docker_name_entry.get()
-        dizquetv_channel_number = self.dizquetv_channel_number_entry.get()
-        dizquetv_flex_duration = self.dizquetv_flex_duration_entry.get()
-        self.logic.add_flex_creds(ssh_host, ssh_user, ssh_pass, dizquetv_docker_name, dizquetv_channel_number, dizquetv_flex_duration)
-        self.logic.add_flex()
-
-
+    def add_flex(self):
+        channel_number = self.channel_number_entry.get()
+        flex_duration = self.flex_duration_entry.get()
+        self.logic.add_flex(channel_number, flex_duration)
 
 class MainApplication(tk.Tk):
     def __init__(self, *args, **kwargs):
@@ -899,7 +823,7 @@ class MainApplication(tk.Tk):
         self.frames = {}
         self.logic = LogicController()
 
-        for F in (Page1, Page2, Page3, Page4, Page5, Page6, Page7, Page8):
+        for F in (Page1, Page2, Page3, Page4, Page5, Page6, Page7):
             page_name = F.__name__
             frame = F(parent=container, controller=self, logic=self.logic)
             self.frames[page_name] = frame
@@ -944,7 +868,6 @@ class MainApplication(tk.Tk):
             "Page5": "Step 4 - Commercial Breaker - Toonami Will Be Right Back",
             "Page6": "Step 5 - Create your Toonami Channel - All aboard the Absolution",
             "Page7": "Step 6 - Let's Make Another Channel! - Toonami's Back Bitches",
-            "Page8": "Step 7 - Flex Your Toonami Channel - Commerecial Break"
         }
 
         frame = self.frames[page_name]

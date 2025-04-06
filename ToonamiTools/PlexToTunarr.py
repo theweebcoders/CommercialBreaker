@@ -144,6 +144,37 @@ class PlexToTunarr:
             "id": program_id
         }
 
+    def create_flex_entry(self, index: int, current_offset: int) -> tuple[Dict, Dict]:
+        """Create a flex program and lineup entry."""
+        flex_id = f"flex_{uuid.uuid4()}"
+        flex_duration = 90000  # 90 seconds in milliseconds
+
+        program = {
+            "id": flex_id,
+            "persisted": False,
+            "type": "flex",
+            "duration": flex_duration,
+            "startTimeOffset": current_offset,
+            "originalIndex": index
+        }
+
+        lineup_entry = {
+            "duration": flex_duration,
+            "index": index,
+            "persisted": True,
+            "type": "flex",
+            "id": flex_id
+        }
+
+        return program, lineup_entry
+
+    def is_toonami_show(self, media_item: Union[Episode, Movie]) -> bool:
+        """Check if the show title contains the network name (case insensitive)."""
+        title = (media_item.grandparentTitle 
+                if hasattr(media_item, 'grandparentTitle') 
+                else media_item.title)
+        return config.network.lower() in title.lower()
+
     def create_channel(self, channel_name: str) -> Optional[str]:
         """Create a new channel."""
         channel_id = str(uuid.uuid4())
@@ -159,7 +190,7 @@ class PlexToTunarr:
         channel_payload = {
             "id": channel_id,
             "name": channel_name,
-            "number": channel_number,  # Using the converted integer
+            "number": channel_number,
             "startTime": start_time,
             "disableFillerOverlay": False,
             "duration": 3600,
@@ -194,28 +225,47 @@ class PlexToTunarr:
         return None
 
     def add_programming(self, channel_id: str, episodes: List[Episode]) -> bool:
-        """Add multiple programs to a channel using Plex episodes."""
+        """Add multiple programs to a channel using Plex episodes with flex content between consecutive Toonami shows."""
         time.sleep(2)
 
         programs = []
         lineup = []
         start_time_offsets = []
         current_offset = 0
+        current_index = 0
 
-        for index, episode in enumerate(episodes):
-            program = self.create_program_entry(episode, index)
+        for i, episode in enumerate(episodes):
+            # Add current episode
+            program = self.create_program_entry(episode, current_index)
             program["startTimeOffset"] = current_offset
             programs.append(program)
             
             lineup_entry = self.create_lineup_entry(
                 program_id=program["id"],
                 duration=int(episode.duration),
-                index=index
+                index=current_index
             )
             lineup.append(lineup_entry)
             
             start_time_offsets.append(current_offset)
             current_offset += int(episode.duration)
+            current_index += 1
+
+            # Check if we need to add flex content
+            if (i < len(episodes) - 1 and  # Not the last episode
+                self.is_toonami_show(episode) and  # Current is Toonami
+                self.is_toonami_show(episodes[i + 1])):  # Next is Toonami
+                
+                print(f"Adding flex content between Toonami shows: {episode.title} and {episodes[i + 1].title}")
+                
+                # Add flex content
+                flex_program, flex_lineup = self.create_flex_entry(current_index, current_offset)
+                programs.append(flex_program)
+                lineup.append(flex_lineup)
+                start_time_offsets.append(current_offset)
+                
+                current_offset += flex_program["duration"]
+                current_index += 1
 
         programming_payload = {
             "type": "manual",

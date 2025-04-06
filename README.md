@@ -353,19 +353,31 @@ You will see some text saying, "What Toonami Version are you making today?" unde
 
 You will see some text saying "What channel number do you want to use?" under this a text field. Very simple; just type in any number you want. We recommend you use a number between 1 and 1000. We used 60 for our main channel, as this was our local Toonami channel number. 
 
-**Step 3** Prepare Cut Anime for Lineup
+**Step 3** Set the commercial break length
+
+You will see some text saying "Enter your Flex duration Minutes:Seconds (How long should a commercial break be) It's nice and easy just enter in the length you desire and commercial breaks will be that length.
+
+**Step 4** Prepare Cut Anime for Lineup
 
 This will do some final prep work in the background. It won't take long, but it needs to be done before we can create the channel.
 
-**Step 4** Prepare Plex
+**Step 5** Prepare Plex
 
 This is going to do some stuff to make Plex play a little nicer, like split any shows it decided to merge and rename any shows it decided to rename. This can take a few minutes, but it shouldn't take too long.
 
-**Step 5** Create Channel
+**Step 6** Create Channel
 
 This will create your channel. It will take a few minutes, but when it's done you there will be a new channel on your DizqueTV or Tunarr server depending on what you selected in step 1.
 
-That's it! Congratulations! You have made a Toonami Channel!
+That's it! Congratulations! You have made a Toonami Channel! 
+
+However what's toonami without commercials? So lets add some. First, go to dizqueTV and add a flex list to your shiny new channel, then come back here and go to the next step. No need to close Commercial Breaker it will be here when you get back.
+
+**Step 7** Add flex
+
+This will add in flex between all your to ads and back from ads. 
+
+That's it! Congratulations! Now you REALLY made a Toonami Channel!
 
 If you want to make another channel, just click the "Continue" button at the bottom right. There are a few extra features on this page too for users who are making multiple channels.
 
@@ -383,42 +395,31 @@ You will see some text saying, "What channel number do you want to use?" under t
 
 **Warning: If you use the same channel number as a channel you already made, it will overwrite that channel.**
 
-**Step 3** Start from last episode
+**Step 3** Set the commercial break length
+
+You will see some text saying "Enter your Flex duration Minutes:Seconds (How long should a commercial break be) It's nice and easy just enter in the length you desire and commercial breaks will be that length.
+
+**Step 4** Start from last episode
 
 We added a special button to this channel called start from last episode. It's a check box, and it's enabled by default. With this enabled, it will start the channel from where the previous lineup left off, so let's say you only got to episode 26 of Naruto, and there's way more than that, as we know. Well, this will start this lineup at episode 27, and if that one only goes to 64, then the next one will go start at 67.
 
-**Step 4** Prepare Toonami Channel
+**Step 5** Prepare Toonami Channel
 
 This will do some final prep work in the background. It will wont take long but it needs to be done before we can create the channel. One weird quirk is the first time you want to do this you actually need to Run the this step twice the first time you use it if you are trying to use "Start from last episode" as the first one will create a channel that has memory. The second one will continue.
 
-**Step 5** Create Toonami Channel
+**Step 6** Create Toonami Channel
 
 This will create your channel. It will take a few minutes, but when it's done, there will be a new channel on your DizqueTV or Tunarr server depending on what you selected in step 1.
 
+Just like before we need to add some flex. Again, go to dizqueTV and add a flex lis to this channel, then come back here and go to the next step. No need to close Commercial Breaker it will be here when you get back.
 
-## Step 7 - Flex Your Toonami Channel - Commerecial Break
+**Step 7** Add flex
 
-So you finished making a Toonami Channel and want to finally add your commercials (as is the whole point of the project). Great! This tool will modify your channel to automatically add Flex between the to ads and back bumps. (See FAQ for more info on Flex)
+This will add in flex between all your to ads and back from ads. 
 
-**NOTE: This is currently only available for DizqueTV users. If you are a Tunarr user, you will not be able to use this feature. See FAQ**
+That's it! Congratulations! Now you REALLY made a Toonami Channel!
 
-**Step 1** Create a Filler list
-
-This needs to be done in DizqueTV. You need to create a filler list in DizqueTV. Just go to Library click the "+" button and choose your commercials. We added another library to our Plex server just for commercials and just added everything but you can get more granular if you want.
-
-**Step 2** We're going to need your creds
-
-We need to SSH into your server to get the DizqueTV channels JSON file. Don't worry, we handle all the heavy lifting. You just need to enter your servers IP address and SSH credentials. If you don't know these there are plenty of simple tutorials online. It's not that scary we promise. 
-
-We also need the exact name of your DizqueTV docker container. It turned out for us it was DizqueTV-1 so just double check that and don't assume it's DizqueTV.
-
-**Step 3** Choose your channel and Flex duration
-
-Just enter the channel number you want to add Flex to as well as the duration of the Flex. We went with 3:00 minutes, but you can do whatever you want.
-
-**Step 4** Add Flex
-
-Just click the "Add Flex" button it will automatically add Flex to your channel. It will take a few minutes, but when it's done, you will see there is now Flex between the to ads and back bumps.
+If you want to make another channel, just click the "Continue" button at the bottom right. There are a few extra features on this page too for users who are making multiple channels.
 
 # How to use Absolution
 
@@ -444,12 +445,6 @@ You need to set the following environment variables:
     WORKING_FOLDER - This is the folder that we will use for cutting your Anime
 
 You set these variables in the .env file in the CommercialBreaker folder. You can see an example of this in the example.env file already in the folder.
-
-## The web interface is incomplete
-
-### Flex
-
-The web interface is not complete at this current time it cannot add Flex to your channel. We are working on this and hope to have it done soon.
 
 # How to use Clydes
 
@@ -591,7 +586,7 @@ PlexToTunarr is the ultimate maestro, orchestrating the final transfer of your c
 
 ### FlexInjector
 
-Flexinjector is a tool that modifies your channel to automatically add Flex between the to ads and back bumps by editing the JSON file of your channel. It does this by downloading the json via SSH inserting flex in the format DizqueTV expects it and reuploading the edited JSON.
+Flexinjector is a tool that modifies your channel to automatically add Flex between the to ads and back bumps by via the DizqueTV rest API.
 
 
 **Congratulations, you have made a Toonami Channel!**
@@ -609,12 +604,16 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 
 # To-Do List
 
+# Beta Changes to test
+
+- [ ] Huge merger refactor!
+
 ## **Immediate Attention**
 
 ### Tunarr To Do
 
 - [ ] If channel already exists delete it
-- [ ] Adjust flex Injector to work with Tunarr (it works the same way as DizqueTV just shove it in the JSON)
+- [ ] Adjust flex Injector to work with Tunarr (it works the same way as DizqueTV as soon as I understand it's rest API)
   - [ ] Find out why I couldn't create a Filler list in Tunarr
 - [ ] Add Tunarr to the readme
 
@@ -623,9 +622,6 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 - [ ] WebUI has no way of getting folders outside of being in a docker container
 - [ ] Suuuper unclear you need to scroll down to the done button when checkboxs show up on webui
   - [ ] Hide other elements for a sec??
-
-### **Web UI Issues**
-- [ ] Add dark mode to WebUI
 
 ### **Clydes Improvements**
 - [ ] Add comma-separated format instruction for show exclusion list

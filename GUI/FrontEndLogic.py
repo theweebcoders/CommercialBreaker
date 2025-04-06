@@ -484,43 +484,16 @@ class LogicController():
         self._broadcast_status_update("New Toonami channel created!")
         self.filter_complete_event.set()
 
-
-    def add_flex_creds(self, ssh_host, ssh_user, ssh_pass, dizquetv_container_name, dizquetv_channel_number, dizquetv_flex_duration):
-        # Attempt to retrieve data from the database
-        if not ssh_host or ssh_host.startswith("eg. "):
-            ssh_host = self._get_data("ssh_host")
-        if not ssh_user or ssh_user.startswith("eg. "):
-            ssh_user = self._get_data("ssh_user")
-        if not ssh_pass or ssh_pass.startswith("eg. "):
-            ssh_pass = self._get_data("ssh_pass")
-        if not dizquetv_container_name or dizquetv_container_name.startswith("eg. "):
-            dizquetv_container_name = self._get_data("dizquetv_container_name")
-        if not dizquetv_channel_number or dizquetv_channel_number.startswith("eg. "):
-            dizquetv_channel_number = self._get_data("dizquetv_channel_number")
-        if not dizquetv_flex_duration or dizquetv_flex_duration.startswith("eg. "):
-            dizquetv_flex_duration = self._get_data("dizquetv_flex_duration")
-
-        # Save the fetched data to the database
-        self._set_data("ssh_host", ssh_host)
-        self._set_data("ssh_user", ssh_user)
-        self._set_data("ssh_pass", ssh_pass)
-        self._set_data("dizquetv_container_name", dizquetv_container_name)
-        self._set_data("dizquetv_channel_number", dizquetv_channel_number)
-        self._set_data("dizquetv_flex_duration", dizquetv_flex_duration)
-
-    def add_flex(self):
-        def add_flex_thread():
-            self._broadcast_status_update("Adding Flex...")
-            ssh_host = self._get_data("ssh_host")
-            ssh_user = self._get_data("ssh_user")
-            ssh_pass = self._get_data("ssh_pass")
-            dizquetv_container_name = self._get_data("dizquetv_container_name")
-            dizquetv_channel_number = self._get_data("dizquetv_channel_number")
-            dizquetv_flex_duration = self._get_data("dizquetv_flex_duration")
-            Flex = ToonamiTools.DizqueTVManager(ssh_host, ssh_user, ssh_pass, dizquetv_container_name, dizquetv_channel_number, dizquetv_flex_duration)
-            Flex.main()
-            self._broadcast_status_update("Flex added!")
-            self.filter_complete_event.set()
-
-        thread = threading.Thread(target=add_flex_thread)
-        thread.start()
+    def add_flex(self, channel_number, duration):
+        self.platform_url = self._get_data("platform_url")
+        self.network = config.network
+        self.channel_number = channel_number
+        self.duration = duration
+        flex_injector = ToonamiTools.FlexInjector.DizqueTVManager(
+                platform_url=self.platform_url,
+                channel_number=self.channel_number,
+                duration=self.duration,
+                network=self.network,
+            )
+        flex_injector.main()
+        self._broadcast_status_update("Flex content added!")
