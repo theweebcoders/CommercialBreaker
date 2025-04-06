@@ -177,10 +177,12 @@ class ContentPreparer:
 class ToonamiManager:
     def __init__(self, logic):
         self.logic = logic
-        self.dizquetv_url = self.logic._get_data("dizquetv_url")
+        self.platform_url = self.logic._get_data("platform_url")
         self.toonami_library = self.logic._get_data("selected_toonami_library")
         self.toonami_versions = ["OG", "2", "3", "Mixed", "Uncut OG", "Uncut 2", "Uncut 3", "Uncut Mixed"]
         self.continue_from_last = False
+        # Track channels that had flex added in this session
+        self.channels_with_flex = set()
        
     def create_toonami_channels(self):
         if not self.logic._check_table_exists("lineup_v8"):
@@ -192,6 +194,8 @@ class ToonamiManager:
                 self.create_toonami_channel()
                 if self._confirm("Would you like to create a second Toonami channel? (y/n)"):
                     self.create_second_toonami_channel()
+                else:
+                    self.offer_flex_for_existing_channel()
         else:
             if self._confirm("Is this your first time creating a Toonami channel? (y/n)"):
                 self.add_special_bumps()
@@ -199,9 +203,13 @@ class ToonamiManager:
                 self.create_toonami_channel()
                 if self._confirm("Would you like to create a second Toonami channel? (y/n)"):
                     self.create_second_toonami_channel()
+                else:
+                    self.offer_flex_for_existing_channel()
             else:
                 if self._confirm("Would you like to create a second Toonami channel? (y/n)"):
                     self.create_second_toonami_channel()
+                else:
+                    self.offer_flex_for_existing_channel()
                 
     
     def add_special_bumps(self):
@@ -217,7 +225,6 @@ class ToonamiManager:
             self.logic.reset_filter_event()
             
     def create_toonami_channel(self):
-
         print("It's time to create the Toonami channel!")
         print("Choose a Toonami version:")
         for i, version in enumerate(self.toonami_versions):
@@ -226,10 +233,11 @@ class ToonamiManager:
         version_choice = self._safe_input_choice("Enter the number of your choice: ", len(self.toonami_versions))
         version = self.toonami_versions[version_choice - 1]
         channel_number = input("What channel number would you like to use? ")
+        
         print("The settings for the Toonami channel are as follows:")
         print(f"Toonami version: {version}")
         print(f"Channel number: {channel_number}")
-        print(f"DizqueTV URL: {self.dizquetv_url}")
+        print(f"DizqueTV URL: {self.platform_url}")
         print(f"Toonami library: {self.toonami_library}")
 
         if self._confirm("Would you like to continue with these settings? (y/n)"):
@@ -239,7 +247,16 @@ class ToonamiManager:
                     time.sleep(1)
                 self.logic.reset_filter_event()
                 self.logic._set_data("toonami_channel_created", True)
-
+                
+                # Ask if the user wants to add flex
+                if self._confirm("Would you like to add flex to this channel? (y/n)"):
+                    flex_duration = input("Enter your Flex duration Minutes:Seconds (How long should a commercial break be): ")
+                    self.logic.add_flex(channel_number, flex_duration)
+                    while not self.logic.is_filtered_complete():
+                        time.sleep(1)
+                    self.logic.reset_filter_event()
+                    # Track that we've added flex to this channel
+                    self.channels_with_flex.add(channel_number)
 
     def create_second_toonami_channel(self):
         print("It's time to create the second Toonami channel!")
@@ -276,7 +293,36 @@ class ToonamiManager:
                 time.sleep(1)  # Sleep to prevent a busy wait
             print("Second Toonami channel created successfully!")
             self.logic.reset_filter_event()
+            
+            # Ask if the user wants to add flex
+            if self._confirm("Would you like to add flex to this channel? (y/n)"):
+                flex_duration = input("Enter your Flex duration Minutes:Seconds (How long should a commercial break be): ")
+                self.logic.add_flex(channel_number, flex_duration)
+                while not self.logic.is_filtered_complete():
+                    time.sleep(1)
+                self.logic.reset_filter_event()
+                # Track that we've added flex to this channel
+                self.channels_with_flex.add(channel_number)
+        else:
+            self.offer_flex_for_existing_channel()
 
+    def offer_flex_for_existing_channel(self):
+        if self._confirm("Would you like to add flex to an existing channel? (y/n)"):
+            existing_channel = input("Enter the channel number you want to add flex to: ")
+            
+            # Check if flex was already added to this channel in this session
+            if existing_channel in self.channels_with_flex:
+                print(f"Flex was already added to channel {existing_channel} in this session.")
+                if not self._confirm("Do you want to add more flex to this channel anyway? (y/n)"):
+                    return
+            
+            flex_duration = input("Enter your Flex duration Minutes:Seconds (How long should a commercial break be): ")
+            self.logic.add_flex(existing_channel, flex_duration)
+            while not self.logic.is_filtered_complete():
+                time.sleep(1)
+            self.logic.reset_filter_event()
+            # Track that we've added flex to this channel
+            self.channels_with_flex.add(existing_channel)
 
     def _safe_input_choice(self, prompt, num_choices):
         while True:
@@ -297,51 +343,6 @@ class ToonamiManager:
         while not self.logic._check_table_exists(table_name):
             time.sleep(1)
         
-
-class FlexManager:
-    def __init__(self, logic):
-        self.logic = logic
-        self.existing_data = {
-            "ssh_host": self.logic._get_data("ssh_host"),
-            "ssh_username": self.logic._get_data("ssh_user"),
-            "ssh_password": self.logic._get_data("ssh_pass"),
-            "dizquetv_container": self.logic._get_data("dizquetv_container_name")
-        }
-
-    def check_if_flex_creds_exist(self):
-        if all(self.existing_data.values()):
-            if input("Would you like to use your existing flex credentials? (y/n): ").strip().lower() == 'y':
-                channel_number = input("What channel number would you like to add the flex to? ")
-                duration = input("What is the duration of the flex in minutes:seconds? ")
-                self.logic.add_flex_creds(self.existing_data["ssh_host"], self.existing_data["ssh_username"], self.existing_data["ssh_password"], self.existing_data["dizquetv_container"], channel_number, duration)
-                return True
-        return False
-
-
-    def add_flex_creds(self):
-        print("It's time to add a flex to the Toonami channel!")
-        # Collect server and channel details
-        ssh_host = input("What is the IP address of the server hosting the dizqueTV server? ")
-        ssh_username = input("What is the SSH username? ")
-        ssh_password = input("What is the SSH password? ")
-        dizquetv_container = input("What is the name of the dizqueTV docker container? ")
-        channel_number = input("What channel number would you like to add the flex to? ")
-        duration = input("What is the duration of the flex in minutes:seconds? ")
-        self.logic.add_flex_creds(ssh_host, ssh_username, ssh_password, dizquetv_container, channel_number, duration)
-        time.sleep(2)
-
-    def wait_for_flex(self):
-        while not self.logic.is_filtered_complete():
-            time.sleep(1)  # Sleep to prevent a busy waiy
-        self.logic.reset_filter_event()
-
-    def add_flex(self):
-        if not self.check_if_flex_creds_exist():
-            self.add_flex_creds()
-        if input("Proceed with adding the flex to the Toonami channel? (y/n): ").strip().lower() == 'y':
-            self.logic.add_flex()
-            self.wait_for_flex()
-            print("Flex added successfully!")
            
 
 class ClydesApp:
@@ -351,7 +352,6 @@ class ClydesApp:
         self.folder_manager = FolderManager(self.logic)
         self.content_preparer = ContentPreparer(self.logic)
         self.toonami_manager = ToonamiManager(self.logic)
-        self.flex_manager = FlexManager(self.logic)
         self.status_queue = queue.Queue()
         # Start Redis listener for status updates
         self.redis_queue = queue.Queue()
@@ -415,7 +415,6 @@ class ClydesApp:
         self.content_preparer.prepare_content()
         CommercialBreakerCLI()
         self.toonami_manager.create_toonami_channels()
-        self.flex_manager.add_flex()
         print("Clydes has finished running.")
 
 
