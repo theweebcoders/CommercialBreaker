@@ -1,0 +1,43 @@
+name: Build & Push Docker Image + Sync README
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Build Docker image
+        run: |
+          docker build . -t ${{ secrets.DOCKER_USERNAME }}/commercial-breaker:latest
+
+      - name: Push to Docker Hub
+        run: |
+          docker push ${{ secrets.DOCKER_USERNAME }}/commercial-breaker:latest
+
+  sync-readme:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Convert README to JSON
+        id: convert
+        run: |
+          content=$(jq -Rs . < README.md)
+          echo "body=$content" >> $GITHUB_OUTPUT
+
+      - name: Update Docker Hub description
+        run: |
+          curl -X PATCH https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/commercial-breaker/ \
+            -u "${{ secrets.DOCKER_USERNAME }}:${{ secrets.DOCKER_PASSWORD }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"full_description\": ${{ steps.convert.outputs.body }}}"
