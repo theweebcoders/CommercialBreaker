@@ -24,15 +24,3 @@ services:
       - type: bind
         source: ${WORKING_FOLDER_PATH:-./data/working}
         target: /app/working
-    depends_on:
-      - redis
-
-  redis:
-    image: redis:latest
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5

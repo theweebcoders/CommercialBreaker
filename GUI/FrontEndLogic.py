@@ -20,11 +20,7 @@ class LogicController():
         self.use_redis = self.__class__.use_redis  # Use class variable
         self.docker = self.__class__.docker
         if self.use_redis:
-            # If Redis is used, include the following
-            if self.docker:
-                self.redis_client = redis.Redis(host='redis', port=6379, db=0)  # Connect to Redis
-            else:
-                self.redis_client = redis.Redis(host='localhost', port=6379, db=0)
+            self.redis_client = redis.Redis(host='localhost', port=6379, db=0)
         else:
             # Else
             self._new_server_choice_subscribers = []
