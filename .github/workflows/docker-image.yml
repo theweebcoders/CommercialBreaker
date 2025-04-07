@@ -18,26 +18,32 @@ jobs:
         run: |
           docker build . -t ${{ secrets.DOCKER_USERNAME }}/commercial-breaker:latest
 
-      - name: Push to Docker Hub
+      - name: Push Docker image
         run: |
           docker push ${{ secrets.DOCKER_USERNAME }}/commercial-breaker:latest
 
   sync-readme:
-    runs-on: ubuntu-latest
+    # Only runs after build-and-push completes
     needs: build-and-push
+    runs-on: ubuntu-latest
     steps:
       - name: Check out code
         uses: actions/checkout@v4
 
       - name: Convert README to JSON
-        id: convert
         run: |
-          content=$(jq -Rs . < README.md)
-          echo "body=$content" >> "$GITHUB_OUTPUT"
+          # Convert entire README.md into a valid JSON string
+          jq -Rs . < README.md > readme.json
+
+      - name: Build final JSON body
+        run: |
+          # Wrap the JSON string in an object with "full_description"
+          echo "{\"full_description\": $(cat readme.json)}" > body.json
 
       - name: Update Docker Hub description
         run: |
-          curl -X PATCH https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/commercial-breaker/ \
+          # Now pass that file to curl with --data-binary
+          curl -X PATCH "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/commercial-breaker/" \
             -u "${{ secrets.DOCKER_USERNAME }}:${{ secrets.DOCKER_PASSWORD }}" \
             -H "Content-Type: application/json" \
-            -d "{\"full_description\": ${{ steps.convert.outputs.body }}}"
+            --data-binary @body.json
