@@ -33,7 +33,7 @@ jobs:
         id: convert
         run: |
           content=$(jq -Rs . < README.md)
-          echo "body=$content" >> $GITHUB_OUTPUT
+          echo "body=$content" >> "$GITHUB_OUTPUT"
 
       - name: Update Docker Hub description
         run: |
