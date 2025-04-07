@@ -24,26 +24,6 @@ services:
       - type: bind
         source: ${WORKING_FOLDER_PATH:-./data/working}
         target: /app/working
-      - type: bind
-        source: ./ComBreak
-        target: /app/ComBreak
-        read_only: true
-      - type: bind
-        source: ./CLI
-        target: /app/CLI
-        read_only: true
-      - type: bind
-        source: ./GUI
-        target: /app/GUI
-        read_only: true
-      - type: bind
-        source: ./ToonamiTools
-        target: /app/ToonamiTools
-        read_only: true
-      - type: bind
-        source: ./Tools
-        target: /app/Tools
-        read_only: true
     depends_on:
       - redis
 
