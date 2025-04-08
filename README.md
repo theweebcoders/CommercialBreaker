@@ -50,8 +50,6 @@ All tools are accessible via the GUI (graphical user interface), making them eas
 
 This application requires Python 3.11 and Git to be installed on your system. If not already installed, download and install [Python](https://www.python.org/downloads/) and [Git](https://git-scm.com/downloads). You also need an active internet connection to use the apps as they connect to IMDB. You can see the URLs in the config file.
 
-**If you plan on running CommercialBreaker via Clydes or Absolution, you will also need to have a redis server running or use the docker compose and that will start a redis server for you.**
-
 # How to Install
 
 Open a terminal and type the following commands one at a time: Each line is its own command
@@ -100,7 +98,7 @@ To build the docker container, type the following command in the terminal:
 docker compose up -d
 ```
 
-This will build the docker container and start the web interface. As well as the redis server. You can access the web interface by opening a web browser and navigating to http://localhost:8081 unless you are running this on a server. In that case, you will need to replace "localhost" with the IP address of the server.
+This will build the docker container and start the web interface. You can access the web interface by opening a web browser and navigating to http://localhost:8081 unless you are running this on a server. In that case, you will need to replace "localhost" with the IP address of the server.
 
 ## Alternative Run options
 
@@ -134,8 +132,6 @@ navigating to
 http://localhost:8081
 
 **Note: If you are running the program on a server, you will need to replace "localhost" with the IP address of the server.**
-
-**Reminder: If you are running CommercialBreaker via Clydes or Absolution, you will also need to have a redis server running.**
 
 # How to name your files
 
