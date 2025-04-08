@@ -90,7 +90,23 @@ This will start the TOM interface. You can now use the TOM interface to set up y
 
 # How to set up the Docker Container
 
-If you want to run this in a docker container, you will need to set up the environment variables in the .env file. You can see an example of this in the example.env file already in the folder. See the **How to Use (Absolution)** section for more info on this and how to, well, use Absolution.
+## Option 1: Run the pre-built Docker image
+
+The easiest way to get started is to use the pre-built Docker image:
+
+```bash
+docker run -p 8081:8081 \
+  -v "/path/to/your/Anime:/app/anime" \
+  -v "/path/to/your/Bumps:/app/bump" \
+  -v "/path/to/your/SpecialBumps:/app/special_bump" \
+  -v "/path/to/your/Working:/app/working" \
+  --name commercialbreaker \
+  tim000x3/commercial-breaker:latest
+```
+
+## Option 2: Build and run locally
+
+If you want to build and run this in a docker container locally, you will need to set up the environment variables in the .env file. You can see an example of this in the example.env file already in the folder. See the **How to Use (Absolution)** section for more info on this and how to, well, use Absolution.
 
 To build the docker container, type the following command in the terminal:
 
