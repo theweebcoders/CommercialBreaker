@@ -17,23 +17,15 @@ class PlexServerList:
         self.use_redis = self.__class__.use_redis  # Use class variable
         if self.use_redis:
             try:
-                self.redis_client = redis.Redis(host='redis', port=6379, db=0)
+                self.redis_client = redis.Redis(host='localhost', port=6379, db=0)
                 # Attempt a simple ping to check if the connection works
                 if self.redis_client.ping():
-                    print("Connected to 'redis' host.")
+                    print("Connected to Redis on 'localhost'.")
                 else:
-                    raise Exception("Unable to connect to 'redis' host.")
+                    raise Exception("Unable to connect to Redis on 'localhost'.")
             except Exception as e:
-                print(f"Connection to 'redis' host failed: {e}. Trying 'localhost'...")
-                try:
-                    self.redis_client = redis.Redis(host='localhost', port=6379, db=0)
-                    if self.redis_client.ping():
-                        print("Connected to 'localhost'.")
-                    else:
-                        raise Exception("Unable to connect to 'localhost'.")
-                except Exception as e:
-                    print(f"Connection to 'localhost' failed: {e}. Redis client will not be used.")
-                    self.redis_client = None
+                print(f"Redis connection failed: {e}. Cannot continue without Redis connection.")
+                sys.exit(1)
 
     def GetPlexToken(self):
         loop = asyncio.new_event_loop()
