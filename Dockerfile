@@ -22,14 +22,21 @@ WORKDIR /app
 COPY requirements/ requirements/
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Create a modified requirements file without ttkthemes
+RUN grep -v "ttkthemes" requirements/runtime.txt > requirements/runtime_docker.txt
+
+# Install wheel and setuptools first to ensure proper wheel building
+RUN pip install --no-cache-dir wheel setuptools
+
+# Install Python dependencies using the modified requirements file
+RUN cd requirements && pip install --no-cache-dir -r runtime_docker.txt
+RUN pip install --no-cache-dir -r requirements/graphics.txt -r requirements/optional.txt
 
 # Install Redis Python client
 RUN pip install --no-cache-dir redis
 
 # Final stage
-FROM deps as final
+FROM deps AS final
 
 # Set working directory
 WORKDIR /app
@@ -74,7 +81,8 @@ ENV ANIME_FOLDER=/app/anime \
     ENVIRONMENT=production \
     PYTHONUNBUFFERED=1 \
     REDIS_HOST=localhost \
-    REDIS_PORT=6379
+    REDIS_PORT=6379 \
+    DISABLE_TTK_THEMES=1
 
 # Expose the ports
 EXPOSE 8081 6379
