@@ -1242,7 +1242,27 @@ class Page3(BasePage, RedisListenerMixin):
 
     def prepare_content_continue(self):
         self.logic = LogicController()
+        # Remove container from UI
+        self.main_container.remove_child(self.selection_container)
+        
+        # Update status to let user know we're processing
         self.logic._broadcast_status_update("Preparing uncut lineup...")
+        
+        # Force UI refresh using JavaScript
+        self.app.execute_javascript("""
+            setTimeout(function() {
+                // Force browser reflow to update UI immediately
+                document.body.style.display='none';
+                document.body.offsetHeight; // Trigger reflow
+                document.body.style.display='';
+            }, 10);
+        """)
+        
+        # Run the rest of the processing in a separate thread
+        threading.Thread(target=self._run_prepare_content_processing).start()
+    
+    def _run_prepare_content_processing(self):
+        """Runs the content preparation processing in a separate thread"""
         merger_bumps_list_1 = 'multibumps_v2_data_reordered'
         merger_bumps_list_2 = 'multibumps_v3_data_reordered'
         merger_bumps_list_3 = 'multibumps_v9_data_reordered'
@@ -1266,6 +1286,8 @@ class Page3(BasePage, RedisListenerMixin):
         merger.run(merger_bumps_list_2, uncut_encoder_out, merger_out_2)
         merger.run(merger_bumps_list_3, uncut_encoder_out, merger_out_3)
         merger.run(merger_bumps_list_4, uncut_encoder_out, merger_out_4)
+        
+        # Update status when complete
         self.logic._broadcast_status_update("Content preparation complete")
 
     def display_show_selection(self, unique_show_names, easy_checker, toonami_episodes):
@@ -1381,7 +1403,6 @@ class Page3(BasePage, RedisListenerMixin):
             except Exception as e:
                 print(e)
                 time.sleep(2)
-        self.main_container.remove_child(self.selection_container)
         self.prepare_content_continue()
 
     def handle_redis_message(self, channel, data):
