@@ -470,13 +470,23 @@ class LogicController():
         self._broadcast_status_update("Creating new Toonami channel...")
         cont_config = config.TOONAMI_CONFIG_CONT.get(toonami_version, {})
         table = cont_config["merger_out"]
-        dizquetv_url = self._get_data("dizquetv_url")
         plex_url = self._get_data("plex_url")
         plex_token = self._get_data("plex_token")
         plex_library_name = self._get_data("selected_toonami_library")
-
-        ptod = ToonamiTools.PlexToDizqueTVSimplified(plex_url, plex_token, plex_library_name, table, dizquetv_url, channel_number)
-        ptod.run()
+        platform_url = self._get_data("platform_url")
+        platform_type = self._get_data("platform_type")
+        if platform_type == 'dizquetv':
+            ptod = ToonamiTools.PlexToDizqueTVSimplified(
+                plex_url, plex_token, plex_library_name, table,
+                platform_url, channel_number
+            )
+            ptod.run()
+        else:  # tunarr
+            ptot = ToonamiTools.PlexToTunarr(
+                plex_url, plex_token, plex_library_name, table,
+                platform_url, int(channel_number)
+            )
+            ptot.run()
         self._broadcast_status_update("New Toonami channel created!")
         self.filter_complete_event.set()
 

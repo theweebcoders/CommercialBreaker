@@ -619,21 +619,29 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 # Beta Changes to test
 
 - [ ] Huge merger refactor!
+- [ ] Retest Toonami Channel Continued
 
 ## **Immediate Attention**
 
+### Housekeeping
+
+- [ ] Cleanup the repo structure
+- [ ] Actually use the icon for favicon, TOM, etc
+- [ ] Figure out why LoginToPlex has it's own special redis connection
+- [ ] Cleanup the docker compose if the run didn't need the enviorment varibles does it??
+- [ ] Cleanup the requirments.txt
+
+### WebUI To-Do
+
+- [ ] WebUI has no way of getting folders outside of being in a docker container
+
 ### Tunarr To Do
 
-- [ ] If channel already exists delete it
-- [ ] Adjust flex Injector to work with Tunarr (it works the same way as DizqueTV as soon as I understand it's rest API)
-  - [ ] Find out why I couldn't create a Filler list in Tunarr
 - [ ] Add Tunarr to the readme
+- [ ] Add Flex to Tunarr (Baked in preffered but alt flex based on platform url is fine)
 
 ### Critical Issues
 - [ ] Fix requirement to run "continue from last" twice for continued Toonami channel
-- [ ] WebUI has no way of getting folders outside of being in a docker container
-- [ ] Suuuper unclear you need to scroll down to the done button when checkboxs show up on webui
-  - [ ] Hide other elements for a sec??
 
 ### **Clydes Improvements**
 - [ ] Add comma-separated format instruction for show exclusion list
@@ -649,8 +657,9 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 - [ ] Make it so Clydes can rerun prepare show cut 
 - [ ] Bug Testing
     - [ ] Create automated tests for each tool
-    - [ ] Test on Linux
+    - [x] Test on Linux
     - [x] Test on Mac
+    - [x] Test on Windows
 
 ## **Known Issues**
 - [ ] Anime added via Toonami Checker and not cut will cause issues with the lineup
@@ -660,8 +669,6 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
     - **Possible Fix:** When running cut, rerun multibump reordered based on cut anime
 - [ ] Still a lot of broken connections
 - [ ] If you add special bumps to a list it makes a _bonus table and it's never used
-- [ ] Adding flex assumes you are remoting into a server with a docker container for dizquetv
-    - [ ] Allow for local json manipulation
 - [ ] Add to the readme to move the cut anime and bumps to the toonami library
 
 ## **Long-Term Goals**
