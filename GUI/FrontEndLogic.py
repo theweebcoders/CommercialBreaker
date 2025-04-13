@@ -415,7 +415,7 @@ class LogicController():
         thread = threading.Thread(target=prepare_plex_thread)
         thread.start()
 
-    def create_toonami_channel(self, toonami_version, channel_number):
+    def create_toonami_channel(self, toonami_version, channel_number, flex_duration):
         """
         Create a Toonami channel using the stored platform settings
         """
@@ -432,13 +432,13 @@ class LogicController():
             if platform_type == 'dizquetv':
                 ptod = ToonamiTools.PlexToDizqueTVSimplified(
                     plex_url, plex_token, plex_library_name, table, 
-                    platform_url, channel_number
+                    platform_url, int(channel_number)
                 )
                 ptod.run()
             else:  # tunarr
                 ptot = ToonamiTools.PlexToTunarr(
                     plex_url, plex_token, plex_library_name, table,
-                    platform_url, int(channel_number)
+                    platform_url, int(channel_number), flex_duration
                 )
                 ptot.run()
 
@@ -466,7 +466,7 @@ class LogicController():
         thread = threading.Thread(target=prepare_toonami_channel_thread)
         thread.start()
 
-    def create_toonami_channel_cont(self, toonami_version, channel_number):
+    def create_toonami_channel_cont(self, toonami_version, channel_number, flex_duration):
         self._broadcast_status_update("Creating new Toonami channel...")
         cont_config = config.TOONAMI_CONFIG_CONT.get(toonami_version, {})
         table = cont_config["merger_out"]
@@ -478,13 +478,13 @@ class LogicController():
         if platform_type == 'dizquetv':
             ptod = ToonamiTools.PlexToDizqueTVSimplified(
                 plex_url, plex_token, plex_library_name, table,
-                platform_url, channel_number
+                platform_url, int(channel_number)
             )
             ptod.run()
         else:  # tunarr
             ptot = ToonamiTools.PlexToTunarr(
                 plex_url, plex_token, plex_library_name, table,
-                platform_url, int(channel_number)
+                platform_url, int(channel_number), flex_duration
             )
             ptot.run()
         self._broadcast_status_update("New Toonami channel created!")
@@ -493,7 +493,7 @@ class LogicController():
     def add_flex(self, channel_number, duration):
         self.platform_url = self._get_data("platform_url")
         self.network = config.network
-        self.channel_number = channel_number
+        self.channel_number = int(channel_number)
         self.duration = duration
         flex_injector = ToonamiTools.FlexInjector.DizqueTVManager(
                 platform_url=self.platform_url,
@@ -502,4 +502,5 @@ class LogicController():
                 network=self.network,
             )
         flex_injector.main()
+        self.filter_complete_event.set()
         self._broadcast_status_update("Flex content added!")

@@ -11,34 +11,37 @@ from plexapi.server import PlexServer
 import config
 
 # ------------------------------------------------------------------
-# LOGGING CONFIGURATION: log to console by default, file only in debug mode
+# LOGGING CONFIGURATION
 # ------------------------------------------------------------------
+DEBUG_MODE = False
+
+# Setup logger
 logger = logging.getLogger("TunarrSync")
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.INFO if not DEBUG_MODE else logging.DEBUG)
 formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s')
 
-# Console handler only by default
+# Console handler for console output
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
-# Add function to enable debug mode if needed
-def enable_debug_logging():
-    logger.setLevel(logging.DEBUG)
-    # Add file handler only when debug is enabled
-    file_handler = logging.FileHandler("tunarrsync.log")
+# File handler only when DEBUG_MODE is True
+if DEBUG_MODE:
+    log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tunarrsync.log")
+    file_handler = logging.FileHandler(log_path)
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
-    logger.info("Debug logging enabled with log file")
+    logger.info(f"Debug log file created at: {log_path}")
 
 class PlexToTunarr:
-    def __init__(self, plex_url, plex_token, library_name, table, tunarr_url, channel_number, channel_name=None):
+    def __init__(self, plex_url, plex_token, library_name, table, tunarr_url, channel_number, flex_duration, channel_name=None):
         self.plex_url = plex_url
         self.plex_token = plex_token
         self.plex = PlexServer(plex_url, plex_token)
         self.library_name = library_name
         self.tunarr_url = tunarr_url.rstrip('/')
         self.channel_number = channel_number
+        self.flex_duration = flex_duration
         self.channel_name = channel_name or library_name
         self.table = table
         self.df = self.load_db_data()
@@ -307,57 +310,138 @@ class PlexToTunarr:
             return None
 
     # ------------------------------------------------------------------
-    # Build the JSON payload and POST to Tunarr (with duplicate handling)
+    # Build the JSON payload and POST to Tunarr (with duplicate handling and flex injection)
     # ------------------------------------------------------------------
-    def post_manual_lineup(self, channel_id, plex_items):
-        programs = []         # Will contain full program records.
-        lineup = []           # Will contain lineup entries that refer to an index in programs.
-        cumulative_offset = 0
-        first_occurrence_index = {}  # Maps ratingKey (as string) to index in programs.
-        total_items = len(plex_items)
 
+    def convert_to_milliseconds(self, duration):
+        """
+        Convert a duration string from MM:SS to milliseconds.
+        """
+        if isinstance(duration, int):
+            return duration
+        if isinstance(duration, str):
+            match = re.match(r'(\d+):(\d+)', duration)
+            if match:
+                minutes, seconds = map(int, match.groups())
+                return (minutes * 60 + seconds) * 1000
+            else:
+                logger.warning("Invalid duration format: %s", duration)
+                return 0
+        return 0
+    
+    def is_toonami_title(self, title: str) -> bool:
+        """
+        Returns True if the first word in the title matches config.network (case-insensitive).
+        """
+        if not title:
+            return False
+        parts = title.strip().split()
+        return len(parts) > 0 and parts[0].lower() == config.network.lower()
+
+    def has_intro(self, title: str) -> bool:
+        """
+        Returns True if 'intro' appears anywhere in the title (case-insensitive).
+        """
+        if not title:
+            return False
+        return "intro" in title.lower()
+
+    def post_manual_lineup(self, channel_id, plex_items):
+        """
+        Build the 'programs' array with each unique Plex item (plus a single 'flex' item when needed).
+        Insert references into 'lineup' in order, adding 'flex' if two consecutive items are Toonami
+        and the second doesn't have 'intro'.
+        """
+        programs = []
+        lineup = []
+        cumulative_offset = 0
+
+        first_occurrence_index = {}
+        prev_was_toonami = False
+
+        # We'll set this to an integer index once we actually need flex
+        flex_index = None
+
+        total_items = len(plex_items)
         for i, item in enumerate(plex_items):
             key = str(item.ratingKey)
+
+            # ------------------------------------------------------------------
+            # Check if this is a brand-new item or a duplicate
+            # ------------------------------------------------------------------
             if key not in first_occurrence_index:
-                # First occurrence: add full record.
+                # Build the program object
                 prog = self.build_full_program(item)
                 if not prog:
                     continue
                 prog["originalIndex"] = i
-                prog["startTimeOffset"] = cumulative_offset
+                prog["startTimeOffset"] = 0   # We'll rely on lineup for actual offsets
                 current_prog_index = len(programs)
                 programs.append(prog)
                 first_occurrence_index[key] = current_prog_index
                 lineup_prog_index = current_prog_index
             else:
-                # Duplicate found.
-                # If this duplicate is the very last item in the overall list, add a new duplicate record.
+                # It's a duplicate
                 if i == total_items - 1:
+                    # If last occurrence, replicate a brand-new program
                     dup_prog = self.build_full_program(item)
                     if not dup_prog:
                         continue
-                    # Mark duplicate record; override persisted flag.
                     dup_prog["persisted"] = False
-                    # Set its uniqueId (using Plex's ratingKey as instructed).
                     dup_prog["uniqueId"] = f"plex|Plex Server|{key}"
                     dup_prog["id"] = dup_prog["uniqueId"]
                     dup_prog["originalIndex"] = i
-                    dup_prog["startTimeOffset"] = cumulative_offset
+                    dup_prog["startTimeOffset"] = 0
                     current_prog_index = len(programs)
                     programs.append(dup_prog)
                     lineup_prog_index = current_prog_index
                 else:
-                    # For other duplicate occurrences, simply reference the first record.
+                    # Otherwise, reference the first occurrence
                     lineup_prog_index = first_occurrence_index[key]
 
-            # For each item, add to the lineup array.
+            # ------------------------------------------------------------------
+            # If consecutive Toonami items (and second isn't 'intro'),
+            # insert flex in between.
+            # ------------------------------------------------------------------
+            current_title = item.title or ""
+            if prev_was_toonami and self.is_toonami_title(current_title) and not self.has_intro(current_title):
+                # If we've never created the flex program, do it now
+                if flex_index is None:
+                    flex_index = len(programs)
+                    # Create a single flex object
+                    flex_program = {
+                        "type": "flex",
+                        "duration": self.convert_to_milliseconds(self.flex_duration),  # Use the converted flex duration
+                        "persisted": False,
+                        "originalIndex": -999,   # Some dummy index
+                        "startTimeOffset": 0,
+                    }
+                    programs.append(flex_program)
+
+                # Insert reference to our flex item in the lineup
+                lineup.append({
+                    "duration": self.convert_to_milliseconds(self.flex_duration),  # Use the converted flex duration
+                    "index": flex_index,
+                    "type": "index"
+                })
+                cumulative_offset += self.convert_to_milliseconds(self.flex_duration)
+
+            # ------------------------------------------------------------------
+            # Add the actual item to the lineup
+            # ------------------------------------------------------------------
+            item_duration = item.duration or 0
             lineup.append({
-                "duration": item.duration,
+                "duration": item_duration,
                 "index": lineup_prog_index,
                 "type": "index"
             })
-            cumulative_offset += item.duration
+            cumulative_offset += item_duration
 
+            prev_was_toonami = self.is_toonami_title(current_title)
+
+        # ------------------------------------------------------------------
+        # Build final JSON
+        # ------------------------------------------------------------------
         payload = {
             "type": "manual",
             "lineup": lineup,
@@ -375,6 +459,8 @@ class PlexToTunarr:
             logger.error("Failed to add programs. Status code: %d", response.status_code)
             logger.error(response.text)
             return False
+
+
 
     # ------------------------------------------------------------------
     # MAIN RUN LOGIC
@@ -404,7 +490,7 @@ class PlexToTunarr:
         # Create or find the Tunarr channel.
         channel = self.get_channel_by_number(self.channel_number)
         if not channel:
-            logger.info("Channel number %d not found; creating.", self.channel_number)
+            logger.info("Channel number %s not found; creating.", str(self.channel_number))
             channel = self.create_channel(self.channel_name, self.channel_number)
             if not channel:
                 logger.error("Failed to create channel. Exiting.")
