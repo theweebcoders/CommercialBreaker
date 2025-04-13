@@ -951,7 +951,7 @@ class Page1(BasePage, RedisListenerMixin):
     def __init__(self, app, *args, **kwargs):
         super(Page1, self).__init__(app, 'Page1', *args, **kwargs)
         self.logic = LogicController()
-        self.PlexManager = PlexManager(self.logic)
+        self.PlexManager = PlexManager(self.logic, app)
         self.redis_queue = Queue()
         self.start_redis_listener_thread(self.redis_queue)
         self.after(100, self.process_redis_messages)
@@ -1708,6 +1708,9 @@ class Page5(BasePage, RedisListenerMixin):
         self.redis_queue = Queue()
         self.start_redis_listener_thread(self.redis_queue)
         self.after(100, self.process_redis_messages)
+        
+        # After initialization, check platform type to update UI
+        self.after(100, self.check_platform_type)
 
         # Toonami version selection
         self.add_label(self.main_container, "What Toonami Version are you making today?")
@@ -1745,6 +1748,37 @@ class Page5(BasePage, RedisListenerMixin):
         # Continue button
         self.continue_button = self.add_button_with_style(self.main_container, "Continue", self.on_continue_button_click, 'secondary')
 
+    def check_platform_type(self):
+        """Check the platform type and update button display accordingly"""
+        platform_type = self.logic._get_data("platform_type")
+        
+        if platform_type == "tunarr":
+            # For Tunarr, change the button text
+            self.create_toonami_channel_button.set_text("Create Toonami Channel with Flex")
+            
+            # Hide the add flex section completely
+            if hasattr(self, 'add_flex_button'):
+                self.add_flex_button.style['display'] = 'none'
+            if hasattr(self, 'main_container') and hasattr(self, 'add_flex_button'):
+                # Find the label for flex and hide it too
+                for child in self.main_container.children.values():
+                    if isinstance(child, gui.Label) and child.get_text() == "Add Flex":
+                        child.style['display'] = 'none'
+                        break
+        else:
+            # For DizqueTV (or any other platform), ensure regular button text
+            self.create_toonami_channel_button.set_text("Create Toonami Channel")
+            
+            # Show the add flex section
+            if hasattr(self, 'add_flex_button'):
+                self.add_flex_button.style['display'] = 'block'
+            if hasattr(self, 'main_container') and hasattr(self, 'add_flex_button'):
+                # Find the label for flex and show it too
+                for child in self.main_container.children.values():
+                    if isinstance(child, gui.Label) and child.get_text() == "Add Flex":
+                        child.style['display'] = 'block'
+                        break
+
     #wrapper for the prepare_cut_anime method
     def prepare_cut_anime(self, widget):
         self.logic.prepare_cut_anime()
@@ -1764,7 +1798,8 @@ class Page5(BasePage, RedisListenerMixin):
     def create_toonami_channel(self, widget):
         toonami_version = self.toonami_version_dropdown.get_value()
         channel_number = self.channel_number_entry.get_value()
-        self.logic.create_toonami_channel(toonami_version, channel_number)
+        flex_duration = self.flex_duration_entry.get_value()
+        self.logic.create_toonami_channel(toonami_version, channel_number, flex_duration)
 
     def add_flex(self, widget):
         channel_number = self.channel_number_entry.get_value()
@@ -1782,6 +1817,9 @@ class Page6(BasePage, RedisListenerMixin):
         self.start_redis_listener_thread(self.redis_queue)
         self.after(100, self.process_redis_messages)
         self.logic._broadcast_status_update("Idle")
+        
+        # After initialization, check platform type to update UI
+        self.after(100, self.check_platform_type)
 
         # Toonami version selection
         self.add_label(self.main_container, "What Toonami Version are you making today?")
@@ -1811,6 +1849,37 @@ class Page6(BasePage, RedisListenerMixin):
 
         # Remove individual status label since we now use the global one in BasePage
 
+    def check_platform_type(self):
+        """Check the platform type and update button display accordingly"""
+        platform_type = self.logic._get_data("platform_type")
+        
+        if platform_type == "tunarr":
+            # For Tunarr, change the button text
+            self.create_toonami_channel_button.set_text("Create Toonami Channel with Flex")
+            
+            # Hide the add flex section completely
+            if hasattr(self, 'add_flex_button'):
+                self.add_flex_button.style['display'] = 'none'
+            if hasattr(self, 'main_container') and hasattr(self, 'add_flex_button'):
+                # Find the label for flex and hide it too
+                for child in self.main_container.children.values():
+                    if isinstance(child, gui.Label) and child.get_text() == "Add Flex":
+                        child.style['display'] = 'none'
+                        break
+        else:
+            # For DizqueTV (or any other platform), ensure regular button text
+            self.create_toonami_channel_button.set_text("Create Toonami Channel")
+            
+            # Show the add flex section
+            if hasattr(self, 'add_flex_button'):
+                self.add_flex_button.style['display'] = 'block'
+            if hasattr(self, 'main_container') and hasattr(self, 'add_flex_button'):
+                # Find the label for flex and show it too
+                for child in self.main_container.children.values():
+                    if isinstance(child, gui.Label) and child.get_text() == "Add Flex":
+                        child.style['display'] = 'block'
+                        break
+
     def prepare_toonami_channel(self, widget):
         toonami_version = self.toonami_version_dropdown.get_value()
         start_from_last_episode = self.start_from_last_episode_checkbox.get_value()
@@ -1819,7 +1888,8 @@ class Page6(BasePage, RedisListenerMixin):
     def create_toonami_channel(self, widget):
         toonami_version = self.toonami_version_dropdown.get_value()
         channel_number = self.channel_number_entry.get_value()
-        self.logic.create_toonami_channel(toonami_version, channel_number)
+        flex_duration = self.flex_duration_entry.get_value()
+        self.logic.create_toonami_channel(toonami_version, channel_number, flex_duration)
 
     def add_flex(self, widget):
         channel_number = self.channel_number_entry.get_value()
@@ -1928,6 +1998,11 @@ class MainApp(App):
             # Clear the container and add the new page
             self.container.empty()
             self.container.append(self.pages[page_name])
+            
+            # Important: Trigger platform type check for specific pages
+            if page_name in ['Page5', 'Page6'] and hasattr(self.pages[page_name], 'check_platform_type'):
+                # Call the check_platform_type method to update UI based on current platform
+                self.pages[page_name].check_platform_type()
             
             # Pass reference to the LogicController if page has it
             if hasattr(self.pages[page_name], 'logic'):

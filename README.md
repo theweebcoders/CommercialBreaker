@@ -288,8 +288,6 @@ Click the drop-down menu labeled "Select your Toonami Library" and select the li
 
 This is where you decide if you are a dizquetv boo or a tunarr bro. There are two buttons each clearly labeld as DizqueTV and Tunarr. Click the one you use. 
 
-**Warning: Flex Injection is only available for DizqueTV users. If you are a Tunarr user, you will not be able to use this feature. See FAQ**
-
 **Step 6** Enter your DizqueTV or Tunarr URL
 
 Enter the URL of your DizqueTV or Tunarr server. This is the URL you use to access your DizqueTV or Tunarr server in a browser. It should look something like this: http://192.168.255.255:3000
@@ -365,27 +363,33 @@ You will see some text saying, "What Toonami Version are you making today?" unde
 
 You will see some text saying "What channel number do you want to use?" under this a text field. Very simple; just type in any number you want. We recommend you use a number between 1 and 1000. We used 60 for our main channel, as this was our local Toonami channel number. 
 
-**Step 3** Set the commercial break length
+**Step 3** Enter you Flex Duration
 
 You will see some text saying "Enter your Flex duration Minutes:Seconds (How long should a commercial break be) It's nice and easy just enter in the length you desire and commercial breaks will be that length.
 
-**Step 4** Prepare Cut Anime for Lineup
+**Step 4** Set the commercial break length
+
+You will see some text saying "Enter your Flex duration Minutes:Seconds (How long should a commercial break be) It's nice and easy just enter in the length you desire and commercial breaks will be that length.
+
+**Step 5** Prepare Cut Anime for Lineup
 
 This will do some final prep work in the background. It won't take long, but it needs to be done before we can create the channel.
 
-**Step 5** Prepare Plex
+**Step 6** Prepare Plex
 
 This is going to do some stuff to make Plex play a little nicer, like split any shows it decided to merge and rename any shows it decided to rename. This can take a few minutes, but it shouldn't take too long.
 
-**Step 6** Create Channel
+**Step 7** Create Channel
+
+If you chose Tunarr at the beginning, you will see a button labeled Create Toonami Channel with Flex. If you chose DizqueTV at the beginning, you will see a button labeled Create Toonami Channel.
 
 This will create your channel. It will take a few minutes, but when it's done you there will be a new channel on your DizqueTV or Tunarr server depending on what you selected in step 1.
 
 That's it! Congratulations! You have made a Toonami Channel! 
 
-However what's toonami without commercials? So lets add some. First, go to dizqueTV and add a flex list to your shiny new channel, then come back here and go to the next step. No need to close Commercial Breaker it will be here when you get back.
+If you are using DizqueTV proceed to the next step if you are using Tunarr you are done!
 
-**Step 7** Add flex
+**Step 8** Add flex (DizqueTV users only)
 
 This will add in flex between all your to ads and back from ads. 
 
@@ -421,17 +425,21 @@ This will do some final prep work in the background. It will wont take long but 
 
 **Step 6** Create Toonami Channel
 
-This will create your channel. It will take a few minutes, but when it's done, there will be a new channel on your DizqueTV or Tunarr server depending on what you selected in step 1.
+If you chose Tunarr at the beginning, you will see a button labeled Create Toonami Channel with Flex. If you chose DizqueTV at the beginning, you will see a button labeled Create Toonami Channel.
 
-Just like before we need to add some flex. Again, go to dizqueTV and add a flex lis to this channel, then come back here and go to the next step. No need to close Commercial Breaker it will be here when you get back.
+This will create your channel. It will take a few minutes, but when it's done you there will be a new channel on your DizqueTV or Tunarr server depending on what you selected in step 1.
+
+That's it! Congratulations! You have made another Toonami Channel! 
+
+If you are using DizqueTV proceed to the next step if you are using Tunarr you are done!
 
 **Step 7** Add flex
 
-This will add in flex between all your to ads and back from ads. 
+This will add in flex between all your ads and back from ads. 
 
-That's it! Congratulations! Now you REALLY made a Toonami Channel!
+**Step 8** Go watch your channel
 
-If you want to make another channel, just click the "Continue" button at the bottom right. There are a few extra features on this page too for users who are making multiple channels.
+Fall back into your couch, grab some snacks, and enjoy your very own Toonami channel. You can now watch your favorite shows with the added nostalgia of commercial breaks.
 
 # How to use Absolution
 
@@ -623,10 +631,15 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 
 ## **Immediate Attention**
 
+### Borked
+
+- [ ] Find out why tkkthemes could not be in the docker container, do a clean install with a new tom_env and make sure it works on desktop
+
 ### Housekeeping
 
 - [ ] Cleanup the repo structure
 - [ ] Actually use the icon for favicon, TOM, etc
+- [ ] Make the webui not randomly rely on clydes
 - [ ] Figure out why LoginToPlex has it's own special redis connection
 - [ ] Cleanup the docker compose if the run didn't need the enviorment varibles does it??
 - [ ] Cleanup the requirments.txt
@@ -635,12 +648,8 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 
 - [ ] WebUI has no way of getting folders outside of being in a docker container
 
-### Tunarr To Do
-
-- [ ] Add Tunarr to the readme
-- [ ] Add Flex to Tunarr (Baked in preffered but alt flex based on platform url is fine)
-
 ### Critical Issues
+
 - [ ] Fix requirement to run "continue from last" twice for continued Toonami channel
 
 ### **Clydes Improvements**
@@ -700,10 +709,6 @@ Q: Okay, although I appreciate authenticity, I always thought [MY FAVORITE ANIME
 Q: How did you know I was thinking of Steins;Gate?
 
   We know all. We see all. We are all.
-
-Q: Why does flex injector not work with Tunarr?
-
-  Fun fact, it would be really easy to make it work with Tunarr. Here's the problem, we can't test it. When we tried added a filler list to tunarr we kept getting an error. We have no idea why. We tried everything we could think of. We even tried to add a filler list by editing the database for tunarr directly. So until we can figure out how to add a filler list to Tunarr we can't test it. We can't test it we can't make it work and we only release tested jank. Jank non the less but tested jank.
 
 
 Q: Cut stopped running after cutting a few of my shows, and now some of them are cut, but the names of the parts are weird.

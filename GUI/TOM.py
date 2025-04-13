@@ -665,13 +665,19 @@ class Page6(ttk.Frame):
                                                command=self.logic.create_prepare_plex)
         create_prepare_plex_button.pack(pady=3)
 
-        create_toonami_channel_button = ttk.Button(self, text="Create Toonami Channel",
-                                                  command=self.create_toonami_channel)
-        create_toonami_channel_button.pack(pady=3)
+        # Create the buttons but don't pack them yet - we'll handle that in tkraise
+        self.create_toonami_channel_button_with_flex = ttk.Button(self, text="Create Toonami Channel with Flex",
+                                                                 command=self.create_toonami_channel)
+        
+        self.create_toonami_channel_button = ttk.Button(self, text="Create Toonami Channel",
+                                                       command=self.create_toonami_channel)
+        
+        self.add_flex_button = ttk.Button(self, text="Add Flex",
+                                         command=self.add_flex)
 
-        add_flex_button = ttk.Button(self, text="Add Flex",
-                                     command=self.add_flex)
-        add_flex_button.pack(pady=3)
+        # Create a frame to hold the buttons that will be dynamically shown/hidden
+        self.dynamic_buttons_frame = ttk.Frame(self)
+        self.dynamic_buttons_frame.pack(pady=3)
 
         self.status_label = tk.Label(self, text="Status: Idle",
                                      foreground='darkgray',
@@ -685,6 +691,34 @@ class Page6(ttk.Frame):
         self.continue_button = ttk.Button(self, text="Continue",
                                     command=self.on_continue_button_click)
         self.continue_button.pack(side="right", padx=5, pady=5)
+
+    def tkraise(self):
+        # Update buttons based on current platform type when the page is raised
+        platform_type = self.logic._get_data("platform_type")
+        
+        # First clear any buttons currently in the frame
+        for widget in self.dynamic_buttons_frame.winfo_children():
+            widget.destroy()
+            
+        # Then place the appropriate buttons in the frame based on current platform type
+        if platform_type == "tunarr":
+            self.create_toonami_channel_button_with_flex = ttk.Button(self.dynamic_buttons_frame, 
+                                                                     text="Create Toonami Channel with Flex",
+                                                                     command=self.create_toonami_channel)
+            self.create_toonami_channel_button_with_flex.pack(pady=3)
+        else:
+            self.create_toonami_channel_button = ttk.Button(self.dynamic_buttons_frame, 
+                                                           text="Create Toonami Channel",
+                                                           command=self.create_toonami_channel)
+            self.create_toonami_channel_button.pack(pady=3)
+            
+            self.add_flex_button = ttk.Button(self.dynamic_buttons_frame, 
+                                             text="Add Flex",
+                                             command=self.add_flex)
+            self.add_flex_button.pack(pady=3)
+        
+        # Call the parent class's tkraise
+        super().tkraise()
 
     if LogicController.use_redis:
          # -------------------------------------
@@ -707,7 +741,8 @@ class Page6(ttk.Frame):
     def create_toonami_channel(self):
         toonami_version = self.toonami_version.get()
         channel_number = self.channel_number_entry.get()
-        self.logic.create_toonami_channel(toonami_version, channel_number)
+        flex_duration = self.flex_duration_entry.get()
+        self.logic.create_toonami_channel(toonami_version, channel_number, flex_duration)
 
     def add_flex(self):
         channel_number = self.channel_number_entry.get()
@@ -764,8 +799,19 @@ class Page7(ttk.Frame):
         prepare_toonami_channel_button = ttk.Button(self, text="Prepare Toonami Channel", command=self.prepare_toonami_channel)
         prepare_toonami_channel_button.pack(pady=3)
 
-        create_toonami_channel_button = ttk.Button(self, text="Create Toonami Channel", command=self.create_toonami_channel_cont)
-        create_toonami_channel_button.pack(pady=3)
+        # Create a frame to hold the buttons that will be dynamically shown/hidden
+        self.dynamic_buttons_frame = ttk.Frame(self)
+        self.dynamic_buttons_frame.pack(pady=3)
+
+        # Create the buttons but don't pack them yet - we'll handle that in tkraise
+        self.create_toonami_channel_button_with_flex = ttk.Button(self, text="Create Toonami Channel with Flex", 
+                                                                 command=self.create_toonami_channel_cont)
+        
+        self.create_toonami_channel_button = ttk.Button(self, text="Create Toonami Channel", 
+                                                       command=self.create_toonami_channel_cont)
+        
+        self.add_flex_button = ttk.Button(self, text="Add Flex",
+                                         command=self.add_flex)
 
         self.status_label = tk.Label(self, text="Status: Idle",
                                      foreground='darkgray',
@@ -776,9 +822,33 @@ class Page7(ttk.Frame):
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
 
-        add_flex_button = ttk.Button(self, text="Add Flex",
-                                     command=self.add_flex)
-        add_flex_button.pack(pady=3)
+    def tkraise(self):
+        # Update buttons based on current platform type when the page is raised
+        platform_type = self.logic._get_data("platform_type")
+        
+        # First clear any buttons currently in the frame
+        for widget in self.dynamic_buttons_frame.winfo_children():
+            widget.destroy()
+            
+        # Then place the appropriate buttons in the frame based on current platform type
+        if platform_type == "tunarr":
+            self.create_toonami_channel_button_with_flex = ttk.Button(self.dynamic_buttons_frame, 
+                                                                     text="Create Toonami Channel with Flex",
+                                                                     command=self.create_toonami_channel_cont)
+            self.create_toonami_channel_button_with_flex.pack(pady=3)
+        else:
+            self.create_toonami_channel_button = ttk.Button(self.dynamic_buttons_frame, 
+                                                           text="Create Toonami Channel",
+                                                           command=self.create_toonami_channel_cont)
+            self.create_toonami_channel_button.pack(pady=3)
+            
+            self.add_flex_button = ttk.Button(self.dynamic_buttons_frame, 
+                                             text="Add Flex",
+                                             command=self.add_flex)
+            self.add_flex_button.pack(pady=3)
+        
+        # Call the parent class's tkraise
+        super().tkraise()
 
     if LogicController.use_redis:
         # -------------------------------------
@@ -802,7 +872,8 @@ class Page7(ttk.Frame):
     def create_toonami_channel_cont(self):
         toonami_version = self.toonami_version.get()
         channel_number = self.channel_number_entry.get()
-        self.logic.create_toonami_channel(toonami_version, channel_number)
+        flex_duration = self.flex_duration_entry.get()
+        self.logic.create_toonami_channel(toonami_version, channel_number, flex_duration)
 
     def add_flex(self):
         channel_number = self.channel_number_entry.get()
