@@ -337,9 +337,13 @@ You will get a pop-up window that says "Select Shows". This is a list of all the
 
 Due to an error later on for now if you are going to make a cut lineup, you need to uncheck Anime you don't intend to cut.
 
-**Step 2** Click "Move Filtered Shows" (Optional, but highly recommended)
+**Step 2** Process Filtered Shows
 
-This will move the shows that will be used by the lineup to it's own folder called "toonami_filtered". We do this so you only have to cut the shows that will be used by the lineup. This will save you a lot of time.
+You'll see two options:
+- **Move Files (Legacy)**: This will move the filtered shows to a folder called "toonami_filtered". This is the traditional method.
+- **Prepopulate Selection**: This will prepare the filtered files for selection without moving them, allowing you to choose specific episodes in the next step.
+
+Choose which mode you want by and click the "Process Filtered Shows".
 
 **Step 3** Click "Get Plex Timestamps" (Optional, but highly recommended)
 
@@ -483,11 +487,13 @@ To be honest, we don't recommend you use this. Not that it's bad, it's just that
 
 This tool will cut your videos at the black frames, at the intros given by PlexTimestamps, or chapter markers (if you have them), so you can insert commercials and bumps between the breaks.
 
-**Step 1** Click the "Browse" button next to the Input File field. (This will be filled in for you. If you clicked "Move Filtered Shows" in the Prepare Content step you can leave this as is)
+**Step 1** Choose your input method:
+- **Folder Mode (Legacy)**: Select an entire folder of videos to process
+- **File Selection Mode**: Choose specific files to process (if you used "Prepopulate Selection" in the previous step, files will already be loaded here)
 
-Navigate to the folder containing the videos you want to cut. Select the folder and click "Select Folder" at the bottom right of the window.
+If you ran this via TOM or Absolution and used "Prepopulate Selection" in the Prepare Content step, the appropriate files will already be selected and will be pre-filled.
 
-**Step 2** Click the "Browse" button next to the Output Directory field (This will be filled in for you. If you clicked "Move Filtered Shows" in the Prepare Content step you can leave this as is)
+**Step 2** Click the "Browse" button next to the Output Directory field (Again, if you used TOM or Absolution, this will be filled in for you)
 
 Navigate to the folder where you want the cut videos to be saved. Select the folder and click "Select Folder" at the bottom right of the window.
 
@@ -558,9 +564,9 @@ Uncut Encoder is essential for creating an uncut anime lineup. This is especiall
 
 The Show Scheduler, aka "Merger", is a pivotal tool that serves dual roles in your anime library management. First, it meticulously crafts the lineup for both cut and uncut channels. Then, it metamorphoses into a master sequencer, aligning complex multi-bumps like "Now Inuyasha, Next Bleach, Later Fullmetal Alchemist Brotherhood" with ensuing bumps such as "Fullmetal Alchemist Brotherhood Next, Yu Yu Hakusho Later." It also incorporates a built-in logic to deter excessive repetition of shows, ensuring a diverse and engaging lineup. Much like alchemy, it blurs the lines between science and magic, functioning reliably while its internal complexities remain an enigma (even to us at this point).
 
-### Filter and Move
+### Episode Filter
 
-This tool is specially designed for intelligent anime management. It uses the output of Uncut encoder since it checks what shows you have bumps for, and if you don't have bumps for a show it won't appear in the lineup. This approach conserves both time and storage space, considering the resource-intensive nature of anime cutting. The tool is optimized to handle the movement of files, ensuring a streamlined and efficient process.
+The Episode Filter is an intelligent content management solution designed specifically for anime curation within your Toonami lineup. It analyzes the output from the Uncut Encoder to identify which shows have corresponding bumps available - a critical factor since only shows with properly matched bumps will create a cohesive viewing experience. Operating in two flexible modes - "Filter and Move" for physically relocating files and "Prepopulate Selection" for identifying compatible content without moving them - the tool prevents wasting resources on shows that would create gaps in your lineup and therefor not be used anyways. By examining database tables created during earlier stages, it identifies which anime meets necessary criteria, saving valuable processing time given the resource-intensive nature of anime cutting. Whether you prefer reorganizing files or a selection-based workflow, the Episode Filter streamlines your path to an authentic Toonami experience.
 
 
 ### Get Timestamp Plex
@@ -643,6 +649,9 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 - [ ] Figure out why LoginToPlex has it's own special redis connection
 - [ ] Cleanup the docker compose if the run didn't need the enviorment varibles does it??
 - [ ] Cleanup the requirments.txt
+- [ ] Clean up Commercial Breaker code
+  - [ ] New ehanced method name is kind of ambiguous
+- [ ] While I am here find a way to make listen for silence callback a but more verbose
 
 ### WebUI To-Do
 

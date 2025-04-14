@@ -743,7 +743,8 @@ class RedisListenerMixin:
     def listen_for_redis_updates(self, redis_queue):
         redis_client = self.logic.redis_client
         pubsub = redis_client.pubsub()
-        pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices', 'plex_servers', 'plex_libraries', 'plex_auth_url')
+        pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices', 
+                        'plex_servers', 'plex_libraries', 'filtered_files', 'plex_auth_url')
 
         for message in pubsub.listen():
             if message['type'] == 'message':
@@ -953,6 +954,14 @@ class Page1(BasePage, RedisListenerMixin):
         self.logic = LogicController()
         self.PlexManager = PlexManager(self.logic, app)
         self.redis_queue = Queue()
+        
+        # Define the JavaScript function for opening URLs early in initialization
+        self.app.execute_javascript("""
+            window.pywebview.api.open_plex_auth_url = function(url) {
+                window.open(url, '_blank');
+            }
+        """)
+        
         self.start_redis_listener_thread(self.redis_queue)
         self.after(100, self.process_redis_messages)
         self.libraries_selected = 0
@@ -1101,9 +1110,11 @@ class Page1(BasePage, RedisListenerMixin):
 
     def handle_redis_message(self, channel, data):
         if channel == 'plex_auth_url':
-            #open the Plex auth URL via javascript
-            self.app.execute_javascript(f"window.open('{data}', '_blank')")
-            print(f"Opening Plex auth URL: {data}")
+            # Use the JavaScript function to open the Plex auth URL directly
+            auth_url = data  # The data contains the full URL
+            print(f"Received Plex auth URL: {auth_url}")
+            self.app.execute_javascript(f"window.open('{auth_url}', '_blank')")
+            print(f"Opening Plex auth URL: {auth_url}")
         elif channel == 'new_server_choices':
             self.update_dropdown()
         elif channel == 'new_library_choices':
@@ -1191,6 +1202,9 @@ class Page3(BasePage, RedisListenerMixin):
         self.redis_queue = Queue()
         self.start_redis_listener_thread(self.redis_queue)
         self.after(100, self.process_redis_messages)
+        
+        # Track filter mode selection
+        self.filter_mode = "move_files"  # Default to legacy mode
 
         # Prepare Content button
         self.add_label(self.main_container, "Prepare my shows and bumps to be cut")
@@ -1200,20 +1214,75 @@ class Page3(BasePage, RedisListenerMixin):
         self.add_label(self.main_container, "Get Plex Timestamps")
         self.get_plex_timestamps_button = self.add_button_with_style(self.main_container, "Get Plex Timestamps", self.get_plex_timestamps, 'primary')
 
-        # Move Filtered Shows button
-        self.add_label(self.main_container, "Move Filtered Shows")
-        self.move_filtered_shows_button = self.add_button_with_style(self.main_container, "Move Filtered Shows", self.move_filtered, 'primary')
-
-        # Remove individual status label since we now use the global one in BasePage
+        # Move Filtered Shows section with centered radio buttons
+        self.add_label(self.main_container, "Process Filtered Shows")
+        
+        # Create a container for the radio buttons with centered layout
+        filter_mode_container = gui.Container(style={
+            'width': '100%',
+            'display': 'flex',
+            'justify-content': 'center',
+            'margin': '10px 0',
+            'background': 'transparent'
+        })
+        
+        # Create a horizontally centered container for buttons
+        buttons_row = gui.HBox(style={
+            'justify-content': 'center',
+            'background': 'transparent',
+            'width': 'auto',
+            'margin': '0 auto'
+        })
+        
+        # Create styled button-like options for filter mode selection
+        self.move_files_button = gui.Button("Move Files (Legacy)", width=200, height=40)
+        self.move_files_button.style.update(Styles.selected_button_style)
+        self.move_files_button.onclick.do(lambda w: self.set_filter_mode("move_files"))
+        
+        self.prepopulate_button = gui.Button("Prepopulate Selection", width=200, height=40)
+        self.prepopulate_button.style.update(Styles.unselected_button_style)
+        self.prepopulate_button.onclick.do(lambda w: self.set_filter_mode("prepopulate"))
+        
+        # Add buttons to the row container with spacing
+        buttons_row.append(self.move_files_button)
+        buttons_row.append(gui.Label("", style={'width': '20px', 'background': 'transparent'}))  # Spacer
+        buttons_row.append(self.prepopulate_button)
+        
+        # Add row to the container
+        filter_mode_container.append(buttons_row)
+        self.main_container.append(filter_mode_container)
+        
+        # Process Filtered Shows button
+        process_button_container = gui.Container(style={
+            'width': '100%',
+            'display': 'flex',
+            'justify-content': 'center', 
+            'margin': '10px 0',
+            'background': 'transparent'
+        })
+        
+        self.move_filtered_shows_button = self.add_button_with_style(process_button_container, "Process Filtered Shows", self.move_filtered, 'primary')
+        self.main_container.append(process_button_container)
 
         # Continue button
         self.continue_button = self.add_button_with_style(self.main_container, "Continue", self.on_continue_button_click, 'secondary')
+    
+    def set_filter_mode(self, mode):
+        """Handle filter mode selection button clicks"""
+        self.filter_mode = mode
+        if mode == 'move_files':
+            self.move_files_button.style.update(Styles.selected_button_style)
+            self.prepopulate_button.style.update(Styles.unselected_button_style)
+        else:
+            self.move_files_button.style.update(Styles.unselected_button_style)
+            self.prepopulate_button.style.update(Styles.selected_button_style)
 
     def get_plex_timestamps(self, widget):
         self.logic.get_plex_timestamps()
 
     def move_filtered(self, widget):
-        self.logic.move_filtered()
+        # Pass the filter mode to the move_filtered method
+        self.logic.move_filtered(self.filter_mode == "prepopulate")
 
     def on_continue_button_click(self, widget):
         self.logic._broadcast_status_update("Idle")
@@ -1429,9 +1498,67 @@ class Page4(BasePage, RedisListenerMixin):
         # Create variables for input and output directories with defaults
         self.input_path = self.default_input_folder
         self.output_path = self.default_output_folder
+        
+        # Internal tracking of input mode - no UI controls needed
+        self.input_mode = "folder"  # Default to folder mode
+        
+        # File path mapping for display/selection
+        self.file_path_map = {}
 
-        # Initialize input fields with default values pre-filled
-        self.input_path_input = self.add_labeled_input(self.main_container, "Input directory:", self.default_input_folder)
+        # === FOLDER MODE UI ===
+        self.folder_mode_container = gui.VBox(style={
+            'align-items': 'center',
+            'justify-content': 'flex-start',
+            'width': '100%',
+            'background': 'transparent',
+            'background-color': 'transparent'
+        })
+        
+        # Initialize input field with default value pre-filled
+        self.input_path_input = self.add_labeled_input(self.folder_mode_container, "Input directory:", self.default_input_folder)
+        self.main_container.append(self.folder_mode_container)
+        
+        # === FILE MODE UI === - Initially hidden but will be shown when files are received
+        self.file_mode_container = gui.VBox(style={
+            'align-items': 'center',
+            'justify-content': 'flex-start',
+            'width': '100%',
+            'background': 'transparent',
+            'background-color': 'transparent',
+            'display': 'none'  # Initially hidden
+        })
+        
+        # File selection UI
+        file_list_label = gui.Label("Selected Files:", style=Styles.default_label_style)
+        self.file_mode_container.append(file_list_label)
+        
+        # Create a container for the file listbox
+        file_list_container = gui.Container(style={
+            'width': '90%',
+            'height': '200px',
+            'margin': '10px',
+            'padding': '5px',
+            'border': '1px solid rgba(0, 140, 255, 0.4)',
+            'background-color': 'rgba(0, 20, 40, 0.5)',
+            'overflow': 'auto',
+            'display': 'flex',
+            'flex-direction': 'column'
+        })
+        
+        # Create a list widget for selected files
+        self.file_listbox = gui.ListView(style={
+            'width': '100%',
+            'height': '100%',
+            'background-color': 'rgba(0, 10, 30, 0.8)',
+            'color': '#a5f3fc',
+            'border': 'none'
+        })
+        
+        file_list_container.append(self.file_listbox)
+        self.file_mode_container.append(file_list_container)
+        self.main_container.append(self.file_mode_container)
+        
+        # Output path (common to both modes)
         self.output_path_input = self.add_labeled_input(self.main_container, "Output directory:", self.default_output_folder)
 
         # Initialize progress bar
@@ -1531,6 +1658,61 @@ class Page4(BasePage, RedisListenerMixin):
             document.head.appendChild(style);
         }
         """)
+    
+    def set_input_mode(self, mode):
+        """Switch between folder mode and file selection mode without UI changes"""
+        self.input_mode = mode
+        
+        if mode == 'folder':
+            self.folder_mode_container.style['display'] = 'flex'
+            self.file_mode_container.style['display'] = 'none'
+            
+            # Reset the input handler to use folder mode
+            self.cblogic.input_handler.clear_all()
+        else:  # file mode
+            self.folder_mode_container.style['display'] = 'none'
+            self.file_mode_container.style['display'] = 'flex'
+
+    def update_file_list(self):
+        """Update the file list display with paths from the input handler"""
+        # Clear existing items
+        self.file_listbox.empty()
+        self.file_path_map = {}
+        
+        # Get consolidated paths
+        paths = self.cblogic.input_handler.get_consolidated_paths()
+        
+        # Sort alphabetically by filename
+        paths.sort(key=lambda p: os.path.basename(p).lower())
+        
+        # Add each file to the listbox
+        for path in paths:
+            filename = os.path.basename(path)
+            # Handle duplicate filenames
+            if filename in self.file_path_map:
+                count = 1
+                base_name, ext = os.path.splitext(filename)
+                while f"{base_name} ({count}){ext}" in self.file_path_map:
+                    count += 1
+                filename = f"{base_name} ({count}){ext}"
+            
+            # Store the mapping
+            self.file_path_map[filename] = path
+            
+            # Create a list item with the filename
+            item = gui.ListItem(filename)
+            item.style.update({
+                'color': '#a5f3fc',
+                'background': 'rgba(0, 10, 30, 0.5)',
+                'padding': '5px',
+                'margin': '2px',
+                'border-bottom': '1px solid rgba(0, 140, 255, 0.2)'
+            })
+            self.file_listbox.append(item)
+            
+        # Update status with count
+        file_count = len(paths)
+        self.update_status(f"File list updated: {file_count} files ready")
 
     def on_continue_button_click(self, widget):
         self.logic._broadcast_status_update("Idle")
@@ -1649,17 +1831,40 @@ class Page4(BasePage, RedisListenerMixin):
 
     # Utility methods
     def validate_input_output_dirs(self):
-        self.input_path = self.input_path_input.get_value()
+        """Validate input/output directories based on the current mode"""
         self.output_path = self.output_path_input.get_value()
-        if not (self.input_path and self.output_path):
-            self.update_status("Please specify an input and output directory.")
+        
+        if not self.output_path:
+            self.update_status("Please specify an output directory.")
             return False
-        if not os.path.isdir(self.input_path):
-            self.update_status("Input directory does not exist.")
-            return False
+            
+        if not os.path.exists(self.output_path):
+            try:
+                os.makedirs(self.output_path)
+            except:
+                self.update_status("Could not create output directory.")
+                return False
+        
+        # Check based on input mode
+        if self.input_mode == 'folder':
+            self.input_path = self.input_path_input.get_value()
+            if not self.input_path:
+                self.update_status("Please specify an input directory.")
+                return False
+                
+            if not os.path.isdir(self.input_path):
+                self.update_status("Input directory does not exist.")
+                return False
+        else:  # file mode
+            if not self.cblogic.input_handler.has_input():
+                self.update_status("No files selected. Please add files or folders.")
+                return False
+        
+        # Check output directory permissions
         if not os.access(self.output_path, os.W_OK):
             self.update_status("Output directory is not writable.")
             return False
+            
         return True
 
     def _run_and_notify(self, task, done_callback, task_name, destructive_mode=False, low_power_mode=False, fast_mode=False, reset_callback=None):
@@ -1670,16 +1875,30 @@ class Page4(BasePage, RedisListenerMixin):
         # Update status display with task start info
         self.update_status(f"Started task: {task_name}")
         
-        # Get current values from input fields
-        current_input_path = self.input_path_input.get_value()
-        current_output_path = self.output_path_input.get_value()
-        
         try:
             # Run the appropriate task with progress callback
             if task_name == "Detect Black Frames":
+                if self.input_mode == 'folder':
+                    # Folder mode - use the input directory
+                    current_input_path = self.input_path_input.get_value()
+                else:
+                    # File mode - we've already populated the input handler
+                    # Use a placeholder value as the actual files come from the input handler
+                    current_input_path = "/"
+                    
+                current_output_path = self.output_path_input.get_value()
                 task(current_input_path, current_output_path, self.update_progress, 
                      self.update_status, low_power_mode, fast_mode, reset_callback)
             elif task_name == "Cut Video":
+                if self.input_mode == 'folder':
+                    # Folder mode - use the input directory
+                    current_input_path = self.input_path_input.get_value()
+                else:
+                    # File mode - we've already populated the input handler
+                    # Use a placeholder value as the actual files come from the input handler
+                    current_input_path = "/"
+                
+                current_output_path = self.output_path_input.get_value()
                 task(current_input_path, current_output_path, self.update_progress, 
                      self.update_status, destructive_mode)
             
@@ -1698,8 +1917,29 @@ class Page4(BasePage, RedisListenerMixin):
     def done_detect_commercials(self, task_name):
         self.update_status(f"{task_name} - Done!")
 
-    def execute_in_main_thread(self, func, *args):
-        self.app.execute_javascript(f"window.pywebview.api.{func.__name__}({args})")
+    def handle_redis_message(self, channel, data):
+        """Handle incoming Redis messages"""
+        if channel == 'filtered_files':
+            try:
+                # The data will be a JSON string containing the list of filtered files
+                filtered_files = json.loads(data)
+                if filtered_files:
+                    # Automatically switch to file mode
+                    self.set_input_mode('file')
+                    
+                    # Add the files to the input handler
+                    self.cblogic.input_handler.add_files(filtered_files)
+                    
+                    # Sort and update the file list
+                    self.update_file_list()
+                    
+                    # Update status
+                    file_count = len(filtered_files)
+                    self.update_status(f"Received {file_count} filtered files from filter operation")
+            except json.JSONDecodeError:
+                self.update_status("Error: Received invalid filtered files data")
+            except Exception as e:
+                self.update_status(f"Error processing filtered files: {str(e)}")
 
 class Page5(BasePage, RedisListenerMixin):
     def __init__(self, app, *args, **kwargs):
@@ -1982,7 +2222,7 @@ class MainApp(App):
         return self.container
 
     def set_current_page(self, page_name):
-        if page_name in self.pages:
+        if (page_name in self.pages):
             # Mark Page2 as visited if we're going there
             if page_name == 'Page2':
                 self.visited_page2 = True
@@ -2032,6 +2272,20 @@ class MainApp(App):
             self.navigation_history.pop()  # Remove Page2 from history
             previous_page = 'Page1'
             
+        # Reset filter mode if coming from Page4 back to Page3
+        if current_page == 'Page4' and previous_page == 'Page3':
+            if hasattr(self.pages['Page3'], 'set_filter_mode'):
+                # Reset to default move_files mode
+                self.pages['Page3'].set_filter_mode('move_files')
+                
+        # Reset input mode if we're going back from/to Page4
+        if current_page == 'Page4' or previous_page == 'Page4':
+            if hasattr(self.pages['Page4'], 'cblogic') and hasattr(self.pages['Page4'], 'set_input_mode'):
+                # Clear any files in the input handler
+                self.pages['Page4'].cblogic.input_handler.clear_all()
+                # Reset to default folder mode
+                self.pages['Page4'].set_input_mode('folder')
+            
         # Go to the previous page - we need to pop again since set_current_page will add it
         self.navigation_history.pop()
         self.set_current_page(previous_page)
@@ -2039,6 +2293,17 @@ class MainApp(App):
     def start_over(self):
         # Reset visited_page2 flag
         self.visited_page2 = False
+        
+        # Reset filter mode in Page3
+        if hasattr(self.pages['Page3'], 'set_filter_mode'):
+            self.pages['Page3'].set_filter_mode('move_files')
+            
+        # Reset input mode in Page4
+        if hasattr(self.pages['Page4'], 'cblogic') and hasattr(self.pages['Page4'], 'set_input_mode'):
+            # Clear any files in the input handler
+            self.pages['Page4'].cblogic.input_handler.clear_all()
+            # Reset to default folder mode
+            self.pages['Page4'].set_input_mode('folder')
         
         # Refresh all navigation bars to reflect this change
         for page_id, page in self.pages.items():

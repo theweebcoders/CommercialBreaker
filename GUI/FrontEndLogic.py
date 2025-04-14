@@ -7,6 +7,7 @@ import time
 import json
 from queue import Queue
 import sys
+import webbrowser
 
 class LogicController():
     # Initialize the use_redis class variable before the init method
@@ -22,13 +23,16 @@ class LogicController():
         if self.use_redis:
             self.redis_client = redis.Redis(host='localhost', port=6379, db=0)
         else:
-            # Else
+            # Pubsub subscribers
             self._new_server_choice_subscribers = []
             self._new_library_choice_subscribers = []
             self._status_update_subscribers = []
+            self._filtered_files_subscribers = []  # New subscriber list for filtered files
+            self._auth_url_subscribers = []  # New subscriber list for auth URLs
         self.plex_servers = []
         self.plex_libraries = []
         self.filter_complete_event = threading.Event()
+        self.filtered_files_for_selection = []  # List to store filtered files for prepopulation
 
     def _setup_database(self):
         with sqlite3.connect(self.db_path) as conn:
@@ -80,9 +84,22 @@ class LogicController():
             plex_libraries_json = json.dumps(self.plex_libraries)
             self._publish_status_update('plex_libraries', plex_libraries_json)
 
+        # New method for filtered files
+        def publish_filtered_files(self, filtered_files):
+            """Publish filtered files to Redis channel."""
+            filtered_files_json = json.dumps(filtered_files)
+            self._publish_status_update('filtered_files', filtered_files_json)
+
         def get_token(self):
             plex_token = self._get_data("plex_token")
             return plex_token
+
+        def publish_plex_auth_url(self, auth_url):
+            """Publish Plex authentication URL to Redis channel but don't open it directly."""
+            self.redis_client.publish('plex_auth_url', auth_url)
+            print("Please open the following URL in your browser to authenticate with Plex: \n" + auth_url)
+            # Note: The browser will be opened by TOM when it processes the Redis message,
+            # so we don't call webbrowser.open here to avoid opening the browser twice
     else:
         # Else
         def subscribe_to_new_server_choices(self, callback):
@@ -98,10 +115,35 @@ class LogicController():
             if callable(callback):
                 self._status_update_subscribers.append(callback)
 
+        # New method for filtered files
+        def subscribe_to_filtered_files(self, callback):
+            """Subscribe to filtered files updates."""
+            if callable(callback):
+                self._filtered_files_subscribers.append(callback)
+
+        # New subscriber list for auth URL
+        def subscribe_to_auth_url(self, callback):
+            """Subscribe to authentication URL updates."""
+            if callable(callback):
+                self._auth_url_subscribers.append(callback)
+
         def _broadcast_status_update(self, message):
             """Notify all subscribers about a status update."""
             for subscriber in self._status_update_subscribers:
                 subscriber(message)
+                
+        # New method for filtered files
+        def _broadcast_filtered_files(self, filtered_files):
+            """Notify all subscribers about new filtered files."""
+            for subscriber in self._filtered_files_subscribers:
+                subscriber(filtered_files)
+
+        def _broadcast_auth_url(self, auth_url):
+            """Notify all subscribers about a new auth URL."""
+            for subscriber in self._auth_url_subscribers:
+                subscriber(auth_url)            
+            print("Please open the following URL in your browser to authenticate with Plex: \n" + auth_url)
+    
 
     def is_filtered_complete(self):
         return self.filter_complete_event.is_set()
@@ -119,6 +161,13 @@ class LogicController():
                 # Create PlexServerList instance, fetch token and populate dropdown
                 self._broadcast_status_update("Logging in to Plex...")
                 self.server_list = ToonamiTools.PlexServerList()
+                
+                # Set up the callback to handle auth URL based on mode
+                if self.use_redis:
+                    self.server_list.set_auth_url_callback(self.publish_plex_auth_url)
+                else:
+                    self.server_list.set_auth_url_callback(self._broadcast_auth_url)
+                
                 self.server_list.run()
                 self._broadcast_status_update("Plex login successful. Fetching servers...")
                 # Update the list of servers
@@ -140,6 +189,11 @@ class LogicController():
 
         thread = threading.Thread(target=login_thread)
         thread.start()
+
+    def open_auth_url(self, auth_url):
+        """Open the Plex authentication URL in the browser."""
+        print(f"Opening auth URL in browser: {auth_url}")
+        webbrowser.open(auth_url)
 
     def on_server_selected(self, selected_server):
         self.fetch_libraries(selected_server)
@@ -335,15 +389,42 @@ class LogicController():
         thread = threading.Thread(target=prepare_content_thread)
         thread.start()
 
-    def move_filtered(self):
+    def move_filtered(self, prepopulate=False):
+        """
+        Moves filtered episodes to the toonami_filtered folder or prepares them for selection.
+        
+        Args:
+            prepopulate (bool, optional): If True, don't move files but collect paths for selection
+                                          If False (default), move files as before
+        """
         def move_filtered_thread():
-            self._broadcast_status_update("Moving filtered shows...")
+            import ToonamiTools
             fmove = ToonamiTools.FilterAndMove()
-            working_folder = self._get_data("working_folder")
-            filter_output_folder = working_folder + "/toonami_filtered/"
-            fmove.run(filter_output_folder)
-            self._broadcast_status_update("Filtered shows moved!")
+            
+            if prepopulate:
+                self._broadcast_status_update("Preparing filtered shows for selection...")
+                # Call run with prepopulate=True to get filtered paths without moving
+                filtered_files = fmove.run(prepopulate=True)
+                
+                # Publish filtered files based on mode
+                if self.use_redis:
+                    self.publish_filtered_files(filtered_files)
+                    print(f"Published {len(filtered_files)} filtered files to Redis")
+                else:
+                    self._broadcast_filtered_files(filtered_files)
+                    print(f"Broadcast {len(filtered_files)} filtered files to subscribers")
+                
+                self._broadcast_status_update(f"Found {len(filtered_files)} files for selection")
+            else:
+                self._broadcast_status_update("Moving filtered shows...")
+                working_folder = self._get_data("working_folder")
+                filter_output_folder = working_folder + "/toonami_filtered/"
+                # Call run with prepopulate=False to move files (original behavior)
+                fmove.run(filter_output_folder, prepopulate=False)
+                self._broadcast_status_update("Filtered shows moved!")
+            
             self.filter_complete_event.set()
+            
         thread = threading.Thread(target=move_filtered_thread)
         thread.start()
 

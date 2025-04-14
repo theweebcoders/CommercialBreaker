@@ -1,6 +1,7 @@
 import threading
 import time
 import os
+import glob
 from GUI import LogicController
 from ComBreak import CommercialBreakerLogic
 import config
@@ -28,6 +29,7 @@ class CommercialBreakerCLI:
         self.status_label = "Ready"
         self.stdscr = None
         self.task_complete = threading.Event()
+        self.input_mode = "folder"  # Default to folder mode for backward compatibility
 
     def update_status(self, text):
         """Update the status label if it has changed and stdscr is initialized."""
@@ -150,6 +152,74 @@ class CommercialBreakerCLI:
             if mode_input in modes:
                 return modes[mode_input]
             print("Invalid input. Please choose a valid mode (f/l/n).")
+            
+    def choose_input_mode(self):
+        """ Allows the user to select an input mode with validation """
+        modes = {'f': 'folder', 'i': 'file'}
+        while True:
+            mode_input = input("Choose input mode - Folder (f), Individual Files (i): ").strip().lower()
+            if mode_input in modes:
+                return modes[mode_input]
+            print("Invalid input. Please choose a valid mode (f/i).")
+
+    def add_files(self):
+        """Add individual files or glob patterns to the input handler."""
+        print("\nEnter file paths or glob patterns (e.g., /path/to/videos/*.mp4)")
+        print("Enter one path per line. Type 'done' when finished.")
+        
+        while True:
+            file_input = input("> ").strip()
+            if file_input.lower() == 'done':
+                break
+                
+            # Handle glob patterns
+            if '*' in file_input or '?' in file_input:
+                matching_files = glob.glob(file_input)
+                if not matching_files:
+                    print(f"No files found matching pattern: {file_input}")
+                else:
+                    print(f"Found {len(matching_files)} files matching pattern")
+                    self.logic.input_handler.add_files(matching_files)
+            else:
+                # Handle direct file paths
+                if os.path.isfile(file_input):
+                    self.logic.input_handler.add_files([file_input])
+                    print(f"Added file: {os.path.basename(file_input)}")
+                else:
+                    print(f"File not found: {file_input}")
+        
+        # Show the total number of selected files
+        files = self.logic.input_handler.get_consolidated_paths()
+        print(f"\nTotal files selected: {len(files)}")
+        
+        # Display the first few files to confirm
+        max_display = min(5, len(files))
+        if max_display > 0:
+            print("\nSelected files (sample):")
+            for i in range(max_display):
+                print(f"- {os.path.basename(files[i])}")
+            if len(files) > max_display:
+                print(f"... and {len(files) - max_display} more")
+
+    def add_folders(self):
+        """Add folders to the input handler."""
+        print("\nEnter folder paths to process.")
+        print("Enter one folder path per line. Type 'done' when finished.")
+        
+        while True:
+            folder_input = input("> ").strip()
+            if folder_input.lower() == 'done':
+                break
+                
+            if os.path.isdir(folder_input):
+                self.logic.input_handler.add_folders([folder_input])
+                print(f"Added folder: {folder_input}")
+            else:
+                print(f"Folder not found: {folder_input}")
+        
+        # Show the total number of selected files after folders are added
+        files = self.logic.input_handler.get_consolidated_paths()
+        print(f"\nTotal files found in selected folders: {len(files)}")
 
     def delete_txt_files(self):
         """Delete the .txt files in the output directory."""
@@ -171,17 +241,43 @@ class CommercialBreakerCLI:
 
     def validate_input_output_dirs(self):
         """Validate the input and output directories."""
-        input_dir = self.input_path
         output_dir = self.output_path
-        if not (input_dir and output_dir):
-            print("Please specify an input and output directory.")
+        if not output_dir:
+            print("Please specify an output directory.")
             return False
-        if not os.path.isdir(input_dir):
-            print("Input directory does not exist.")
-            return False
+            
+        if not os.path.isdir(output_dir):
+            try:
+                os.makedirs(output_dir)
+                print(f"Created output directory: {output_dir}")
+            except:
+                print("Could not create output directory.")
+                return False
+                
         if not os.access(output_dir, os.W_OK):
             print("Output directory is not writable.")
             return False
+            
+        # Check if we have input either from folder mode or file mode
+        if self.input_mode == "file":
+            # File mode - check if files have been selected
+            if not self.logic.input_handler.has_input():
+                print("No files selected. Please add files or folders.")
+                return False
+        else:
+            # Folder mode - check input directory
+            input_dir = self.input_path
+            if not input_dir:
+                print("Please specify an input directory.")
+                return False
+            if not os.path.isdir(input_dir):
+                print("Input directory does not exist.")
+                return False
+            
+            # In folder mode, add the input directory to the input handler
+            self.logic.input_handler.clear_all()
+            self.logic.input_handler.add_folders([str(input_dir)])
+            
         return True
 
     @staticmethod
@@ -195,15 +291,36 @@ class CommercialBreakerCLI:
         print(task_name, "Done!")
 
     def commercial_breaker(self):
-        # Display initial folder settings
+        # Choose input mode
+        self.input_mode = self.choose_input_mode()
+        
+        if self.input_mode == "folder":
+            # Display initial folder settings
+            print("Commercial Breaker will use the following folders:")
+            print(f"Anime to be cut: {self.input_path}")
+            print(f"Cut anime: {self.output_path}")
 
-        print("Commercial Breaker will use the following folders:")
-        print(f"Anime to be cut: {self.input_path}")
-        print(f"Cut anime: {self.output_path}")
-
-        if not self.confirm("Would you like to continue with these folders? If you moved your filtered shows earlier, reply with 'y' (y/n): "):
-            self.input_path = input("Enter the path to your filtered anime folder: ")
-            self.output_path = input("Enter the path to your cut anime folder: ")
+            if not self.confirm("Would you like to continue with these folders? If you moved your filtered shows earlier, reply with 'y' (y/n): "):
+                self.input_path = Path(input("Enter the path to your filtered anime folder: ").strip())
+                self.output_path = Path(input("Enter the path to your cut anime folder: ").strip())
+        else:  # file mode
+            # Set output directory
+            print(f"Default output directory: {self.output_path}")
+            if not self.confirm("Would you like to use this output directory? (y/n): "):
+                self.output_path = Path(input("Enter the path for your output directory: ").strip())
+            
+            # Get files
+            self.logic.input_handler.clear_all()
+            print("\nAdd files for processing:")
+            print("1. Add individual files")
+            print("2. Add folders")
+            print("3. Add both files and folders")
+            
+            selection = input("Choose an option (1/2/3): ").strip()
+            if selection == "1" or selection == "3":
+                self.add_files()
+            if selection == "2" or selection == "3":
+                self.add_folders()
 
         # Options for destructive mode
         self.destructive_mode = self.confirm("Would you like to run Commercial Breaker in destructive mode? This mode will delete the original files after they have been cut. (y/n): ")
@@ -212,11 +329,17 @@ class CommercialBreakerCLI:
         self.mode = self.choose_mode()
 
         # Confirm settings before proceeding
-        print("The settings for Commercial Breaker are as follows:")
-        print(f"Anime to be cut: {self.input_path}")
-        print(f"Cut anime: {self.output_path}")
+        print("\nThe settings for Commercial Breaker are as follows:")
+        
+        if self.input_mode == "folder":
+            print(f"Anime to be cut: {self.input_path}")
+        else:  # file mode
+            files = self.logic.input_handler.get_consolidated_paths()
+            print(f"Number of files to process: {len(files)}")
+            
+        print(f"Cut anime output: {self.output_path}")
         print(f"Destructive mode: {'Enabled' if self.destructive_mode else 'Disabled'}")
-        print(f"Mode: {self.mode}")
+        print(f"Processing mode: {self.mode}")
 
         if self.confirm("Would you like to continue with these settings? (y/n): "):
             if self.mode == "fast":
@@ -231,21 +354,25 @@ class CommercialBreakerCLI:
         else:
             print("Restarting the setup...")
             #reset all settings to default
-            self.input_path = f"{self.working_folder}\\toonami_filtered"
-            self.output_path = f"{self.working_folder}\\cut"
+            self.input_path = self.working_folder / "toonami_filtered"
+            self.output_path = self.working_folder / "cut"
             self.destructive_mode = False
             self.mode = "normal"
+            self.logic.input_handler.clear_all()
             self.run()
+            return
 
-        print("We are ready to start processing the anime first we will detect the commercials breaks this can take a while. Would you like to continue? (y/n): ")
+        print("We are ready to start processing the anime first we will detect the commercials breaks this can take a while.")
         if self.confirm("Would you like to continue? (y/n): "):
             self.detect_commercials()
             self.task_complete.wait()
-        print("We are ready to start cutting the anime. This will take a while. Would you like to continue? (y/n): ")
+            
+        print("We are ready to start cutting the anime. This will take a while.")
         if self.confirm("Would you like to continue? (y/n): "):
             self.cut_videos()
             self.task_complete.wait()
-        print("We are done processing the anime. Would you like to delete the .txt files in the output directory? (y/n): ")
+            
+        print("We are done processing the anime.")
         if self.confirm("Would you like to delete the .txt files in the output directory? (y/n): "):
             self.delete_txt_files()
 

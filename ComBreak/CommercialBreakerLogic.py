@@ -6,6 +6,7 @@ import subprocess
 import json
 from ComBreak.VideoLoader import VideoLoader
 from ComBreak.VideoFileManager import VideoFilesManager
+from ComBreak.EnhancedInputHandler import EnhancedInputHandler
 from bisect import bisect_left
 import config
 
@@ -15,6 +16,7 @@ class CommercialBreakerLogic:
 
     def __init__(self):
         self.video_durations = {}
+        self.input_handler = EnhancedInputHandler()
 
     @staticmethod
     def get_executable_path(executable_name, config_path):
@@ -75,7 +77,14 @@ class CommercialBreakerLogic:
             f.rename(output_path / new_name)
 
     def cut_videos(self, input_path, output_path, progress_callback=None, status_callback=None, destructive_mode=False):
-        video_files_data, output_dirs, total_videos = self.gather_video_files_to_cut(input_path, output_path)
+        # Handle both legacy folder mode and enhanced input mode
+        if self.input_handler.has_input():
+            # Enhanced mode with files and/or folders
+            video_files_data, output_dirs, total_videos = self.gather_video_files_to_cut_enhanced(output_path)
+        else:
+            # Legacy folder-only mode
+            video_files_data, output_dirs, total_videos = self.gather_video_files_to_cut(input_path, output_path)
+        
         failed_videos = []
 
         for i, (input_file, output_file_prefix) in enumerate(video_files_data):
@@ -96,16 +105,49 @@ class CommercialBreakerLogic:
 
                 if progress_callback:
                     progress_callback(i + 1, total_videos)
-            except Exception:
+            except Exception as e:
+                if status_callback:
+                    status_callback(f"Error cutting video: {e}")
                 failed_videos.append(input_file)
 
         if failed_videos:
-            with open(Path(input_path, "failedtocut.txt"), "w") as f:
+            # Write failed videos to a file in the output directory instead of input directory
+            with open(Path(output_path, "failedtocut.txt"), "w") as f:
                 for video in failed_videos:
                     f.write(str(video) + "\n")
 
         for output_dir in output_dirs:
             self.rename_files(output_dir)
+
+    def gather_video_files_to_cut_enhanced(self, output_path):
+        """
+        Gather video files to cut using the enhanced input handler.
+        Works with both files and folders.
+        """
+        video_files_data = []
+        output_dirs = set()
+        
+        # Get all selected files from the input handler
+        input_files = self.input_handler.get_consolidated_paths()
+        
+        # For each input file, find its corresponding timestamp file in the output directory
+        for input_file in input_files:
+            input_file_path = Path(input_file)
+            filename = input_file_path.name
+            
+            # Determine the output directory for this file
+            output_dir = self.input_handler.get_output_path_for_file(input_file, output_path)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Check if a timestamp file exists for this video
+            timestamp_file = output_dir / f"{filename}.txt"
+            if timestamp_file.exists():
+                output_file_prefix = str(output_dir / filename.replace('.txt', ''))
+                video_files_data.append((str(input_file_path), output_file_prefix))
+                output_dirs.add(str(output_dir))
+        
+        total_videos = len(video_files_data)
+        return video_files_data, output_dirs, total_videos
 
     def gather_video_files_to_cut(self, input_path, output_path):
         video_files_data = []
@@ -174,47 +216,102 @@ class CommercialBreakerLogic:
         return end_time
 
     # ------------------- Extract Chapters Methods -------------------
-    def extract_chapters(self, input_path, output_path, status_callback=None, progress_callback=None, reset_callback=None):
-        total_videos = 0  # Initialize count of total videos
-        processed_videos = 0  # Initialize count of processed videos
-        video_files_manager = VideoFilesManager()  # Instantiate VideoFilesManager object
-        video_files_manager.clear_files()  # Clear the list of video files
-
-        # Count total videos
-        for dirpath, _, filenames in os.walk(input_path):
-            for filename in filenames:
-                if filename.endswith(tuple(config.video_file_types)):
-                    total_videos += 1
-
-        # Loop over all subdirectories and files in the input directory
-        for dirpath, _, filenames in os.walk(input_path):
-            for filename in filenames:
-                if not filename.endswith(tuple(config.video_file_types)):
-                    continue
-
+    def extract_chapters(self, input_path, output_path, unprocessed_files_manager, status_callback=None, progress_callback=None, reset_callback=None):
+        total_videos = 0
+        processed_videos = 0
+        
+        # Use enhanced input handler if available, otherwise fall back to legacy folder mode
+        if self.input_handler.has_input():
+            input_files = self.input_handler.get_consolidated_paths()
+            total_videos = len(input_files)
+            
+            for i, file_path in enumerate(input_files):
                 processed_videos += 1
-                original_file = Path(dirpath) / filename
-
-                # Call status callback if provided
+                file_path_obj = Path(file_path)
+                filename = file_path_obj.name
+                
                 if status_callback:
                     status_callback(f"Looking for chapters in {processed_videos} of {total_videos} videos")
                 if progress_callback:
                     progress_callback(processed_videos, total_videos)
-
-                if chapters := self.get_chapters(str(original_file)):
-                    relative_path = Path(dirpath).relative_to(input_path)
-                    output_dir = Path(output_path) / relative_path
+                
+                if chapters := self.get_chapters(file_path):
+                    # Log that we found chapters
+                    if status_callback:
+                        status_callback(f"Found chapters in {filename}")
+                        
+                    # Determine output directory based on input file
+                    output_dir = self.input_handler.get_output_path_for_file(file_path, output_path)
                     output_dir.mkdir(parents=True, exist_ok=True)
-
-                    # Create and write chapters to a text file in the output directory
+                    
+                    # Create and write chapters to a text file
                     with open(output_dir / f"{filename}.txt", "w") as f:
                         for chapter in chapters:
                             f.write(f"{chapter['start']}\n")
+                    
+                    # Debug log
+                    if status_callback:
+                        status_callback(f"Wrote chapters to {output_dir / f'{filename}.txt'}")
+                        status_callback(f"Removing {filename} from unprocessed_files_manager")
+                    
+                    # Remove this file from the unprocessed files manager since we found chapters
+                    # First need to check if the file is in the manager
+                    files_matching = unprocessed_files_manager.get_files(original_file=file_path)
+                    if files_matching:
+                        unprocessed_files_manager.remove_file(file_path, str(file_path_obj.parent), filename)
+                    else:
+                        # If file wasn't in manager yet, we need to make sure it isn't added later
+                        if status_callback:
+                            status_callback(f"File {filename} not in manager yet, marking as processed")
                 else:
-                    # If no chapters are found, add the video file to the VideoFilesManager object
-                    video_files_manager.add_file(str(original_file), str(dirpath), filename)
+                    # Debug log
+                    if status_callback:
+                        status_callback(f"No chapters found in {filename}")
+                    
+                    # Add to unprocessed_files_manager if no chapters found
+                    unprocessed_files_manager.add_file(file_path, str(file_path_obj.parent), filename)
                     if reset_callback:
                         reset_callback()
+        else:
+            # Legacy folder mode
+            # Count total videos
+            for dirpath, _, filenames in os.walk(input_path):
+                for filename in filenames:
+                    if filename.endswith(tuple(config.video_file_types)):
+                        total_videos += 1
+
+            # Process videos
+            for dirpath, _, filenames in os.walk(input_path):
+                for filename in filenames:
+                    if not filename.endswith(tuple(config.video_file_types)):
+                        continue
+
+                    processed_videos += 1
+                    original_file = Path(dirpath) / filename
+
+                    # Call status callback if provided
+                    if status_callback:
+                        status_callback(f"Looking for chapters in {processed_videos} of {total_videos} videos")
+                    if progress_callback:
+                        progress_callback(processed_videos, total_videos)
+
+                    if chapters := self.get_chapters(str(original_file)):
+                        relative_path = Path(dirpath).relative_to(input_path)
+                        output_dir = Path(output_path) / relative_path
+                        output_dir.mkdir(parents=True, exist_ok=True)
+
+                        # Create and write chapters to a text file in the output directory
+                        with open(output_dir / f"{filename}.txt", "w") as f:
+                            for chapter in chapters:
+                                f.write(f"{chapter['start']}\n")
+                                
+                        # Remove this file from the unprocessed files manager since we found chapters
+                        unprocessed_files_manager.remove_file(str(original_file), str(dirpath), filename)
+                    else:
+                        # If no chapters are found, add the video file to the VideoFilesManager object
+                        unprocessed_files_manager.add_file(str(original_file), str(dirpath), filename)
+                        if reset_callback:
+                            reset_callback()
 
     @staticmethod
     def get_chapters(video_file):
@@ -317,10 +414,19 @@ class CommercialBreakerLogic:
     def detect_silent_black_frames(self, input_path, output_path, total_frames, video_files_data, total_videos,
                                    file_counter, unprocessed_files_manager, progress_callback, status_callback,
                                    reset_callback):
-        video_files_data, total_frames, total_videos, file_counter = self.gather_video_files_to_detect(
-            input_path, output_path, total_frames, total_videos, file_counter,
-            unprocessed_files_manager, status_callback, progress_callback, reset_callback
-        )
+        if self.input_handler.has_input():
+            # Enhanced mode with files and/or folders
+            video_files_data, total_frames, total_videos, file_counter = self.gather_video_files_to_detect_enhanced(
+                output_path, total_frames, total_videos, file_counter,
+                unprocessed_files_manager, status_callback, progress_callback, reset_callback
+            )
+        else:
+            # Legacy folder mode
+            video_files_data, total_frames, total_videos, file_counter = self.gather_video_files_to_detect(
+                input_path, output_path, total_frames, total_videos, file_counter,
+                unprocessed_files_manager, status_callback, progress_callback, reset_callback
+            )
+            
         # Call the reset_callback after all videos have been downscaled
         if reset_callback:
             reset_callback()
@@ -333,6 +439,90 @@ class CommercialBreakerLogic:
                 processed_frames, total_frames
             )
 
+    def gather_video_files_to_detect_enhanced(self, output_path, total_frames, total_videos, file_counter,
+                                     unprocessed_files_manager, status_callback, progress_callback, reset_callback):
+        """
+        Gather video files to detect using the enhanced input handler.
+        Works with both files and folders.
+        """
+        video_files_data = []
+        
+        # Get files from the unprocessed files manager
+        files_to_process = unprocessed_files_manager.get_files()
+        total_videos = len(files_to_process)
+        
+        # Add debug information
+        if status_callback:
+            status_callback(f"Processing {total_videos} files for black frame detection")
+        
+        for i, video_file in enumerate(files_to_process):
+            try:
+                original_file, dirpath, filename = video_file.values()
+                if not filename.endswith('.txt'):
+                    input_file_path = Path(original_file)
+                    
+                    # Log which file we're processing
+                    if status_callback:
+                        status_callback(f"Processing file {i+1}/{total_videos}: {filename}")
+                    
+                    # Determine the output directory for this file
+                    output_dir = self.input_handler.get_output_path_for_file(original_file, output_path)
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    # Check if a timestamp file already exists (from chapters)
+                    timestamp_file = output_dir / f"{filename}.txt"
+                    if timestamp_file.exists():
+                        if status_callback:
+                            status_callback(f"Skipping {filename} - timestamp file already exists")
+                        continue
+                    
+                    # Create the downscaled file in the same output directory
+                    downscaled_file = output_dir / f"downscaled_{filename}"
+                    
+                    if status_callback:
+                        status_callback(f"Output directory: {output_dir}")
+                        status_callback(f"Downscaled file will be: {downscaled_file}")
+                    
+                    # Downscale the video
+                    self.downscale_video(
+                        str(original_file), 
+                        str(downscaled_file),
+                        file_counter, 
+                        total_videos, 
+                        status_callback, 
+                        progress_callback
+                    )
+                    
+                    # Verify the downscaled file exists
+                    if not Path(downscaled_file).exists() and status_callback:
+                        status_callback(f"WARNING: Downscaled file not created: {downscaled_file}")
+                    elif status_callback:
+                        status_callback(f"Successfully created downscaled file: {downscaled_file}")
+
+                    # Load the downscaled video
+                    video_loader = VideoLoader(str(downscaled_file))
+                    total_frames += video_loader.get_frame_count()
+
+                    # Add to processing list
+                    video_files_data.append((
+                        filename,
+                        video_loader,
+                        str(downscaled_file),
+                        str(output_dir),
+                        str(original_file),
+                    ))
+                    file_counter += 1
+            except Exception as e:
+                if status_callback:
+                    status_callback(f"An error occurred while processing {filename}: {str(e)}")
+                file_counter -= 1
+                continue
+
+        if status_callback:
+            status_callback(f"Successfully prepared {len(video_files_data)} videos for processing")
+            
+        return video_files_data, total_frames, total_videos, file_counter
+        
     def gather_video_files_to_detect(self, input_path, output_path, total_frames, total_videos, file_counter,
                                      unprocessed_files_manager, status_callback, progress_callback, reset_callback):
         video_files_data = []
@@ -340,10 +530,17 @@ class CommercialBreakerLogic:
             try:
                 original_file, dirpath, filename = video_file.values()
                 if not filename.endswith('.txt'):
-                    total_videos = len(unprocessed_files_manager.get_files())
                     relative_path = Path(dirpath).relative_to(input_path)
                     output_dir = Path(output_path) / relative_path
                     output_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    # Check if a timestamp file already exists (from chapters)
+                    timestamp_file = output_dir / f"{filename}.txt"
+                    if timestamp_file.exists():
+                        if status_callback:
+                            status_callback(f"Skipping {filename} - timestamp file already exists")
+                        continue
+                        
                     downscaled_file = output_dir / f"downscaled_{filename}"
 
                     self.downscale_video(str(original_file), str(downscaled_file),
@@ -371,22 +568,64 @@ class CommercialBreakerLogic:
     def silent_black_frame_detector(self, i, filename, original_file, total_videos, downscaled_file, output_dir,
                                     video_loader, status_callback, progress_callback, processed_frames, total_frames):
         try:
+            if status_callback:
+                status_callback(f"Processing video {i+1}/{total_videos}: {filename}")
+                status_callback(f"Output directory for timestamps: {output_dir}")
+            
+            # Generate the merged silence periods
             merged_silence_periods = self.get_merged_silence_periods(original_file, status_callback)
+            
+            # Find the black frames during silent periods
             black_frames, processed_frames = self.find_black_frames(
                 video_loader, merged_silence_periods, status_callback,
                 progress_callback, processed_frames, total_frames
             )
 
+            # Ensure output directory exists
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
+            
+            # Create the timestamp file with the exact original filename
+            timestamp_file = Path(output_dir) / f"{filename}.txt"
+            
+            if status_callback:
+                status_callback(f"Will write {len(black_frames)} timestamps to file: {timestamp_file}")
+            
             if black_frames:
-                with open(Path(output_dir) / f"{filename}.txt", "w") as f:
-                    f.writelines(f"{timestamp}\n" for timestamp in black_frames)
+                # Write timestamps to file
+                try:
+                    with open(timestamp_file, "w") as f:
+                        f.writelines(f"{timestamp}\n" for timestamp in black_frames)
+                    
+                    # Double-check that the file was created
+                    if Path(timestamp_file).exists():
+                        if status_callback:
+                            status_callback(f"Successfully created timestamp file: {timestamp_file}")
+                    else:
+                        if status_callback:
+                            status_callback(f"WARNING: Failed to create timestamp file: {timestamp_file}")
+                except Exception as e:
+                    if status_callback:
+                        status_callback(f"ERROR writing timestamp file: {e}")
+            else:
+                if status_callback:
+                    status_callback(f"No black frames found for: {filename}")
 
+            # Release the video loader resources
             video_loader.release()
 
+            # Clean up the downscaled file
             if status_callback:
-                status_callback(f"Cleaning up downscaled video files {i+1} of {total_videos}")
-
-            Path(downscaled_file).unlink()
+                status_callback(f"Cleaning up downscaled file: {downscaled_file}")
+                
+            if Path(downscaled_file).exists():
+                try:
+                    Path(downscaled_file).unlink()
+                    if status_callback:
+                        status_callback(f"Successfully deleted downscaled file")
+                except Exception as e:
+                    if status_callback:
+                        status_callback(f"Error deleting downscaled file: {e}")
+                
             return processed_frames
 
         except Exception as e:
@@ -435,34 +674,67 @@ class CommercialBreakerLogic:
     # ------------------- Read Timestamps Method -------------------
     def read_timestamps(self, input_path, output_path, total_frames, video_files_data, total_videos,
                         file_counter, unprocessed_files_manager, progress_callback, status_callback):
-        plex_file_path = Path(input_path) / "plex_timestamps.txt"
-
-        # Check if plex_timestamps.txt exists, if not, skip this step
-        if not plex_file_path.exists():
-            return
-
-        for video_file in unprocessed_files_manager.get_files():
-            original_file, dirpath, filename = video_file.values()
-
-            with open(plex_file_path, "r", encoding='utf-8') as plex_file:
-                found_in_plex_file = False
-                for line in plex_file:
-                    plex_filename, timestamp = line.rsplit(" = ", 1)  # Split on the last occurrence of " = "
-                    plex_filename = plex_filename.strip()
-                    timestamp = timestamp.strip()
-
-                    if filename == plex_filename:
-                        output_dir = Path(output_path) / Path(dirpath).relative_to(input_path)
+        # Check if we're using enhanced input handling or legacy folder mode
+        if self.input_handler.has_input():
+            # Enhanced mode - look for matching files in plex_timestamps.txt
+            input_files = self.input_handler.get_consolidated_paths()
+            
+            for base_path in set(Path(f).parent for f in input_files):
+                plex_file_path = Path(base_path) / "plex_timestamps.txt"
+                
+                # Skip if no plex_timestamps.txt found
+                if not plex_file_path.exists():
+                    continue
+                
+                with open(plex_file_path, "r", encoding='utf-8') as plex_file:
+                    plex_data = {}
+                    for line in plex_file:
+                        if " = " in line:
+                            plex_filename, timestamp = line.rsplit(" = ", 1)
+                            plex_data[plex_filename.strip()] = timestamp.strip()
+                
+                # Check each file in the input handler against the plex data
+                for video_file in unprocessed_files_manager.get_files():
+                    original_file, dirpath, filename = video_file.values()
+                    
+                    if filename in plex_data:
+                        output_dir = self.input_handler.get_output_path_for_file(original_file, output_path)
                         output_dir.mkdir(parents=True, exist_ok=True)
-
+                        
                         with open(output_dir / f"{filename}.txt", "w") as output_file:
-                            output_file.write(timestamp + "\n")
+                            output_file.write(plex_data[filename] + "\n")
+                        
+                        unprocessed_files_manager.remove_file(str(original_file), str(dirpath), filename)
+        else:
+            # Legacy folder mode
+            plex_file_path = Path(input_path) / "plex_timestamps.txt"
 
-                        found_in_plex_file = True
-                        break
+            # Check if plex_timestamps.txt exists, if not, skip this step
+            if not plex_file_path.exists():
+                return
 
-                if found_in_plex_file:
-                    unprocessed_files_manager.remove_file(str(original_file), str(dirpath), filename)
+            for video_file in unprocessed_files_manager.get_files():
+                original_file, dirpath, filename = video_file.values()
+
+                with open(plex_file_path, "r", encoding='utf-8') as plex_file:
+                    found_in_plex_file = False
+                    for line in plex_file:
+                        plex_filename, timestamp = line.rsplit(" = ", 1)  # Split on the last occurrence of " = "
+                        plex_filename = plex_filename.strip()
+                        timestamp = timestamp.strip()
+
+                        if filename == plex_filename:
+                            output_dir = Path(output_path) / Path(dirpath).relative_to(input_path)
+                            output_dir.mkdir(parents=True, exist_ok=True)
+
+                            with open(output_dir / f"{filename}.txt", "w") as output_file:
+                                output_file.write(timestamp + "\n")
+
+                            found_in_plex_file = True
+                            break
+
+                    if found_in_plex_file:
+                        unprocessed_files_manager.remove_file(str(original_file), str(dirpath), filename)
 
     # ------------------ Orchestrating All Timestamp Methods ------------------
     def detect_commercials(self, input_path, output_path, progress_callback=None, status_callback=None,
@@ -472,11 +744,53 @@ class CommercialBreakerLogic:
         file_counter = 0
         video_files_data = []
 
-        self.extract_chapters(input_path, output_path, status_callback, progress_callback, reset_callback)
+        # Clear the unprocessed files manager
+        unprocessed_files_manager = VideoFilesManager()
+        unprocessed_files_manager.clear_files()  # Ensure we start with a clean state
+
+        # First, populate the unprocessed_files_manager with all potential video files
+        if self.input_handler.has_input():
+            # Enhanced mode - add ALL files from the input handler
+            consolidated_paths = self.input_handler.get_consolidated_paths()
+            if status_callback:
+                status_callback(f"Found {len(consolidated_paths)} files to process")
+                
+            # Add each selected file to the unprocessed_files_manager
+            for file_path in consolidated_paths:
+                path_obj = Path(file_path)
+                if path_obj.suffix.lower() in tuple(config.video_file_types):
+                    unprocessed_files_manager.add_file(str(path_obj), str(path_obj.parent), path_obj.name)
+                    if status_callback:
+                        status_callback(f"Added {path_obj.name} for initial processing")
+        else:
+            # Legacy folder mode - add files from the input path
+            for dirpath, _, filenames in os.walk(input_path):
+                for filename in filenames:
+                    if filename.endswith(tuple(config.video_file_types)):
+                        original_file = Path(dirpath) / filename
+                        unprocessed_files_manager.add_file(str(original_file), dirpath, filename)
+
+        # Get an initial count of files
+        initial_files = len(unprocessed_files_manager.get_files())
+        if status_callback:
+            status_callback(f"Starting with {initial_files} video files to check")
+
+        # Now, try to extract chapters from the selected videos and remove those with chapters
+        self.extract_chapters(input_path, output_path, unprocessed_files_manager, status_callback, progress_callback, reset_callback)
+        
+        # Check how many files are left after chapter extraction
+        remaining_files = len(unprocessed_files_manager.get_files())
+        if status_callback:
+            status_callback(f"After chapter extraction: {remaining_files} videos remaining for processing")
+        
         if reset_callback:
             reset_callback()
 
-        unprocessed_files_manager = VideoFilesManager()
+        # Get the final list of files to be processed
+        files_to_process = unprocessed_files_manager.get_files()
+        total_videos = len(files_to_process)
+        if status_callback:
+            status_callback(f"Total files to be processed: {total_videos}")
 
         if low_power_mode:
             if status_callback:

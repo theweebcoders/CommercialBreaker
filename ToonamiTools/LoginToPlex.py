@@ -1,6 +1,5 @@
 import asyncio
 import webbrowser
-import redis
 import sys
 from plexauth import PlexAuth
 from plexapi.myplex import MyPlexAccount
@@ -15,17 +14,12 @@ class PlexServerList:
         self.plex_servers = []
         self.plex_token = None
         self.use_redis = self.__class__.use_redis  # Use class variable
-        if self.use_redis:
-            try:
-                self.redis_client = redis.Redis(host='localhost', port=6379, db=0)
-                # Attempt a simple ping to check if the connection works
-                if self.redis_client.ping():
-                    print("Connected to Redis on 'localhost'.")
-                else:
-                    raise Exception("Unable to connect to Redis on 'localhost'.")
-            except Exception as e:
-                print(f"Redis connection failed: {e}. Cannot continue without Redis connection.")
-                sys.exit(1)
+        self.auth_url_callback = None  # New callback for auth URL
+        self.auth_url = None  # Store the auth URL as an instance attribute
+
+    def set_auth_url_callback(self, callback):
+        """Allow setting a callback function to handle the auth URL"""
+        self.auth_url_callback = callback
 
     def GetPlexToken(self):
         loop = asyncio.new_event_loop()
@@ -45,12 +39,11 @@ class PlexServerList:
             async with PlexAuth(PAYLOAD) as plexauth:
                 await plexauth.initiate_auth()
                 auth_url = plexauth.auth_url()
+                self.auth_url = auth_url  # Store the auth URL in the instance
                 
-                # Send the auth URL through Redis
-                if self.use_redis:
-                    self.redis_client.publish('plex_auth_url', auth_url)
-                    # print the URL to the console with a line break followed by the url
-                    print("Please open the following URL in your browser to authenticate with Plex: \n" + auth_url)
+                # Use the callback if provided, otherwise fall back to default behavior
+                if self.auth_url_callback and callable(self.auth_url_callback):
+                    self.auth_url_callback(auth_url)
                 else:
                     # Fallback for non-web UI
                     webbrowser.open(auth_url)

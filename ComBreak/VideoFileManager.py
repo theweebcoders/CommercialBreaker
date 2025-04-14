@@ -1,8 +1,6 @@
-class VideoFile:
-    def __init__(self, original_file, dirpath, filename):
-        self.original_file = original_file
-        self.dirpath = dirpath
-        self.filename = filename
+from collections import namedtuple
+
+VideoFile = namedtuple('VideoFile', ['original_file', 'dirpath', 'filename'])
 
 
 class VideoFilesManager:
@@ -15,6 +13,10 @@ class VideoFilesManager:
         return cls._instance
 
     def add_file(self, original_file, dirpath, filename):
+        """Add a file to the manager, but only if it isn't already present."""
+        if any(f.original_file == original_file and f.dirpath == dirpath and f.filename == filename 
+               for f in self.video_files):
+            return
         video_file = VideoFile(original_file, dirpath, filename)
         self.video_files.append(video_file)
 
@@ -27,7 +29,7 @@ class VideoFilesManager:
             self.video_files.remove(file_to_remove)
 
     def get_files(self, original_file=None, dirpath=None, filename=None):
-        return [file.__dict__ for file in self.video_files if
+        return [file._asdict() for file in self.video_files if
                 (original_file is None or file.original_file == original_file) and
                 (dirpath is None or file.dirpath == dirpath) and
                 (filename is None or file.filename == filename)]
