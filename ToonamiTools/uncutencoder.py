@@ -37,23 +37,39 @@ class UncutEncoder:
         query = "SELECT Full_File_Path FROM toonami_episodes"
         df = pd.read_sql(query, self.conn)
 
-        # Compile the regex pattern for matching file paths
+        # Extract episode data with show, season, episode info
+        episode_data = []
         pattern = re.compile(r"/([^/]+)/Season (\d+)/[^/]+ - S(\d+)E(\d+)")
-
-        # Normalize file paths and iterate over them
+        
         for full_path in df['Full_File_Path']:
             normalized_path = os.path.normpath(full_path)
-            if normalized_path.endswith(".mkv") or normalized_path.endswith(".mp4"):
-                self.file_paths.append(normalized_path)
+            if normalized_path.endswith((".mkv", ".mp4")):
                 if match := pattern.search(normalized_path.replace('\\', '/')):
-                    show_name = match[1].upper().replace(' ', '_')
-                    show_name = re.sub(r'[^A-Z0-9_]', '', show_name)
-                    show_name = re.sub(r'_+', '_', show_name)
-                    season = match[2]
-                    episode = match[4]
-                    self.block_ids.append(f"{show_name}_S{season.zfill(2)}E{episode.zfill(2)}")
+                    show_name = match[1]
+                    season = int(match[3])  # Use S number from pattern
+                    episode = int(match[4])  # Use E number from pattern
+                    # Store path, extracted info for sorting
+                    episode_data.append((normalized_path, show_name, season, episode))
                 else:
-                    self.block_ids.append("")
+                    episode_data.append((normalized_path, "", 0, 0))
+
+        # Sort by show, season, episode
+        episode_data.sort(key=lambda x: (x[1], x[2], x[3]))
+        
+        # Update file_paths and block_ids
+        self.file_paths = []
+        self.block_ids = []
+        for path, *_ in episode_data:
+            self.file_paths.append(path)
+            if match := pattern.search(path.replace('\\', '/')):
+                show_name = match[1].upper().replace(' ', '_')
+                show_name = re.sub(r'[^A-Z0-9_]', '', show_name)
+                show_name = re.sub(r'_+', '_', show_name)
+                season = match[3]
+                episode = match[4]
+                self.block_ids.append(f"{show_name}_S{season.zfill(2)}E{episode.zfill(2)}")
+            else:
+                self.block_ids.append("")
 
     def insert_intro_bumps(self):
         for i in range(len(self.file_paths) - 1, -1, -1):
