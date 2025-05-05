@@ -5,8 +5,8 @@ What is Cutless Beta? So you know how this program is called CommercialBreaker? 
 Some caveats to this:
 
 - This is still in beta and may not work as intended.
-- It requires you to use our fork of dizquetv (until the pull request is merged)
-- It requires you to use our fork of dizquetv-python (until the pull request is merged with dizquetv, then we can make a pull request to dizquetv-python and then that needs to be merged)
+- It requires you to use our fork of [dizquetv](https://github.com/theweebcoders/dizquetv) (until the pull request is merged)
+- It requires you to use our fork of [dizquetv-python](https://github.com/theweebcoders/dizqueTV-python) (until the pull request is merged with dizquetv, then we can make a pull request to dizquetv-python and then that needs to be merged)
 - I have not fully documented everything yet.
 - To run it you must run it with the --cutless flag so it knows to use the cutless mode eg
 
