@@ -484,6 +484,11 @@ class Page5(ttk.Frame):
             self.TOM_logic.subscribe_to_filtered_files(self.load_filtered_files)
             self.TOM_logic.subscribe_to_status_updates(self.update_status_label)
         
+        if LogicController.cutless:
+            self.cutless = True
+        else:
+            self.cutless = False
+        
         self.create_widgets()
 
     def tkraise(self):
@@ -564,6 +569,7 @@ class Page5(ttk.Frame):
         self.checkbox_frame.pack(side="bottom", fill="x")
 
         self.destructive_mode = tk.BooleanVar()
+        self.destructive_mode.trace("w", self.toggle_destructive_mode) # Add a callback when the value changes
         self.destructive_checkbox = ttk.Checkbutton(self.checkbox_frame, text='Destructive Mode', variable=self.destructive_mode)
         self.destructive_checkbox.pack(side="left")  # 'left' will align the checkbox to the left
 
@@ -576,6 +582,14 @@ class Page5(ttk.Frame):
         self.low_power_mode.trace("w", self.toggle_fast_mode) # Add a callback when the value changes
         self.low_power_checkbox = ttk.Checkbutton(self.checkbox_frame, text='Low Power Mode', variable=self.low_power_mode)
         self.low_power_checkbox.pack(side="left")  # 'left' will align the checkbox to the left
+
+        self.cutless_mode = tk.BooleanVar()
+        self.cutless_mode.trace("w", self.toggle_cutless_mode) # Add a callback when the value changes
+        self.cutless_checkbox = ttk.Checkbutton(self.checkbox_frame, text='Cutless Mode', variable=self.cutless_mode)
+        
+        # Only add the Cutless Mode checkbox to the UI if the cutless flag is enabled
+        if self.cutless:
+            self.cutless_checkbox.pack(side="left")  # 'left' will align the checkbox to the left
 
         # Input/output directory selection frames
         self.directory_frame = ttk.Frame(self.master)
@@ -772,6 +786,16 @@ class Page5(ttk.Frame):
         if self.fast_mode.get(): # If Fast Mode is checked
             self.low_power_mode.set(False) # Uncheck Low Power Mode
 
+    def toggle_cutless_mode(self, *args):
+        # If Cutless Mode is checked, uncheck Destructive Mode
+        if self.cutless_mode.get():
+            self.destructive_mode.set(False)
+            
+    def toggle_destructive_mode(self, *args):
+        # If Destructive Mode is checked, uncheck Cutless Mode
+        if self.destructive_mode.get():
+            self.cutless_mode.set(False)
+
     def browse_input_directory(self):
         """Open a dialog to select the input directory."""
         directory = filedialog.askdirectory()
@@ -799,7 +823,7 @@ class Page5(ttk.Frame):
     def cut_videos(self):
         """Split the videos at the commercial breaks."""
         if self.validate_input_output_dirs():
-            threading.Thread(target=self._run_and_notify, args=(self.logic.cut_videos, self.done_cut_videos, "Cut Video", self.destructive_mode.get())).start()
+            threading.Thread(target=self._run_and_notify, args=(self.logic.cut_videos, self.done_cut_videos, "Cut Video", self.destructive_mode.get(), self.cutless_mode.get())).start()
 
     def detect_commercials(self):
         """Detect the commercials in the videos."""
@@ -871,13 +895,14 @@ class Page5(ttk.Frame):
         self.status_label.config(text=text)
         self.status_label.update()
 
-    def _run_and_notify(self, task, done_callback, task_name, destructive_mode=False, low_power_mode=False, fast_mode=False, reset_callback=None):
+    def _run_and_notify(self, task, done_callback, task_name, destructive_mode=False, cutless_mode=False, low_power_mode=False, fast_mode=False, reset_callback=None):
         self.update_status(f"Started task: {task_name}")
         if task_name == "Detect Black Frames":
             task(self.input_path.get(), self.output_path.get(), self.update_progress, self.update_status, low_power_mode, fast_mode, reset_callback)
         elif task_name == "Cut Video":
             self.reset_progress_bar()
-            task(self.input_path.get(), self.output_path.get(), self.update_progress, self.update_status, destructive_mode)
+            # Pass the cutless_mode parameter to the cut_videos method
+            task(self.input_path.get(), self.output_path.get(), self.update_progress, self.update_status, destructive_mode, cutless_mode)
         self.update_status(f"Finished task: {task_name}")
         done_callback(task_name)
 

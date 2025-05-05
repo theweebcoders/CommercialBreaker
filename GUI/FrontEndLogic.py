@@ -13,6 +13,7 @@ class LogicController():
     # Initialize the use_redis class variable before the init method
     use_redis = '--use_redis' in sys.argv or '--webui' in sys.argv or '--clydes' in sys.argv
     docker = '--docker' in sys.argv
+    cutless = '--cutless' in sys.argv
 
 
     def __init__(self):
@@ -20,6 +21,7 @@ class LogicController():
         self._setup_database()
         self.use_redis = self.__class__.use_redis  # Use class variable
         self.docker = self.__class__.docker
+        self.cutless = self.__class__.cutless
         if self.use_redis:
             self.redis_client = redis.Redis(host='localhost', port=6379, db=0)
         else:
@@ -446,6 +448,8 @@ class LogicController():
     def prepare_cut_anime(self):
         def prepare_cut_anime_thread():
             working_folder = self._get_data("working_folder")
+            cutless_mode_used = self._get_data("cutless_mode_used")
+            cutless_enabled = cutless_mode_used == 'True'
             self._broadcast_status_update("Preparing cut anime...")
             merger_bumps_list_1 = 'multibumps_v2_data_reordered'
             merger_bumps_list_2 = 'multibumps_v3_data_reordered'
@@ -461,7 +465,10 @@ class LogicController():
             commercial_injector = ToonamiTools.LineupLogic()
             BIC = ToonamiTools.BlockIDCreator()
             merger = ToonamiTools.ShowScheduler(apply_ns3_logic=True)
-            commercial_injector_prep.organize_files()
+            if not cutless_enabled:
+                commercial_injector_prep.organize_files()
+            else:
+                self._broadcast_status_update("Cutless Mode: Skipping cut file preparation")
             commercial_injector.generate_lineup()
             BIC.run()
             self._broadcast_status_update("Creating your lineup...")
@@ -469,6 +476,12 @@ class LogicController():
             merger.run(merger_bumps_list_2, commercial_injector_out, merger_out_2)
             merger.run(merger_bumps_list_3, commercial_injector_out, merger_out_3)
             merger.run(merger_bumps_list_4, commercial_injector_out, merger_out_4)
+            if cutless_enabled:
+                self._broadcast_status_update("Cutless Mode: Finalizing lineup tables...")
+                finalizer = ToonamiTools.CutlessFinalizer()
+                finalizer.run()
+                self._broadcast_status_update("Cutless lineup finalization complete!")
+                
             self._broadcast_status_update("Cut anime preparation complete!")
 
         thread = threading.Thread(target=prepare_cut_anime_thread)
@@ -504,21 +517,35 @@ class LogicController():
             self._broadcast_status_update("Creating Toonami channel...")
             plex_url = self._get_data("plex_url")
             plex_token = self._get_data("plex_token")
-            plex_library_name = self._get_data("selected_toonami_library")
+            anime_library = self._get_data("selected_anime_library")
+            toonami_library = self._get_data("selected_toonami_library")
             platform_url = self._get_data("platform_url")
             platform_type = self._get_data("platform_type")
+            cutless_mode_used = self._get_data("cutless_mode_used")
+            cutless_enabled = cutless_mode_used == 'True'
             toon_config = config.TOONAMI_CONFIG.get(toonami_version, {})
             table = toon_config["table"]
+            
+            # If cutless mode is enabled, use the cutless table instead
+            if cutless_enabled:
+                table = f"{table}_cutless"
+                self._broadcast_status_update(f"Cutless Mode: Using {table} table")
 
             if platform_type == 'dizquetv':
                 ptod = ToonamiTools.PlexToDizqueTVSimplified(
-                    plex_url, plex_token, plex_library_name, table, 
-                    platform_url, int(channel_number)
+                    plex_url=plex_url, 
+                    plex_token=plex_token, 
+                    anime_library=anime_library,
+                    toonami_library=toonami_library, 
+                    table=table, 
+                    dizquetv_url=platform_url, 
+                    channel_number=int(channel_number),
+                    cutless_mode=cutless_enabled
                 )
                 ptod.run()
             else:  # tunarr
                 ptot = ToonamiTools.PlexToTunarr(
-                    plex_url, plex_token, plex_library_name, table,
+                    plex_url, plex_token, toonami_library, table,
                     platform_url, int(channel_number), flex_duration
                 )
                 ptot.run()
@@ -534,7 +561,8 @@ class LogicController():
         def prepare_toonami_channel_thread():
             self._broadcast_status_update("Preparing Toonami channel...")
             cont_config = config.TOONAMI_CONFIG_CONT.get(toonami_version, {})
-
+            cutless_mode_used = self._get_data("cutless_mode_used")
+            cutless_enabled = cutless_mode_used == 'True'
             merger_bump_list = cont_config["merger_bump_list"]
             merger_out = cont_config["merger_out"]
             encoder_in = cont_config["encoder_in"]
@@ -542,32 +570,54 @@ class LogicController():
 
             merger = ToonamiTools.ShowScheduler(reuse_episode_blocks=True, continue_from_last_used_episode_block=start_from_last_episode, uncut=uncut)
             merger.run(merger_bump_list, encoder_in, merger_out)
+            if cutless_enabled:
+                finalizer = ToonamiTools.CutlessFinalizer()
+                finalizer.run()
             self._broadcast_status_update("Toonami channel prepared!")
             self.filter_complete_event.set()
         thread = threading.Thread(target=prepare_toonami_channel_thread)
         thread.start()
 
     def create_toonami_channel_cont(self, toonami_version, channel_number, flex_duration):
+        """
+        Create a Toonami continuation channel using the stored platform settings
+        """
         self._broadcast_status_update("Creating new Toonami channel...")
         cont_config = config.TOONAMI_CONFIG_CONT.get(toonami_version, {})
         table = cont_config["merger_out"]
         plex_url = self._get_data("plex_url")
         plex_token = self._get_data("plex_token")
-        plex_library_name = self._get_data("selected_toonami_library")
+        anime_library = self._get_data("selected_anime_library")
+        toonami_library = self._get_data("selected_toonami_library")
         platform_url = self._get_data("platform_url")
         platform_type = self._get_data("platform_type")
+        cutless_mode_used = self._get_data("cutless_mode_used")
+        cutless_enabled = cutless_mode_used == 'True'
+        
+        # If cutless mode is enabled, use the cutless table instead
+        if cutless_enabled:
+            table = f"{table}_cutless"
+            self._broadcast_status_update(f"Cutless Mode: Using {table} table")
+        
         if platform_type == 'dizquetv':
             ptod = ToonamiTools.PlexToDizqueTVSimplified(
-                plex_url, plex_token, plex_library_name, table,
-                platform_url, int(channel_number)
+                plex_url=plex_url, 
+                plex_token=plex_token, 
+                anime_library=anime_library,
+                toonami_library=toonami_library, 
+                table=table, 
+                dizquetv_url=platform_url, 
+                channel_number=int(channel_number),
+                cutless_mode=cutless_enabled
             )
             ptod.run()
         else:  # tunarr
             ptot = ToonamiTools.PlexToTunarr(
-                plex_url, plex_token, plex_library_name, table,
+                plex_url, plex_token, toonami_library, table,
                 platform_url, int(channel_number), flex_duration
             )
             ptot.run()
+            
         self._broadcast_status_update("New Toonami channel created!")
         self.filter_complete_event.set()
 

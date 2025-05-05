@@ -1,3 +1,21 @@
+# Cutless Beta
+
+What is Cutless Beta? So you know how this program is called CommercialBreaker? Well, we are working on a new feature called Cutless Mode. This mode will allow you to cut your videos without actually cutting them. This means that you can keep your original files intact and still have the same functionality as CommercialBreaker.
+
+Some caveats to this:
+
+- This is still in beta and may not work as intended.
+- It requires you to use our fork of dizquetv (until the pull request is merged)
+- It requires you to use our fork of dizquetv-python (until the pull request is merged with dizquetv, then we can make a pull request to dizquetv-python and then that needs to be merged)
+- I have not fully documented everything yet.
+- To run it you must run it with the --cutless flag so it knows to use the cutless mode eg
+
+```bash
+python3 main.py --cutless
+```
+
+You can also just use the docker compose file included in the Cutless Beta and it will automatically use our fork of dizquetv-python and enable the cutless flag
+
 # CommercialBreaker & Toonami Tools: Because Your Anime Deserves Commercial Breaks
 
 Hey there, space cowboy. Remember those long Toonami nights filled with anime and the oddly comforting interruption of commercials? Ever thought your sleek, ad-free Plex server felt a little too... smooth? Well, we've got the fix for you, because here, we're mixing the future with a splash of the past.
@@ -40,7 +58,7 @@ Here is what it will look like
 
 ## The Lineup
 
-**CommercialBreaker:** Just like alchemy, the science of deconstructing and reconstructing matter, CommercialBreaker is a Python application that works on your anime videos. It breaks down videos at points traditionally reserved for commercial breaks and reconstructs them, ready for your custom commercials. It's a true equivalent exchange, providing you with a transmutation circle for content management, especially for those who love a good old broadcast-style viewing experience. No philosopher's stone required!
+**CommercialBreaker:** Just like how Cell absorbed Android 17 and 18 to achieve his perfect form, CommercialBreaker has evolved with two distinct powers! The traditional mode slices your anime like Kenshin's reverse-blade sword, physically cutting videos at commercial break points for that authentic Toonami feel. But now, our new Cutless Mode is like Kurama's spirit manipulation - it identifies the same break points but leaves your precious original files untouched, creating virtual markers instead. It's like how Goku can instant transmission without disturbing the air around him - your files remain intact while still getting those sweet, nostalgic commercial breaks! Both techniques achieve the same goal, but one preserves your original collection like it's protected by Sailor Moon's Cosmic Heart Compact. No philosopher's stone required, just a bit of otaku magic!
 
 **Toonami Tools:** Just like a trusty log pose guiding you to the next island on the Grand Line, Toonami Tools helps you navigate through the sea of your anime library. Designed for the most faithful of Toonami crews, this handy tool can generate a custom lineup of anime shows, creating an adventure akin to those golden days of the Toonami programming block. With its graphical user interface, you can effortlessly manage your anime and bump archives, effectively making you the captain of your anime collection. Worried about missing shows or bumps? Fear not! Toonami Tools is like your very own Going Mary, helping you fill in the gaps and complete your journey. So, ready to set sail, Toonami faithful?
 
@@ -324,7 +342,12 @@ You can technically put anything in here but you can also find old Toonami bumps
 
 **Step 4** Select your Working Folder
 
-This is the folder that we will move your Anime to, as well as do the cutting. Click the "Browse Working Folder" button and navigate to the folder that you want to use as your working folder. Select the folder and click "Select Folder" at the bottom right of the window.
+This is the folder that we will use for processing your Anime. How it's used depends on your chosen mode:
+
+- **Traditional Mode**: Files will be physically moved to this folder and cut into separate files
+- **Cutless Mode**: Files won't be physically cut, but this folder will store metadata about where commercial breaks should occur
+
+Click the "Browse Working Folder" button and navigate to the folder that you want to use as your working folder. Select the folder and click "Select Folder" at the bottom right of the window.
 
 Once you have selected all your folders, click the "Continue" button at the bottom right of the window.
 
@@ -353,7 +376,7 @@ You can now click the "Continue" button at the bottom right of the window.
 
 ## Step 4 - Commercial Breaker - Toonami Will Be Right Back
 
-See below, as this is a big one and we have a lot to say about it. Once you are done, move your cut Anime to a folder Plex can find and add it to your Toonami Library you made earlier. Wait for it to scan and then move on to the next step.
+See below, as this is a big one and we have a lot to say about it. Once you are done, move your cut Anime to a folder Plex can find and add it to your Toonami Library you made earlier. Wait for it to scan and then move on to the next step. If you used cutless mode you can leave your Anime in the Anime library.
 
 ## Step 5 - Create your Toonami Channel - All aboard the Absolution
 
@@ -367,23 +390,19 @@ You will see some text saying, "What Toonami Version are you making today?" unde
 
 You will see some text saying "What channel number do you want to use?" under this a text field. Very simple; just type in any number you want. We recommend you use a number between 1 and 1000. We used 60 for our main channel, as this was our local Toonami channel number. 
 
-**Step 3** Enter you Flex Duration
+**Step 3** Set the commercial break length
 
 You will see some text saying "Enter your Flex duration Minutes:Seconds (How long should a commercial break be) It's nice and easy just enter in the length you desire and commercial breaks will be that length.
 
-**Step 4** Set the commercial break length
-
-You will see some text saying "Enter your Flex duration Minutes:Seconds (How long should a commercial break be) It's nice and easy just enter in the length you desire and commercial breaks will be that length.
-
-**Step 5** Prepare Cut Anime for Lineup
+**Step 4** Prepare Cut Anime for Lineup
 
 This will do some final prep work in the background. It won't take long, but it needs to be done before we can create the channel.
 
-**Step 6** Prepare Plex
+**Step 5** Prepare Plex
 
 This is going to do some stuff to make Plex play a little nicer, like split any shows it decided to merge and rename any shows it decided to rename. This can take a few minutes, but it shouldn't take too long.
 
-**Step 7** Create Channel
+**Step 6** Create Channel
 
 If you chose Tunarr at the beginning, you will see a button labeled Create Toonami Channel with Flex. If you chose DizqueTV at the beginning, you will see a button labeled Create Toonami Channel.
 
@@ -437,7 +456,7 @@ That's it! Congratulations! You have made another Toonami Channel!
 
 If you are using DizqueTV proceed to the next step if you are using Tunarr you are done!
 
-**Step 7** Add flex
+**Step 7** Add flex (DizqueTV users only)
 
 This will add in flex between all your ads and back from ads. 
 
@@ -466,7 +485,7 @@ You need to set the following environment variables:
     ANIME_FOLDER - This is the folder that contains your Anime
     BUMPS_FOLDER - This is the folder that contains your bumps
     SPECIAL_BUMPS_FOLDER - This is the folder that contains your special bumps
-    WORKING_FOLDER - This is the folder that we will use for cutting your Anime
+    WORKING_FOLDER - This is the folder that we will use for processing your Anime
 
 You set these variables in the .env file in the CommercialBreaker folder. You can see an example of this in the example.env file already in the folder.
 
@@ -501,19 +520,43 @@ Navigate to the folder where you want the cut videos to be saved. Select the fol
 
 A message box saying "Done" will appear when the breaks have been detected.
 
-This will first look for chapter markers in your video. If it finds them, it will use them. If it doesn't find them, it will look for a combination of black frames and silence to determine the breaks. You can also use Plex's Timestamps for Intros using Get Plex Timestamps found in ToonamiTools. This will create a text file with the timestamps of the intros. (See Toonami Tools for more info on this)
+This will first look for chapter markers in your video. If it finds them, it will use them. You can also use Plex's Timestamps for Intros using Get Plex Timestamps found in ToonamiTools. This will create a text file with the timestamps of the intros. (See Toonami Tools for more info on this) 
 
-It does this by creating a downscaled copy of the videos. You will see the progress bar will tell you how many videos need to be downscaled and how many have been downscaled.
+For anything vidoes that did not have chapter markers or Plex Timestamps, it will look silent periods in all the videos. 
 
-Once the downscaled copies are created, the progress bar will tell you how many videos have been processed and how many are left.
+Once it finds them it will take the silent portions and create downscaled copies of only those portions of the video in the Working Folder. It will then look at the downscaled copies and look for black frames. 
 
-After it is complete, the downscaled videos will be deleted automatically, and text files will be created in the output directory. These text files will contain the timestamps of the breaks, and you will use them to cut the videos.
+Once it finds them it will create a text file with the timestamps of the breaks. 
+
+It does this one video at a time and will delete the downscaled copies for each video as it goes through the list. This is to save space and time.
+
+There is a progress bar it is accurate and will show you how many videos have been processed, what stage the process is on for that video, and how many videos are left to process.
+
+After it is complete, there will be timestamp text files in the Working Folder. These text files will be named after the videos they correspond to. For example, if you have a video called "Naruto - S01E01 - Enter - Naruto Uzumaki! Bluray-1080p Remux.mkv", the text file will be called "Naruto - S01E01 - Enter - Naruto Uzumaki! Bluray-1080p Remux.mkv.txt".
 
 **Tip: See the FAQ for more info on how to optimize this process, as this can take a long time. As in weeks if not optimized. DON'T PANIC read the FAQ**
 
-**Step 4** Click the "Cut" button to cut the videos at the breaks
+**Step 4** Click the "Cut" button to split the videos at the breaks
 
-The progress bar will tell you how many videos have been cut and how many are left
+What happens next depends on which mode you're using:
+
+If you are using **traditional mode**, this will physically cut the videos at the timestamps and save the resulting segments in the output directory you selected in step 2. These will be actual new files with names like "Show Name - S01E01 - Episode Title - Part 1.mp4".
+
+If you are using **cutless mode**, the "cutting" process works differently:
+- Instead of creating physical file segments, we create virtual references in the database
+- We build a special table called "commercial_injector_prep" which contains:
+  - The path to the original, uncut video file
+  - Virtual paths that would exist if the files were physically cut
+  - Precise timestamps (in milliseconds) marking where each segment starts and ends
+  - Show name, season, episode, and part number information
+- The system creates these virtual segments exactly as if it had physically cut the files, generating the same naming pattern (Part 1, Part 2, etc.)
+- A flag is set in the database to indicate you're using Cutless Mode so later steps know to handle things differently
+- No physical cutting happens, saving both processing time and disk space
+- This process essentially performs the job of Commercial Injector Prep (see Tools) as well, so you'll skip that step later in the workflow
+
+In both modes, the progress bar will tell you how many videos have been processed and how many are left.
+
+**Important Note for Cutless Mode**: Since your original files remain untouched, you'll continue using your original Anime library in Plex rather than creating a separate Toonami library with cut files. The system will know exactly where in each file to start and stop playback to create the illusion of commercial breaks.
 
 **Step 5** Click the "Delete" button to delete the text files containing the timestamps of the breaks. A message box saying "Done" will appear when the text files have been deleted.
 
@@ -521,13 +564,15 @@ If everything went right, you will find the cut videos in the output directory. 
 
 **Tip: If you use Plex, you can put the cut videos in the same folder you had the original videos, and Plex will automatically treat them as one video.**
 
-**Advanced Options** You will notice at the bottom left a checkbox for "Destructive Mode," "Fast Mode," and "Low Power Mode"
+**Advanced Options** You will notice at the bottom left checkboxes for various modes:
 
-If "Destructive Mode" is checked, the original video will be deleted after it has been cut. If unchecked, it will not delete the original videos. We recommend you do a test run without destructive mode to make sure everything works before you do a run with destructive mode. We only recommend you use this if you really need the space. (You can always delete the original videos later)
+**Destructive Mode**: If checked, the original video will be deleted after it has been cut. If unchecked, the original videos are preserved. We recommend doing a test run without destructive mode first to ensure everything works correctly.
 
-"Fast Mode" and "Low Power Mode" affect the order of operations for Detect Commercials.
+**Cutless Mode**: When enabled, CommercialBreaker will detect commercial break points but won't physically cut your files. Instead, it creates metadata that allows your playback system (currently DizqueTV only) to simulate commercial breaks by knowing when to start and end videos. This preserves your original files and saves disk space. Note that Cutless Mode and Destructive Mode are mutually exclusive - enabling one will disable the other.
 
-If none are checked, then Detect Commercials will use Chapters, then Silence, then Black Frames, and finally Plex Timestamps. This will give you the most cuts but is also the slowest.
+**Fast Mode** and **Low Power Mode** affect the order of operations for detecting commercials:
+
+If neither "Fast Mode" nor "Low Power Mode" are checked, then Detect Commercials will use Chapters, then Silence, then Black Frames, and finally Plex Timestamps. This will give you the most cuts but is also the slowest.
 
 "Fast Mode" uses Chapters, then Plex Timestamps, then Silence, then Black Frames. This is faster than the default only in that it will use far fewer Silence and Black Frames detection. This will give you fewer cuts, but because it uses less Silence and Black Frames detection, it will be faster.
 
@@ -578,6 +623,8 @@ This serves as a clever backup tool, designed to fetch the "Skip Intro" timestam
 
 This is a specialized tool designed to facilitate the insertion of mid-episode bumps into your cut anime collection. Operating specifically on .mp4 files—the standard output for cut anime—this tool organizes and categorizes episodes using a SQLite database and regex patterns. While the actual insertion of bumps like "to ads" and "back" occurs in a subsequent step, this tool lays the essential groundwork, making that process more straightforward.
 
+**Note: In cutless mode, this tool is infuesed of the Commercial Breaker process as a tool called "Virtual Cut" so it will not be run "again"**
+
 ### Commercial Injector
 
 Commercialinjector is the linchpin in your cut anime lineup, expertly inserting mid-episode bumps. Working synergistically with commercialinjectorprep, it adds specific bumps like "to ads" and "back" into each episode. Should those specific bumps be unavailable, the tool has a hierarchy of fallbacks: it will first look for anime-specific generic bumps before resorting to universal generics like Clydes or Robot. Employing a SQLite database and pandas dataframes, the tool ensures that each episode is enriched with appropriately timed and contextually fitting bumps, thereby finalizing your polished anime lineup.
@@ -585,6 +632,18 @@ Commercialinjector is the linchpin in your cut anime lineup, expertly inserting 
 ### Merger (Again)
 
 We run merger again at this point but for the cut Anime.
+
+### CutlessFinalizer
+
+For users who choose Cutless Mode, CutlessFinalizer is a crucial component that runs after the Merger stage. This specialized tool transforms the virtual file references created during the commercial detection process into a format that media servers like DizqueTV can understand. 
+
+Rather than modifying the original lineup tables, CutlessFinalizer creates new tables with a "_cutless" suffix that contain three essential pieces of information:
+
+1. The path to the original, uncut video file
+2. The timestamp where playback should start (replacing the need for physical "Part X" files)
+3. The timestamp where playback should end (allowing precise commercial break insertion)
+
+By mapping virtual file paths back to their original sources and adding precise timestamps, CutlessFinalizer enables a seamless viewing experience that mimics traditional cut files without the storage overhead or file manipulation. This data is eventually passed to PlexToDizqueTV to create a channel that smoothly transitions between segments as if they were physically separate files.
 
 ### Bonus!
 
@@ -604,7 +663,7 @@ This is another tool that addresses an eccentricity of Plex: even after items ar
 
 ### Plex to DizqueTV
 
-PlexToDizqueTV is the ultimate maestro, orchestrating the final transfer of your customized Plex anime library to a dizqueTV channel. With the option to select your desired version of Toonami—be it uncut, cut, or merged—right from the GUI, this tool crafts a dizqueTV channel that mirrors your selection. Utilizing both the Plex and dizqueTV APIs, it bridges the gap between your Plex library and dizqueTV, translating the contents of a designated SQLite table into a channel-compatible format. This tool stands as the final act, transforming your diligently curated anime library into a live channel, tailored to your specific preferences.
+PlexToDizqueTV is the ultimate maestro, orchestrating the final transfer of your customized Plex anime library to a dizqueTV channel. With the option to select your desired version of Toonami—be it uncut, cut, or merged—right from the GUI, this tool crafts a dizqueTV channel that mirrors your selection. Utilizing both the Plex and dizqueTV APIs, it bridges the gap between your Plex library and dizqueTV, translating the contents of a designated SQLite table into a channel-compatible format. This tool stands as the final act, transforming your diligently curated anime library into a live channel, tailored to your specific preferences. The tool has been enhanced to support Cutless Mode, where it adds precise start/end timestamps to each program for seamless playback and uses appropriate library lookups based on whether you're using traditional cut mode or cutless mode. Since we expect cut anime to be in the same libary as you bumps but uncut anime to be in the original library, this tool will look for the cut anime in the Toonami library and the uncut anime in the original Anime library. If it can't find it in one it will check the other.
 
 ### Plex to Tunarr
 
@@ -630,28 +689,28 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 
 # To-Do List
 
-# Beta Changes to test
-
-- [ ] Huge merger refactor!
-- [ ] Retest Toonami Channel Continued
-
 ## **Immediate Attention**
 
-### Borked
+## Next Steps
 
-- [ ] Find out why tkkthemes could not be in the docker container, do a clean install with a new tom_env and make sure it works on desktop
+- [ ] Disable cutless options for Tunnarr until modifed version is created (if ever)
+- [ ] Update Readme
+
+### Fun Stuff
+
+- [ ] Make Clydes a TUI
 
 ### Housekeeping
 
+- [ ] Find out why tkkthemes could not be in the docker container, do a clean install with a new tom_env and make sure it works on desktop
 - [ ] Cleanup the repo structure
 - [ ] Actually use the icon for favicon, TOM, etc
 - [ ] Make the webui not randomly rely on clydes
-- [ ] Figure out why LoginToPlex has it's own special redis connection
 - [ ] Cleanup the docker compose if the run didn't need the enviorment varibles does it??
 - [ ] Cleanup the requirments.txt
 - [ ] Clean up Commercial Breaker code
   - [ ] New ehanced method name is kind of ambiguous
-- [ ] While I am here find a way to make listen for silence callback a but more verbose
+- [ ] While I am here find a way to make listen for silence callback a bit more verbose
 
 ### WebUI To-Do
 
@@ -700,9 +759,9 @@ Q: WEEKS??? 
 
   Yes. Weeks. The good news is that we can get it down to minutes if you just do a few things. The program is over 80,000 times faster (not an exaggeration; it's benchmarked) if you have chapter markers. We recommend using shows from a source with chapter markers. If you don't have them on all your shows, don't panic; it will still use chapter markers on all the shows that have them. Also, using ToonamiTools will reduce how many shows you need to run CommercialBreaker on. 
   
-  We narrow it down to just the shows that are going to be in your lineup. Also, to be clear, it all depends on the size of your library. We have over 150TB of anime, so for us, it would take a month if we cut the whole thing. Only 20 hours with ToonamiTools but no chapter markers, and less than an hour with chapter markers and ToonamiTools. It also depends on your computer. We have a pretty beefy computer, so it's faster for us than it would be for someone with a potato. 
+  We narrow it down to just the shows that are going to be in your lineup. Also, to be clear, it all depends on the size of your library. We have over 150TB of anime, so for us, it would take a month if we cut the whole thing. Only 20 hours with ToonamiTools but no chapter markers, and less than an hour with chapter markers and ToonamiTools filtering what to detect and cut and more recently we got it all the way down to 30 minutes! It also depends on your computer. We have a pretty beefy computer, so it's faster for us than it would be for someone with a potato. 
     
-  Some other things you can do are use Fast Mode and Low Power Mode. Fast mode will look for time
+  Some other things you can do are use Fast Mode and Low Power Mode.
   
   Also side note some sources have better chapter markers than others. One of our sources has the chapter marker on one show just 3 seconds after the end credits start so it was bit annoying so we recommend you check the chapter markers before you start cutting. 
 
@@ -825,6 +884,17 @@ Q: You use Toonami Versions 7, 8, and 9 as place holders in your code. Dude, it'
 
 
   We are not from the future. We are from the past. We are from the year 2000. We are the ghosts of Toonami past. We have come to haunt you. We have come to haunt you with our weeb talk and our naming scheme. We have come to haunt you with our bad code and our bad jokes. We have come to haunt you with our bad grammar and our bad spelling. We have come to haunt you with our bad documentation and our bad ideas. We have come to haunt you with our bad everything.
+
+Q: What's the difference between traditional cutting and Cutless Mode?
+
+  Traditional cutting physically splits your video files at commercial break points, creating multiple files from a single episode. Cutless Mode detects the same break points but instead of cutting files, it creates metadata that tells your playback system (currently DizqueTV) where commercial breaks should occur. Cutless Mode has several advantages:
+  
+  - Preserves your original files intact
+  - Saves disk space (no duplicate content)
+  - Faster processing after initial detection
+  - Can be easily modified without re-cutting files
+  
+  The downside is that it currently only works with DizqueTV and not yet with Tunarr. Choose traditional cutting for maximum compatibility or Cutless Mode for file preservation and efficiency.
 
 Remember, every tool in this pack is created with the love of nostalgic anime viewing experience. The journey might be a bit complex but it's just like assembling a Gunpla. Take your time, enjoy the process, and behold the beauty of your custom Toonami marathon at the end.
 

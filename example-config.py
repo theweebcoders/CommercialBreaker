@@ -20,7 +20,7 @@ dizquetv_container_name = "dizquetv-1"
 dizquetv_channel_number = "1"
 
 
-START_BUFFER = 45
+START_BUFFER = 60
 sleep_time = 1
 Levenshtein_threshold = 0.8
 FRAME_RATE = 24
