@@ -2,11 +2,17 @@ import threading
 import time
 import os
 import glob
-from GUI import LogicController
+import sys
 from ComBreak import CommercialBreakerLogic
 import config
 import curses
 from pathlib import Path
+try:
+    from GUI.FrontEndLogic import LogicController
+    has_logic_controller = True
+except ImportError:
+    has_logic_controller = False
+
 
 
 class CommercialBreakerCLI:
@@ -15,6 +21,14 @@ class CommercialBreakerCLI:
         self.logic = CommercialBreakerLogic()
         self.fe_logic = LogicController()
         self.working_folder = self.fe_logic._get_data("working_folder")
+        if has_logic_controller:
+            self.frontendLogic = LogicController
+            if LogicController.cutless:
+                self.cutless = True
+            else:
+                self.cutless = False
+        else:
+            self.cutless = False
         
         # Convert the working folder into a Path object and construct subpaths
         self.working_folder = Path(self.working_folder)
@@ -22,6 +36,7 @@ class CommercialBreakerCLI:
         self.output_path = self.working_folder / "cut"
         
         self.destructive_mode = False
+        self.cutless_mode = False  # Added Cutless Mode flag
         self.mode = "normal"
         self.low_power_mode = False
         self.fast_mode = False
@@ -115,7 +130,7 @@ class CommercialBreakerCLI:
             curses.endwin()
             self.stdscr = None  # Reset the stdscr attribute
 
-    def _run_and_notify(self, task, done_callback, task_name, destructive_mode=False, low_power_mode=False, fast_mode=False, reset_callback=None):
+    def _run_and_notify(self, task, done_callback, task_name, destructive_mode=False, cutless_mode=False, low_power_mode=False, fast_mode=False, reset_callback=None):
         self.task_complete.clear()  # Clear the event at the start of a new task
         try:
             self.update_status(f"Started task: {task_name}")
@@ -129,7 +144,7 @@ class CommercialBreakerCLI:
                 self.start_curses()
                 self.show_status_bar()
                 self.reset_progress_bar()
-                task(self.input_path, self.output_path, self.update_progress, self.update_status, destructive_mode)
+                task(self.input_path, self.output_path, self.update_progress, self.update_status, destructive_mode, cutless_mode)
                 self.stop_curses()
             self.update_status(f"Finished task: {task_name}")
             done_callback(task_name)
@@ -232,7 +247,7 @@ class CommercialBreakerCLI:
     def cut_videos(self):
         """Split the videos at the commercial breaks."""
         if self.validate_input_output_dirs():
-            threading.Thread(target=self._run_and_notify, args=(self.logic.cut_videos, self.done_cut_videos, "Cut Video", self.destructive_mode)).start()
+            threading.Thread(target=self._run_and_notify, args=(self.logic.cut_videos, self.done_cut_videos, "Cut Video", self.destructive_mode, self.cutless_mode)).start()
 
     def detect_commercials(self):
         """Detect the commercials in the videos."""
@@ -325,6 +340,13 @@ class CommercialBreakerCLI:
         # Options for destructive mode
         self.destructive_mode = self.confirm("Would you like to run Commercial Breaker in destructive mode? This mode will delete the original files after they have been cut. (y/n): ")
 
+        # If not in destructive mode, offer cutless mode
+        if self.cutless and not self.destructive_mode:
+            self.cutless_mode = self.confirm("Would you like to run Commercial Breaker in cutless mode? This mode generates cut metadata without physically cutting the files. (y/n): ")
+        else:
+            # Ensure cutless mode is disabled if destructive mode is enabled
+            self.cutless_mode = False
+
         # Select operating mode
         self.mode = self.choose_mode()
 
@@ -339,6 +361,7 @@ class CommercialBreakerCLI:
             
         print(f"Cut anime output: {self.output_path}")
         print(f"Destructive mode: {'Enabled' if self.destructive_mode else 'Disabled'}")
+        print(f"Cutless mode: {'Enabled' if self.cutless_mode else 'Disabled'}")
         print(f"Processing mode: {self.mode}")
 
         if self.confirm("Would you like to continue with these settings? (y/n): "):

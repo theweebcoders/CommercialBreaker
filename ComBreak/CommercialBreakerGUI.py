@@ -1,9 +1,15 @@
+import sys
 import os
 import psutil
 import threading
 import tkinter as tk
 from ComBreak.CommercialBreakerLogic import CommercialBreakerLogic
 from tkinter import filedialog, messagebox, ttk
+try:
+    from GUI.FrontEndLogic import LogicController
+    has_logic_controller = True
+except ImportError:
+    has_logic_controller = False
 
 
 class CommercialBreakerGUI:
@@ -18,6 +24,15 @@ class CommercialBreakerGUI:
         self.input_mode = tk.StringVar(value="folder")  # Default to folder mode for backward compatibility
         self.selected_files = []  # List to store selected file paths
         self.file_path_map = {}  # Dict to map displayed filenames to full paths
+        self.cutless_mode = tk.BooleanVar() # Add variable for Cutless Mode
+        if has_logic_controller:
+            self.frontendLogic = LogicController
+            if LogicController.cutless:
+                self.cutless = True
+            else:
+                self.cutless = False
+        else:
+            self.cutless = False
         self.create_widgets()
 
     def create_widgets(self):
@@ -51,6 +66,7 @@ class CommercialBreakerGUI:
 
         # Destructive Mode checkbox
         self.destructive_mode = tk.BooleanVar()
+        self.destructive_mode.trace("w", self.toggle_cutless_mode)  # Add trace to toggle cutless mode
         self.destructive_checkbox = ttk.Checkbutton(self.checkbox_frame, text='Destructive Mode', variable=self.destructive_mode)
         self.destructive_checkbox.pack(side="left")  # 'left' will align the checkbox to the left
 
@@ -65,6 +81,13 @@ class CommercialBreakerGUI:
         self.low_power_mode.trace("w", self.toggle_fast_mode)  # Add a callback when the value changes
         self.low_power_checkbox = ttk.Checkbutton(self.checkbox_frame, text='Low Power Mode', variable=self.low_power_mode)
         self.low_power_checkbox.pack(side="left")  # 'left' will align the checkbox to the left
+
+        # Cutless Mode checkbox
+        self.cutless_mode = tk.BooleanVar()
+        self.cutless_mode.trace("w", self.toggle_destructive_mode)  # Add trace to toggle destructive mode
+        self.cutless_checkbox = ttk.Checkbutton(self.checkbox_frame, text='Enable Cutless Mode', variable=self.cutless_mode)
+        if self.cutless:
+            self.cutless_checkbox.pack(side="left") # Add the Cutless Mode checkbox
 
         # Input/output directory selection frames
         self.directory_frame = ttk.Frame(self.master)
@@ -253,6 +276,14 @@ class CommercialBreakerGUI:
         if self.fast_mode.get():  # If Fast Mode is checked
             self.low_power_mode.set(False)  # Uncheck Low Power Mode
 
+    def toggle_cutless_mode(self, *args):
+        if self.destructive_mode.get():  # If Destructive Mode is checked
+            self.cutless_mode.set(False)  # Uncheck Cutless Mode
+
+    def toggle_destructive_mode(self, *args):
+        if self.cutless_mode.get():  # If Cutless Mode is checked
+            self.destructive_mode.set(False)  # Uncheck Destructive Mode
+
     def browse_input_directory(self):
         """Open a dialog to select the input directory."""
         directory = filedialog.askdirectory()
@@ -280,7 +311,16 @@ class CommercialBreakerGUI:
     def cut_videos(self):
         """Split the videos at the commercial breaks."""
         if self.validate_input_output_dirs():
-            threading.Thread(target=self._run_and_notify, args=(self.logic.cut_videos, self.done_cut_videos, "Cut Video", self.destructive_mode.get())).start()
+            threading.Thread(target=self._run_and_notify, args=(
+                self.logic.cut_videos, 
+                self.done_cut_videos, 
+                "Cut Video", 
+                self.destructive_mode.get(), 
+                False,
+                False,
+                None,
+                self.cutless_mode.get()
+            )).start()
 
     def detect_commercials(self):
         """Detect the commercials in the videos."""
@@ -352,13 +392,16 @@ class CommercialBreakerGUI:
         self.status_label.config(text=text)
         self.status_label.update()
 
-    def _run_and_notify(self, task, done_callback, task_name, destructive_mode=False, low_power_mode=False, fast_mode=False, reset_callback=None):
+    def _run_and_notify(self, task, done_callback, task_name, destructive_mode=False, low_power_mode=False, fast_mode=False, reset_callback=None, cutless_mode=False): # Add cutless_mode parameter
         self.update_status(f"Started task: {task_name}")
         if task_name == "Detect Black Frames":
+            # Detect commercials doesn't need cutless_mode
             task(self.input_path.get(), self.output_path.get(), self.update_progress, self.update_status, low_power_mode, fast_mode, reset_callback)
         elif task_name == "Cut Video":
             self.reset_progress_bar()
-            task(self.input_path.get(), self.output_path.get(), self.update_progress, self.update_status, destructive_mode)
+            # Pass cutless_mode to the actual task function (logic.cut_videos)
+            task(self.input_path.get(), self.output_path.get(), self.update_progress, self.update_status, destructive_mode, cutless_mode)
+        
         self.update_status(f"Finished task: {task_name}")
         done_callback(task_name)
 
