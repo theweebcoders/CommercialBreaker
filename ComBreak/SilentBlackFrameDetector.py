@@ -52,8 +52,12 @@ class ProgressManager:
             self._update_progress()
 
     def _update_progress(self):
-        # Calculate real percentage based on processed frames
-        percent = int((self.processed_frames / self.total_frames) * 100)
+        # Calculate real percentage based on all phases combined
+        overall_units = self.downscale_total + self.silence_total + self.frame_total
+        processed_units = self.downscale_done + self.silence_done + self.processed_frames
+        
+        # Calculate percentage based on overall units
+        percent = int((processed_units / max(1, overall_units)) * 100)
         
         # Cap at 99% until force_complete is called
         percent = min(percent, 99)
@@ -65,10 +69,12 @@ class ProgressManager:
     def step_downscale(self):
         if self.downscale_done < self.downscale_total:
             self.downscale_done += 1
+            self._update_progress()  # Update progress after downscale step
 
     def step_silence(self):
         if self.silence_done < self.silence_total:
             self.silence_done += 1
+            self._update_progress()  # Update progress after silence step
 
     def step_frame(self):
         # This is the one that affects real progress
@@ -82,6 +88,9 @@ class ProgressManager:
         self.processed_frames = processed_frames
         if total_frames is not None and total_frames > 0:
             self.total_frames = total_frames
+            self.frame_total = total_frames  # Update frame_total as well for combined calculation
+        
+        self.frame_done = processed_frames  # Keep frame_done synchronized for consistency
         
         # Update the progress bar
         self._update_progress()
