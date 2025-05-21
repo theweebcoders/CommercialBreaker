@@ -1107,6 +1107,7 @@ class Page1(BasePage, RedisListenerMixin):
         self.logic._set_data("selected_toonami_library", selected_toonami_library)
         self.logic._set_data("platform_url", platform_url)
         self.logic._set_data("platform_type", self.selected_platform)
+        self.logic.check_dizquetv_compatibility()
         self.logic._broadcast_status_update("Idle")
         self.app.visited_page2 = False
         self.app.set_current_page('Page3')

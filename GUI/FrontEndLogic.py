@@ -177,6 +177,8 @@ class LogicController():
         """
         Callback for FlagManager cutless state changes. Broadcasts/publishes the new state.
         """
+        LogicController.cutless = enabled  # Keep class variable in sync
+        self.cutless = enabled             # Keep instance variable in sync
         if self.use_redis:
             self.publish_cutless_state(enabled)
         else:
@@ -327,8 +329,9 @@ class LogicController():
         # Re-evaluate cutless mode using FlagManager
         FlagManager.evaluate_platform_compatibility(platform_type, platform_url)
         
-        # Sync our instance variable with FlagManager
+        # Sync our instance and class variable with FlagManager
         self.cutless = FlagManager.cutless
+        LogicController.cutless = FlagManager.cutless
 
         print("Saved values:")
         print(f"Anime Library: {selected_anime_library}")
@@ -362,8 +365,9 @@ class LogicController():
         # Re-evaluate cutless mode using FlagManager
         FlagManager.evaluate_platform_compatibility(platform_type, platform_url)
         
-        # Sync our instance variable with FlagManager
+        # Sync our instance and class variable with FlagManager
         self.cutless = FlagManager.cutless
+        LogicController.cutless = FlagManager.cutless
 
         # Optional: Print values for verification
         print(selected_anime_library, selected_toonami_library, plex_url, plex_token, platform_url, platform_type)
