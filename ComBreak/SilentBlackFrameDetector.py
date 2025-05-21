@@ -74,9 +74,11 @@ class ProgressManager:
         #     print("Warning: Tried to step downscale beyond total")
 
     def step_silence(self):
+        # Only step if we haven't reached the total for this category
         if self.silence_done < self.silence_total:
             self.silence_done += 1
             self._update_progress()
+        # Optional: Log or warn if trying to step beyond total
         # elif self.silence_done == self.silence_total:
         #     print("Warning: Tried to step silence beyond total")
 
