@@ -2,72 +2,76 @@
 
 class ProgressManager:
     def __init__(self, downscale_count, silence_count, frame_count, progress_cb):
-        # Apply weight factor to downscaling for more immediate feedback
-        # This ensures downscaling (which happens first) shows visible progress right away
-        downscale_weight = 5  # Weight factor to make downscaling progress more visible
+        # Define phase weights based on estimated time/importance of each phase
+        # These represent the percentage of the progress bar allocated to each phase
+        self.silence_weight = 10    # Silence detection: 10% of total progress
+        self.downscale_weight = 30  # Video downscaling: 30% of total progress
+        self.frame_weight = 60      # Frame analysis: 60% of total progress
         
-        self.downscale_total = downscale_count * downscale_weight
-        self.silence_total = silence_count
-        self.frame_total = frame_count
-        # Ensure total is at least 1 to avoid division by zero if all counts are 0
-        self.total = max(1, self.downscale_total + silence_count + frame_count)
+        # Store the total operations for each phase
+        self.silence_total = max(1, silence_count)
+        self.downscale_total = max(1, downscale_count)
+        self.frame_total = max(1, frame_count)
         
-        self.downscale_done = 0
+        # Initialize progress counters
         self.silence_done = 0
+        self.downscale_done = 0
         self.frame_done = 0
+        
+        # Progress is tracked as a percentage (0-100)
+        self.total = 100
         self.done = 0
         
-        # Store weight factor for step_downscale to use
-        self.downscale_weight = downscale_weight
-        
+        # Store callback
         self.cb = progress_cb
+        
         # Initial call to set progress to 0
         if self.cb:
             self.cb(self.done, self.total)
 
     def _update_progress(self):
-        self.done = self.downscale_done + self.silence_done + self.frame_done
-        # Ensure we don't exceed total due to estimations or errors
-        # Cap at 99% unless force_complete is called, to prevent visual "jumping back"
-        self.done = min(self.done, self.total - 1) 
+        # Calculate the progress contribution from each phase
+        silence_progress = min(self.silence_done / self.silence_total, 1.0) * self.silence_weight
+        downscale_progress = min(self.downscale_done / self.downscale_total, 1.0) * self.downscale_weight
+        frame_progress = min(self.frame_done / self.frame_total, 1.0) * self.frame_weight
+        
+        # Calculate total progress but cap at 99% until force_complete is called
+        self.done = min(round(silence_progress + downscale_progress + frame_progress), 99)
+        
+        # Update UI
         if self.cb:
             self.cb(self.done, self.total)
 
     def step_downscale(self):
-        # Only step if we haven't reached the total for this category
+        # Only count steps up to the expected total
         if self.downscale_done < self.downscale_total:
-            # Increment by weight factor to reflect the weighted total
-            self.downscale_done += self.downscale_weight
+            self.downscale_done += 1
             self._update_progress()
         # Optional: Log or warn if trying to step beyond total
         # elif self.downscale_done == self.downscale_total:
-        #     print("Warning: Tried to step downscale beyond total")
+        #     print(f"Warning: Downscale steps exceeded estimate ({self.downscale_done}/{self.downscale_total})")
 
     def step_silence(self):
-        # Only step if we haven't reached the total for this category
+        # Only count steps up to the expected total
         if self.silence_done < self.silence_total:
             self.silence_done += 1
             self._update_progress()
         # Optional: Log or warn if trying to step beyond total
         # elif self.silence_done == self.silence_total:
-        #     print("Warning: Tried to step silence beyond total")
+        #     print(f"Warning: Silence steps exceeded estimate ({self.silence_done}/{self.silence_total})")
 
     def step_frame(self):
-        # Only step if we're not nearing the total to avoid overshooting
-        # Leave room for at least 1% of progress for force_complete
-        if self.done < self.total - 1:
+        # Only count steps up to the expected total for progress calculation
+        if self.frame_done < self.frame_total:
             self.frame_done += 1 
             self._update_progress()
         # Otherwise, just increment counter but don't update visible progress
         else:
             self.frame_done += 1
-            
+        
     def force_complete(self):
-        """Forces the progress bar to 100%."""
-        self.done = self.total
-        self.downscale_done = self.downscale_total
-        self.silence_done = self.silence_total
-        self.frame_done = self.frame_total # Set frame done to total estimated
+        """Forces the progress bar to 100% when processing is truly complete."""
+        self.done = 100
         if self.cb:
             self.cb(self.done, self.total)
 
@@ -79,7 +83,7 @@ if __name__ == "__main__":
         print(f'Progress: {current}/{total} = {percent:.1f}%')
 
     # Create a progress manager with the same ratio as we expect in real use
-    print('=== BEFORE FIX (simulated) ===')
+    print('=== ORIGINAL IMPLEMENTATION (SIMULATED) ===')
     downscale_count = 5  # 5 segments to downscale
     silence_count = 1    # 1 video file
     frame_count = 94     # 94 frames to analyze
@@ -90,51 +94,77 @@ if __name__ == "__main__":
     print(f'Downscale: 0/{downscale_count}, Silence: 0/{silence_count}, Frame: 0/{frame_count}')
     print(f'Progress: 0/100 = 0.0%')
 
-    # After silence step (1% complete)
+    # After silence step (only 1% progress)
     print('\nAfter silence step:')
-    print(f'Downscale: 0/{downscale_count}, Silence: 1/{silence_count}, Frame: 0/{frame_count}')
     print(f'Progress: 1/100 = 1.0%')
-
-    # After downscale steps (6% complete, still early in process)
-    print('\nAfter downscale steps:')
-    print(f'Downscale: 5/{downscale_count}, Silence: 1/{silence_count}, Frame: 0/{frame_count}')
+    
+    # After first downscale step (only 2% progress)
+    print('\nAfter first downscale step:')
+    print(f'Progress: 2/100 = 2.0%')
+    
+    # After all downscale steps (still only 6% progress)
+    print('\nAfter all downscale steps:')
     print(f'Progress: 6/100 = 6.0%')
-
-    # Midway through frame processing (~50% complete)
-    print('\nMidway through frame processing:')
-    print(f'Downscale: 5/{downscale_count}, Silence: 1/{silence_count}, Frame: 47/{frame_count}')
-    print(f'Progress: 53/100 = 53.0%')
-
-
-    print('\n=== AFTER FIX (actual) ===')
-    # Test with our new weighted implementation
+    
+    # After 25% frame steps
+    print('\nAfter 25% frame steps:')
+    print(f'Progress: 29/100 = 29.0%')
+    
+    # After 75% frame steps
+    print('\nAfter 75% frame steps:')
+    print(f'Progress: 76/100 = 76.0%')
+    
+    # After all frame steps - overshooting to 100% before complete
+    print('\nAfter all frame steps - problem: overshooting to 100%:')
+    print(f'Progress: 100/100 = 100.0% (but processing is not complete)')
+    
+    print('\n=== PHASE-BASED IMPLEMENTATION ===')
+    
+    # Test with our new implementation
     pm = ProgressManager(downscale_count, silence_count, frame_count, progress_callback)
-
+    
     print('\nInitial state:')
-    print(f'Downscale weight: {pm.downscale_weight}')
-    print(f'Total steps: {pm.total}')
-
+    print(f'Phase weights: Silence: {pm.silence_weight}%, Downscale: {pm.downscale_weight}%, Frame: {pm.frame_weight}%')
+    
     print('\nAfter silence step:')
     pm.step_silence()
-
+    print(f'Silence phase: {pm.silence_done}/{pm.silence_total} = {(pm.silence_done/pm.silence_total*100):.1f}%')
+    
     print('\nAfter first downscale step:')
     pm.step_downscale()
-
+    print(f'Downscale phase: {pm.downscale_done}/{pm.downscale_total} = {(pm.downscale_done/pm.downscale_total*100):.1f}%')
+    
     print('\nAfter all downscale steps:')
-    for _ in range(downscale_count - 1):
+    for _ in range(pm.downscale_total - pm.downscale_done):
         pm.step_downscale()
-
+    print(f'Downscale phase: {pm.downscale_done}/{pm.downscale_total} = {(pm.downscale_done/pm.downscale_total*100):.1f}%')
+    
     print('\nAfter 25% frame steps:')
-    for _ in range(frame_count // 4):
+    for _ in range(pm.frame_total // 4):
         pm.step_frame()
-
+    print(f'Frame phase: {pm.frame_done}/{pm.frame_total} = {(pm.frame_done/pm.frame_total*100):.1f}%')
+    
     print('\nAfter 75% frame steps:')
-    for _ in range(frame_count // 2):
+    for _ in range(pm.frame_total // 2):
         pm.step_frame()
-
+    print(f'Frame phase: {pm.frame_done}/{pm.frame_total} = {(pm.frame_done/pm.frame_total*100):.1f}%')
+    
     print('\nAfter all frame steps:')
-    for _ in range(frame_count - pm.frame_done):
+    for _ in range(pm.frame_total - pm.frame_done):
         pm.step_frame()
-
+    print(f'Frame phase: {pm.frame_done}/{pm.frame_total} = {(pm.frame_done/pm.frame_total*100):.1f}%')
+    
+    print('\nAdding extra frames beyond estimate:')
+    for _ in range(10):  # Add 10 more frames beyond our estimate
+        pm.step_frame()
+    print(f'Frame phase: {pm.frame_done}/{pm.frame_total} = exceeded, but progress capped at 99%')
+    
     print('\nAfter force_complete:')
     pm.force_complete()
+    
+    print('\n=== PHASE-BASED ADVANTAGES ===')
+    print('1. Early phases (silence, downscaling) immediately show visible progress')
+    print('2. Progress is proportional to actual work/time of each phase')
+    print('3. Progress never exceeds 100% before truly complete')
+    print('4. No arbitrary weight factors - each phase progresses naturally')
+    print('5. Simple to understand and adjust if processing priorities change')

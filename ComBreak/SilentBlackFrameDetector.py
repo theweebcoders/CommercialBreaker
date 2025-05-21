@@ -32,57 +32,76 @@ class SilentBlackFrameDetector:
 
 class ProgressManager:
     def __init__(self, downscale_count, silence_count, frame_count, progress_cb):
-        self.downscale_total = downscale_count
-        self.silence_total = silence_count
-        self.frame_total = frame_count
-        # Ensure total is at least 1 to avoid division by zero if all counts are 0
-        self.total = max(1, downscale_count + silence_count + frame_count)
+        # Define phase weights based on estimated time/importance of each phase
+        # These represent the percentage of the progress bar allocated to each phase
+        self.silence_weight = 10    # Silence detection: 10% of total progress
+        self.downscale_weight = 30  # Video downscaling: 30% of total progress
+        self.frame_weight = 60      # Frame analysis: 60% of total progress
         
-        self.downscale_done = 0
+        # Store the total operations for each phase
+        self.silence_total = max(1, silence_count)
+        self.downscale_total = max(1, downscale_count)
+        self.frame_total = max(1, frame_count)
+        
+        # Initialize progress counters
         self.silence_done = 0
+        self.downscale_done = 0
         self.frame_done = 0
+        
+        # Progress is tracked as a percentage (0-100)
+        self.total = 100
         self.done = 0
         
+        # Store callback
         self.cb = progress_cb
+        
         # Initial call to set progress to 0
         if self.cb:
             self.cb(self.done, self.total)
 
     def _update_progress(self):
-        self.done = self.downscale_done + self.silence_done + self.frame_done
-        # Ensure we don't exceed total due to estimations or errors
-        self.done = min(self.done, self.total) 
+        # Calculate the progress contribution from each phase
+        silence_progress = min(self.silence_done / self.silence_total, 1.0) * self.silence_weight
+        downscale_progress = min(self.downscale_done / self.downscale_total, 1.0) * self.downscale_weight
+        frame_progress = min(self.frame_done / self.frame_total, 1.0) * self.frame_weight
+        
+        # Calculate total progress but cap at 99% until force_complete is called
+        self.done = min(round(silence_progress + downscale_progress + frame_progress), 99)
+        
+        # Update UI
         if self.cb:
             self.cb(self.done, self.total)
 
     def step_downscale(self):
-        # Only step if we haven't reached the total for this category
+        # Only count steps up to the expected total
         if self.downscale_done < self.downscale_total:
             self.downscale_done += 1
             self._update_progress()
         # Optional: Log or warn if trying to step beyond total
         # elif self.downscale_done == self.downscale_total:
-        #     print("Warning: Tried to step downscale beyond total")
+        #     print(f"Warning: Downscale steps exceeded estimate ({self.downscale_done}/{self.downscale_total})")
 
     def step_silence(self):
+        # Only count steps up to the expected total
         if self.silence_done < self.silence_total:
             self.silence_done += 1
             self._update_progress()
+        # Optional: Log or warn if trying to step beyond total
         # elif self.silence_done == self.silence_total:
-        #     print("Warning: Tried to step silence beyond total")
+        #     print(f"Warning: Silence steps exceeded estimate ({self.silence_done}/{self.silence_total})")
 
     def step_frame(self):
-        # Frame count is an estimate, so allow stepping slightly beyond
-        # but the total progress is capped in _update_progress
-        self.frame_done += 1 
-        self._update_progress()
+        # Only count steps up to the expected total for progress calculation
+        if self.frame_done < self.frame_total:
+            self.frame_done += 1 
+            self._update_progress()
+        # Otherwise, just increment counter but don't update visible progress
+        else:
+            self.frame_done += 1
         
     def force_complete(self):
-        """Forces the progress bar to 100%."""
-        self.done = self.total
-        self.downscale_done = self.downscale_total
-        self.silence_done = self.silence_total
-        self.frame_done = self.frame_total # Set frame done to total estimated
+        """Forces the progress bar to 100% when processing is truly complete."""
+        self.done = 100
         if self.cb:
             self.cb(self.done, self.total)
 
