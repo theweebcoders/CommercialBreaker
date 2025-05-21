@@ -611,7 +611,7 @@ This serves as a clever backup tool, designed to fetch the "Skip Intro" timestam
 
 This is a specialized tool designed to facilitate the insertion of mid-episode bumps into your cut anime collection. Operating specifically on .mp4 files—the standard output for cut anime—this tool organizes and categorizes episodes using a SQLite database and regex patterns. While the actual insertion of bumps like "to ads" and "back" occurs in a subsequent step, this tool lays the essential groundwork, making that process more straightforward.
 
-**Note: In cutless mode, this tool is infuesed of the Commercial Breaker process as a tool called "Virtual Cut" so it will not be run "again"**
+**Note: In cutless mode, this tool is infused of the Commercial Breaker process as a tool called "Virtual Cut" so it will not be run "again"**
 
 ### Commercial Injector
 
