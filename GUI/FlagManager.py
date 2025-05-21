@@ -100,10 +100,10 @@ class FlagManager:
             compatible = cls._check_dizquetv_advanced(platform_url)
             if compatible:
                 cls.set_cutless(True)
-                print("Cutless mode enabled: DisqueTV compatibility confirmed")
+                print("Cutless mode enabled: DizqueTV compatibility confirmed")
             else:
                 cls.set_cutless(False)
-                print("Cutless mode disabled: DisqueTV compatibility check failed")
+                print("Cutless mode disabled: DizqueTV compatibility check failed")
             return compatible
             
         # No platform specified yet, keep current state
