@@ -2,78 +2,64 @@
 
 class ProgressManager:
     def __init__(self, downscale_count, silence_count, frame_count, progress_cb):
-        # Define phase weights based on estimated time/importance of each phase
-        # These represent the percentage of the progress bar allocated to each phase
-        self.silence_weight = 10    # Silence detection: 10% of total progress
-        self.downscale_weight = 30  # Video downscaling: 30% of total progress
-        self.frame_weight = 60      # Frame analysis: 60% of total progress
+        # Calculate the total number of frames to process
+        self.total_frames = max(1, frame_count)
+        self.processed_frames = 0
         
-        # Store the total operations for each phase
-        self.silence_total = max(1, silence_count)
-        self.downscale_total = max(1, downscale_count)
-        self.frame_total = max(1, frame_count)
-        
-        # Initialize progress counters
+        # Track operations for logging purposes
+        self.silence_total = silence_count
+        self.downscale_total = downscale_count
+        self.frame_total = frame_count
         self.silence_done = 0
         self.downscale_done = 0
         self.frame_done = 0
-        
-        # Progress is tracked as a percentage (0-100)
-        self.total = 100
-        self.done = 0
         
         # Store callback
         self.cb = progress_cb
         
         # Initial call to set progress to 0
         if self.cb:
-            self.cb(self.done, self.total)
+            self._update_progress()
 
     def _update_progress(self):
-        # Calculate the progress contribution from each phase
-        silence_progress = min(self.silence_done / self.silence_total, 1.0) * self.silence_weight
-        downscale_progress = min(self.downscale_done / self.downscale_total, 1.0) * self.downscale_weight
-        frame_progress = min(self.frame_done / self.frame_total, 1.0) * self.frame_weight
+        # Calculate real percentage based on processed frames
+        percent = int((self.processed_frames / self.total_frames) * 100)
         
-        # Calculate total progress but cap at 99% until force_complete is called
-        self.done = min(round(silence_progress + downscale_progress + frame_progress), 99)
+        # Cap at 99% until force_complete is called
+        percent = min(percent, 99)
         
-        # Update UI
+        # Update UI with the real percentage
         if self.cb:
-            self.cb(self.done, self.total)
+            self.cb(percent, 100)
 
     def step_downscale(self):
-        # Only count steps up to the expected total
         if self.downscale_done < self.downscale_total:
             self.downscale_done += 1
-            self._update_progress()
-        # Optional: Log or warn if trying to step beyond total
-        # elif self.downscale_done == self.downscale_total:
-        #     print(f"Warning: Downscale steps exceeded estimate ({self.downscale_done}/{self.downscale_total})")
 
     def step_silence(self):
-        # Only count steps up to the expected total
         if self.silence_done < self.silence_total:
             self.silence_done += 1
-            self._update_progress()
-        # Optional: Log or warn if trying to step beyond total
-        # elif self.silence_done == self.silence_total:
-        #     print(f"Warning: Silence steps exceeded estimate ({self.silence_done}/{self.silence_total})")
 
     def step_frame(self):
-        # Only count steps up to the expected total for progress calculation
-        if self.frame_done < self.frame_total:
-            self.frame_done += 1 
-            self._update_progress()
-        # Otherwise, just increment counter but don't update visible progress
-        else:
-            self.frame_done += 1
+        # This is the one that affects real progress
+        self.processed_frames += 1
+        self.frame_done += 1
+        self._update_progress()
+    
+    def update_frame_progress(self, processed_frames, total_frames=None):
+        """Update progress based on actual processed/total frames from the detector."""
+        # Update our internal counters
+        self.processed_frames = processed_frames
+        if total_frames is not None and total_frames > 0:
+            self.total_frames = total_frames
+        
+        # Update the progress bar
+        self._update_progress()
         
     def force_complete(self):
         """Forces the progress bar to 100% when processing is truly complete."""
-        self.done = 100
         if self.cb:
-            self.cb(self.done, self.total)
+            self.cb(100, 100)
 
 
 if __name__ == "__main__":
@@ -83,88 +69,94 @@ if __name__ == "__main__":
         print(f'Progress: {current}/{total} = {percent:.1f}%')
 
     # Create a progress manager with the same ratio as we expect in real use
-    print('=== ORIGINAL IMPLEMENTATION (SIMULATED) ===')
+    print('=== PREVIOUS IMPLEMENTATION (SIMULATED) ===')
     downscale_count = 5  # 5 segments to downscale
     silence_count = 1    # 1 video file
     frame_count = 94     # 94 frames to analyze
-    # Total = 100 steps
-
+    
     # Simulate how it would look before our fix
     print('Initial state:')
-    print(f'Downscale: 0/{downscale_count}, Silence: 0/{silence_count}, Frame: 0/{frame_count}')
     print(f'Progress: 0/100 = 0.0%')
-
-    # After silence step (only 1% progress)
+    
+    # After silence step - progress remained at 0%
     print('\nAfter silence step:')
+    print(f'Progress: 0/100 = 0.0%')
+    
+    # After downscale steps - still no visible progress
+    print('\nAfter downscale steps:')
+    print(f'Progress: 0/100 = 0.0%')
+    
+    # Only after frame processing begins do we see progress
+    print('\nAfter first frame:')
     print(f'Progress: 1/100 = 1.0%')
     
-    # After first downscale step (only 2% progress)
-    print('\nAfter first downscale step:')
-    print(f'Progress: 2/100 = 2.0%')
+    # After 25% frames
+    print('\nAfter 25% frames:')
+    print(f'Progress: 25/100 = 25.0%')
     
-    # After all downscale steps (still only 6% progress)
-    print('\nAfter all downscale steps:')
-    print(f'Progress: 6/100 = 6.0%')
+    # After 50% frames
+    print('\nAfter 50% frames:')
+    print(f'Progress: 50/100 = 50.0%')
     
-    # After 25% frame steps
-    print('\nAfter 25% frame steps:')
-    print(f'Progress: 29/100 = 29.0%')
+    # After 99% frames
+    print('\nAfter 99% frames:')
+    print(f'Progress: 99/100 = 99.0%')
     
-    # After 75% frame steps
-    print('\nAfter 75% frame steps:')
-    print(f'Progress: 76/100 = 76.0%')
-    
-    # After all frame steps - overshooting to 100% before complete
-    print('\nAfter all frame steps - problem: overshooting to 100%:')
+    # After 100% frames - overshoots to 100% before complete
+    print('\nProblem: After 100% frames - progress shown as complete before actually finished:')
     print(f'Progress: 100/100 = 100.0% (but processing is not complete)')
     
-    print('\n=== PHASE-BASED IMPLEMENTATION ===')
+    print('\n=== NEW IMPLEMENTATION ===')
     
     # Test with our new implementation
     pm = ProgressManager(downscale_count, silence_count, frame_count, progress_callback)
     
     print('\nInitial state:')
-    print(f'Phase weights: Silence: {pm.silence_weight}%, Downscale: {pm.downscale_weight}%, Frame: {pm.frame_weight}%')
+    print(f'Total frames: {pm.total_frames}')
     
+    # Silence detection doesn't directly affect progress
     print('\nAfter silence step:')
     pm.step_silence()
-    print(f'Silence phase: {pm.silence_done}/{pm.silence_total} = {(pm.silence_done/pm.silence_total*100):.1f}%')
+    print(f'Silence phase: {pm.silence_done}/{pm.silence_total} (tracked but no progress update)')
     
-    print('\nAfter first downscale step:')
-    pm.step_downscale()
-    print(f'Downscale phase: {pm.downscale_done}/{pm.downscale_total} = {(pm.downscale_done/pm.downscale_total*100):.1f}%')
-    
+    # Downscaling doesn't directly affect progress
     print('\nAfter all downscale steps:')
-    for _ in range(pm.downscale_total - pm.downscale_done):
+    for _ in range(pm.downscale_total):
         pm.step_downscale()
-    print(f'Downscale phase: {pm.downscale_done}/{pm.downscale_total} = {(pm.downscale_done/pm.downscale_total*100):.1f}%')
+    print(f'Downscale phase: {pm.downscale_done}/{pm.downscale_total} (tracked but no progress update)')
     
-    print('\nAfter 25% frame steps:')
-    for _ in range(pm.frame_total // 4):
-        pm.step_frame()
-    print(f'Frame phase: {pm.frame_done}/{pm.frame_total} = {(pm.frame_done/pm.frame_total*100):.1f}%')
+    # Using update_frame_progress directly from analyzer
+    print('\nAfter 10 frames analyzed:')
+    pm.update_frame_progress(10)
+    print(f'Processed: {pm.processed_frames}/{pm.total_frames} = {(pm.processed_frames/pm.total_frames*100):.1f}%')
     
-    print('\nAfter 75% frame steps:')
-    for _ in range(pm.frame_total // 2):
-        pm.step_frame()
-    print(f'Frame phase: {pm.frame_done}/{pm.frame_total} = {(pm.frame_done/pm.frame_total*100):.1f}%')
+    # After 25% frames
+    print('\nAfter 25% frames:')
+    pm.update_frame_progress(pm.total_frames // 4)
+    print(f'Processed: {pm.processed_frames}/{pm.total_frames} = {(pm.processed_frames/pm.total_frames*100):.1f}%')
     
-    print('\nAfter all frame steps:')
-    for _ in range(pm.frame_total - pm.frame_done):
-        pm.step_frame()
-    print(f'Frame phase: {pm.frame_done}/{pm.frame_total} = {(pm.frame_done/pm.frame_total*100):.1f}%')
+    # After 75% frames
+    print('\nAfter 75% frames:')
+    pm.update_frame_progress(int(pm.total_frames * 0.75))
+    print(f'Processed: {pm.processed_frames}/{pm.total_frames} = {(pm.processed_frames/pm.total_frames*100):.1f}%')
     
+    # After all frames
+    print('\nAfter all frames:')
+    pm.update_frame_progress(pm.total_frames)
+    print(f'Processed: {pm.processed_frames}/{pm.total_frames} = {(pm.processed_frames/pm.total_frames*100):.1f}%')
+    
+    # Adding extra frames beyond estimate - progress stays at 99%
     print('\nAdding extra frames beyond estimate:')
-    for _ in range(10):  # Add 10 more frames beyond our estimate
-        pm.step_frame()
-    print(f'Frame phase: {pm.frame_done}/{pm.frame_total} = exceeded, but progress capped at 99%')
+    pm.update_frame_progress(pm.total_frames + 10)
+    print(f'Processed: {pm.processed_frames}/{pm.total_frames} (progress capped at 99%)')
     
+    # After force_complete
     print('\nAfter force_complete:')
     pm.force_complete()
     
-    print('\n=== PHASE-BASED ADVANTAGES ===')
-    print('1. Early phases (silence, downscaling) immediately show visible progress')
-    print('2. Progress is proportional to actual work/time of each phase')
-    print('3. Progress never exceeds 100% before truly complete')
-    print('4. No arbitrary weight factors - each phase progresses naturally')
-    print('5. Simple to understand and adjust if processing priorities change')
+    print('\n=== ADVANTAGES OF REAL PROGRESS REPORTING ===')
+    print('1. Progress shows real work: directly uses processed_frames/total_frames')
+    print('2. No arbitrary weights or phases - just actual frames processed')
+    print('3. Progress starts from 0% immediately and increases linearly')
+    print('4. Progress never exceeds 100% before truly complete')
+    print('5. Simple to understand: % complete = frames processed / total frames')

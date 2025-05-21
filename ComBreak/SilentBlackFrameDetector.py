@@ -32,78 +32,64 @@ class SilentBlackFrameDetector:
 
 class ProgressManager:
     def __init__(self, downscale_count, silence_count, frame_count, progress_cb):
-        # Define phase weights based on estimated time/importance of each phase
-        # These represent the percentage of the progress bar allocated to each phase
-        self.silence_weight = 10    # Silence detection: 10% of total progress
-        self.downscale_weight = 30  # Video downscaling: 30% of total progress
-        self.frame_weight = 60      # Frame analysis: 60% of total progress
+        # Calculate the total number of frames to process
+        self.total_frames = max(1, frame_count)
+        self.processed_frames = 0
         
-        # Store the total operations for each phase
-        self.silence_total = max(1, silence_count)
-        self.downscale_total = max(1, downscale_count)
-        self.frame_total = max(1, frame_count)
-        
-        # Initialize progress counters
+        # Track operations for logging purposes
+        self.silence_total = silence_count
+        self.downscale_total = downscale_count
+        self.frame_total = frame_count
         self.silence_done = 0
         self.downscale_done = 0
         self.frame_done = 0
-        
-        # Progress is tracked as a percentage (0-100)
-        self.total = 100
-        self.done = 0
         
         # Store callback
         self.cb = progress_cb
         
         # Initial call to set progress to 0
         if self.cb:
-            self.cb(self.done, self.total)
+            self._update_progress()
 
     def _update_progress(self):
-        # Calculate the progress contribution from each phase
-        silence_progress = min(self.silence_done / self.silence_total, 1.0) * self.silence_weight
-        downscale_progress = min(self.downscale_done / self.downscale_total, 1.0) * self.downscale_weight
-        frame_progress = min(self.frame_done / self.frame_total, 1.0) * self.frame_weight
+        # Calculate real percentage based on processed frames
+        percent = int((self.processed_frames / self.total_frames) * 100)
         
-        # Calculate total progress but cap at 99% until force_complete is called
-        self.done = min(round(silence_progress + downscale_progress + frame_progress), 99)
+        # Cap at 99% until force_complete is called
+        percent = min(percent, 99)
         
-        # Update UI
+        # Update UI with the real percentage
         if self.cb:
-            self.cb(self.done, self.total)
+            self.cb(percent, 100)
 
     def step_downscale(self):
-        # Only count steps up to the expected total
         if self.downscale_done < self.downscale_total:
             self.downscale_done += 1
-            self._update_progress()
-        # Optional: Log or warn if trying to step beyond total
-        # elif self.downscale_done == self.downscale_total:
-        #     print(f"Warning: Downscale steps exceeded estimate ({self.downscale_done}/{self.downscale_total})")
 
     def step_silence(self):
-        # Only count steps up to the expected total
         if self.silence_done < self.silence_total:
             self.silence_done += 1
-            self._update_progress()
-        # Optional: Log or warn if trying to step beyond total
-        # elif self.silence_done == self.silence_total:
-        #     print(f"Warning: Silence steps exceeded estimate ({self.silence_done}/{self.silence_total})")
 
     def step_frame(self):
-        # Only count steps up to the expected total for progress calculation
-        if self.frame_done < self.frame_total:
-            self.frame_done += 1 
-            self._update_progress()
-        # Otherwise, just increment counter but don't update visible progress
-        else:
-            self.frame_done += 1
+        # This is the one that affects real progress
+        self.processed_frames += 1
+        self.frame_done += 1
+        self._update_progress()
+    
+    def update_frame_progress(self, processed_frames, total_frames=None):
+        """Update progress based on actual processed/total frames from the detector."""
+        # Update our internal counters
+        self.processed_frames = processed_frames
+        if total_frames is not None and total_frames > 0:
+            self.total_frames = total_frames
+        
+        # Update the progress bar
+        self._update_progress()
         
     def force_complete(self):
         """Forces the progress bar to 100% when processing is truly complete."""
-        self.done = 100
         if self.cb:
-            self.cb(self.done, self.total)
+            self.cb(100, 100)
 
 
 class SilentBlackFrameOrchestrator:
@@ -622,6 +608,10 @@ class BlackFrameAnalyzer:
             if status_callback:
                 status_callback("No valid frames found in segments, skipping analysis.")
             return timestamps, processed_frames
+            
+        # If we have a ProgressManager-like progress_step with update_frame_progress method, use it
+        if hasattr(progress_step, 'update_frame_progress'):
+            progress_step.update_frame_progress(processed_frames, total_frames)
         
         # Process each segment
         for i, segment in enumerate(segments_with_frames):
@@ -659,7 +649,15 @@ class BlackFrameAnalyzer:
                     
                     # Update progress
                     processed_frames += 1
-                    progress_step()
+                    
+                    # Call progress step function (could be simple callback or ProgressManager)
+                    if hasattr(progress_step, 'update_frame_progress'):
+                        # If we have a ProgressManager-like object with update_frame_progress
+                        if processed_frames % 10 == 0:  # Update every 10 frames to avoid UI slowdown
+                            progress_step.update_frame_progress(processed_frames, total_frames)
+                    else:
+                        # Regular step function for backwards compatibility
+                        progress_step()
                     
             except Exception as e:
                 if status_callback:
@@ -670,9 +668,14 @@ class BlackFrameAnalyzer:
                 if remaining_frames > 0:
                     if status_callback:
                         status_callback(f"Accounting for {remaining_frames} unprocessed frames in progress bar")
-                    for _ in range(remaining_frames):
-                        processed_frames += 1
-                        progress_step()
+                    processed_frames += remaining_frames
+                    
+                    # Update progress with the adjustment
+                    if hasattr(progress_step, 'update_frame_progress'):
+                        progress_step.update_frame_progress(processed_frames, total_frames)
+                    else:
+                        for _ in range(remaining_frames):
+                            progress_step()
             finally:
                 if loader:
                     loader.release()
@@ -680,6 +683,10 @@ class BlackFrameAnalyzer:
         # Sort timestamps as they come from multiple segments that might overlap
         timestamps.sort()
         
+        # Final progress update
+        if hasattr(progress_step, 'update_frame_progress'):
+            progress_step.update_frame_progress(processed_frames, total_frames)
+            
         return timestamps, processed_frames
 
 
