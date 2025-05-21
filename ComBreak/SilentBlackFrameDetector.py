@@ -58,7 +58,8 @@ class ProgressManager:
     def _update_progress(self):
         self.done = self.downscale_done + self.silence_done + self.frame_done
         # Ensure we don't exceed total due to estimations or errors
-        self.done = min(self.done, self.total) 
+        # Cap at 99% unless force_complete is called, to prevent visual "jumping back"
+        self.done = min(self.done, self.total - 1) 
         if self.cb:
             self.cb(self.done, self.total)
 
@@ -80,10 +81,14 @@ class ProgressManager:
         #     print("Warning: Tried to step silence beyond total")
 
     def step_frame(self):
-        # Frame count is an estimate, so allow stepping slightly beyond
-        # but the total progress is capped in _update_progress
-        self.frame_done += 1 
-        self._update_progress()
+        # Only step if we're not nearing the total to avoid overshooting
+        # Leave room for at least 1% of progress for force_complete
+        if self.done < self.total - 1:
+            self.frame_done += 1 
+            self._update_progress()
+        # Otherwise, just increment counter but don't update visible progress
+        else:
+            self.frame_done += 1
         
     def force_complete(self):
         """Forces the progress bar to 100%."""
