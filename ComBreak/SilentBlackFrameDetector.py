@@ -32,23 +32,16 @@ class SilentBlackFrameDetector:
 
 class ProgressManager:
     def __init__(self, downscale_count, silence_count, frame_count, progress_cb):
-        # Apply weight factor to downscaling for more immediate feedback
-        # This ensures downscaling (which happens first) shows visible progress right away
-        downscale_weight = 5  # Weight factor to make downscaling progress more visible
-        
-        self.downscale_total = downscale_count * downscale_weight
+        self.downscale_total = downscale_count
         self.silence_total = silence_count
         self.frame_total = frame_count
         # Ensure total is at least 1 to avoid division by zero if all counts are 0
-        self.total = max(1, self.downscale_total + silence_count + frame_count)
+        self.total = max(1, downscale_count + silence_count + frame_count)
         
         self.downscale_done = 0
         self.silence_done = 0
         self.frame_done = 0
         self.done = 0
-        
-        # Store weight factor for step_downscale to use
-        self.downscale_weight = downscale_weight
         
         self.cb = progress_cb
         # Initial call to set progress to 0
@@ -58,39 +51,31 @@ class ProgressManager:
     def _update_progress(self):
         self.done = self.downscale_done + self.silence_done + self.frame_done
         # Ensure we don't exceed total due to estimations or errors
-        # Cap at 99% unless force_complete is called, to prevent visual "jumping back"
-        self.done = min(self.done, self.total - 1) 
+        self.done = min(self.done, self.total) 
         if self.cb:
             self.cb(self.done, self.total)
 
     def step_downscale(self):
         # Only step if we haven't reached the total for this category
         if self.downscale_done < self.downscale_total:
-            # Increment by weight factor to reflect the weighted total
-            self.downscale_done += self.downscale_weight
+            self.downscale_done += 1
             self._update_progress()
         # Optional: Log or warn if trying to step beyond total
         # elif self.downscale_done == self.downscale_total:
         #     print("Warning: Tried to step downscale beyond total")
 
     def step_silence(self):
-        # Only step if we haven't reached the total for this category
         if self.silence_done < self.silence_total:
             self.silence_done += 1
             self._update_progress()
-        # Optional: Log or warn if trying to step beyond total
         # elif self.silence_done == self.silence_total:
         #     print("Warning: Tried to step silence beyond total")
 
     def step_frame(self):
-        # Only step if we're not nearing the total to avoid overshooting
-        # Leave room for at least 1% of progress for force_complete
-        if self.done < self.total - 1:
-            self.frame_done += 1 
-            self._update_progress()
-        # Otherwise, just increment counter but don't update visible progress
-        else:
-            self.frame_done += 1
+        # Frame count is an estimate, so allow stepping slightly beyond
+        # but the total progress is capped in _update_progress
+        self.frame_done += 1 
+        self._update_progress()
         
     def force_complete(self):
         """Forces the progress bar to 100%."""
