@@ -32,16 +32,23 @@ class SilentBlackFrameDetector:
 
 class ProgressManager:
     def __init__(self, downscale_count, silence_count, frame_count, progress_cb):
-        self.downscale_total = downscale_count
+        # Apply weight factor to downscaling for more immediate feedback
+        # This ensures downscaling (which happens first) shows visible progress right away
+        downscale_weight = 5  # Weight factor to make downscaling progress more visible
+        
+        self.downscale_total = downscale_count * downscale_weight
         self.silence_total = silence_count
         self.frame_total = frame_count
         # Ensure total is at least 1 to avoid division by zero if all counts are 0
-        self.total = max(1, downscale_count + silence_count + frame_count)
+        self.total = max(1, self.downscale_total + silence_count + frame_count)
         
         self.downscale_done = 0
         self.silence_done = 0
         self.frame_done = 0
         self.done = 0
+        
+        # Store weight factor for step_downscale to use
+        self.downscale_weight = downscale_weight
         
         self.cb = progress_cb
         # Initial call to set progress to 0
@@ -58,7 +65,8 @@ class ProgressManager:
     def step_downscale(self):
         # Only step if we haven't reached the total for this category
         if self.downscale_done < self.downscale_total:
-            self.downscale_done += 1
+            # Increment by weight factor to reflect the weighted total
+            self.downscale_done += self.downscale_weight
             self._update_progress()
         # Optional: Log or warn if trying to step beyond total
         # elif self.downscale_done == self.downscale_total:
