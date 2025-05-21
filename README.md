@@ -510,7 +510,7 @@ A message box saying "Done" will appear when the breaks have been detected.
 
 This will first look for chapter markers in your video. If it finds them, it will use them. You can also use Plex's Timestamps for Intros using Get Plex Timestamps found in ToonamiTools. This will create a text file with the timestamps of the intros. (See Toonami Tools for more info on this) 
 
-For anything vidoes that did not have chapter markers or Plex Timestamps, it will look silent periods in all the videos. 
+For anything videos that did not have chapter markers or Plex Timestamps, it will look silent periods in all the videos. 
 
 Once it finds them it will take the silent portions and create downscaled copies of only those portions of the video in the Working Folder. It will then look at the downscaled copies and look for black frames. 
 
