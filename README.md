@@ -1,21 +1,3 @@
-# Cutless Beta
-
-What is Cutless Beta? So you know how this program is called CommercialBreaker? Well, we are working on a new feature called Cutless Mode. This mode will allow you to cut your videos without actually cutting them. This means that you can keep your original files intact and still have the same functionality as CommercialBreaker.
-
-Some caveats to this:
-
-- This is still in beta and may not work as intended.
-- It requires you to use our fork of [dizquetv](https://github.com/theweebcoders/dizquetv) (until the pull request is merged)
-- It requires you to use our fork of [dizquetv-python](https://github.com/theweebcoders/dizqueTV-python) (until the pull request is merged with dizquetv, then we can make a pull request to dizquetv-python and then that needs to be merged)
-- I have not fully documented everything yet.
-- To run it you must run it with the --cutless flag so it knows to use the cutless mode eg
-
-```bash
-python3 main.py --cutless
-```
-
-You can also just use the docker compose file included in the Cutless Beta and it will automatically use our fork of dizquetv-python and enable the cutless flag
-
 # CommercialBreaker & Toonami Tools: Because Your Anime Deserves Commercial Breaks
 
 Hey there, space cowboy. Remember those long Toonami nights filled with anime and the oddly comforting interruption of commercials? Ever thought your sleek, ad-free Plex server felt a little too... smooth? Well, we've got the fix for you, because here, we're mixing the future with a splash of the past.
@@ -268,6 +250,12 @@ Pattern Key:
     SHOW_TITLE: The name of the show, followed by a space, a hyphen, and another space.
     S[SEASON_NUMBER]: 'S' followed by the season number, always using two digits.
     E[EPISODE_NUMBER]: 'E' followed by the episode number, always using two digits.
+
+# Some other things to note
+
+We recently introduced a new feature called "cutless mode". This is a new feature that allows you to cut your videos without actually cutting them or creating cut copies of them. Great for saving space and time.
+
+This feature is still in beta and may not work perfectly. It also has some caveats please see the FAQ for more info.
 
 # Support your local Mad Scientist
 <a href="https://www.buymeacoffee.com/tim000x3" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="41" width="174"></a>
@@ -691,11 +679,6 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 
 ## **Immediate Attention**
 
-## Next Steps
-
-- [ ] Disable cutless options for Tunnarr until modifed version is created (if ever)
-- [ ] Update Readme
-
 ### Fun Stuff
 
 - [ ] Make Clydes a TUI
@@ -764,6 +747,26 @@ Q: WEEKS??? 
   Some other things you can do are use Fast Mode and Low Power Mode.
   
   Also side note some sources have better chapter markers than others. One of our sources has the chapter marker on one show just 3 seconds after the end credits start so it was bit annoying so we recommend you check the chapter markers before you start cutting. 
+
+Q: What's the difference between traditional cutting and Cutless Mode?
+
+  Traditional cutting physically splits your video files at commercial break points, creating multiple files from a single episode. Cutless Mode detects the same break points but instead of cutting files, it creates metadata that tells your playback system (currently DizqueTV) where commercial breaks should occur. Cutless Mode has several advantages:
+  
+  - Preserves your original files intact
+  - Saves disk space (no duplicate content)
+  - Faster processing after initial detection
+  - Can be easily modified without re-cutting files
+  
+  The downside is that it currently only works with DizqueTV and not yet with Tunarr. Choose traditional cutting for maximum compatibility or Cutless Mode for file preservation and efficiency.
+
+Q: I'm not seeing the options for Cutless Mode in the GUI.
+
+  There are a few reasons this could be happening. 
+  - First, make sure you are using the latest version of CommercialBreaker. 
+  - If you are, Cutless Mode only works with DizqueTV and not with Tunarr.
+      - If you are using Tunarr, you will need to use traditional cutting.
+  - If you are using DizqueTV, you need to make sure you are using our fork of [DizqueTV](https://github.com/theweebcoders/dizquetv), which is a modified version of the original DizqueTV.
+    - Technically, you can use the the dev branch of the original [DizqueTV](https://github.com/vexorian/dizquetv/tree/dev/1.5.x), but we don't recommend it as even though we pushed a lot of our changes to the official dev branch we are actively tweaking our fork to work better with CommercialBreaker.
 
 Q: I got [WinError 2] The system cannot find the file specified
 
@@ -885,16 +888,6 @@ Q: You use Toonami Versions 7, 8, and 9 as place holders in your code. Dude, it'
 
   We are not from the future. We are from the past. We are from the year 2000. We are the ghosts of Toonami past. We have come to haunt you. We have come to haunt you with our weeb talk and our naming scheme. We have come to haunt you with our bad code and our bad jokes. We have come to haunt you with our bad grammar and our bad spelling. We have come to haunt you with our bad documentation and our bad ideas. We have come to haunt you with our bad everything.
 
-Q: What's the difference between traditional cutting and Cutless Mode?
-
-  Traditional cutting physically splits your video files at commercial break points, creating multiple files from a single episode. Cutless Mode detects the same break points but instead of cutting files, it creates metadata that tells your playback system (currently DizqueTV) where commercial breaks should occur. Cutless Mode has several advantages:
-  
-  - Preserves your original files intact
-  - Saves disk space (no duplicate content)
-  - Faster processing after initial detection
-  - Can be easily modified without re-cutting files
-  
-  The downside is that it currently only works with DizqueTV and not yet with Tunarr. Choose traditional cutting for maximum compatibility or Cutless Mode for file preservation and efficiency.
 
 Remember, every tool in this pack is created with the love of nostalgic anime viewing experience. The journey might be a bit complex but it's just like assembling a Gunpla. Take your time, enjoy the process, and behold the beauty of your custom Toonami marathon at the end.
 

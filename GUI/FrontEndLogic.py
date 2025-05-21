@@ -1,6 +1,7 @@
 import sqlite3
 import redis
 import ToonamiTools
+from GUI.FlagManager import FlagManager
 import config
 import threading
 import time
@@ -10,18 +11,25 @@ import sys
 import webbrowser
 
 class LogicController():
-    # Initialize the use_redis class variable before the init method
-    use_redis = '--use_redis' in sys.argv or '--webui' in sys.argv or '--clydes' in sys.argv
-    docker = '--docker' in sys.argv
-    cutless = '--cutless' in sys.argv
-
+    use_redis = FlagManager.use_redis
+    docker = FlagManager.docker
+    cutless_in_args = FlagManager.cutless_in_args
+    cutless = FlagManager.cutless
 
     def __init__(self):
         self.db_path = f'{config.network}.db'
         self._setup_database()
-        self.use_redis = self.__class__.use_redis  # Use class variable
-        self.docker = self.__class__.docker
-        self.cutless = self.__class__.cutless
+        self.use_redis = FlagManager.use_redis
+        self.docker = FlagManager.docker
+        self.cutless = FlagManager.cutless
+        
+        # Check platform compatibility if needed - let FlagManager handle this
+        if self.cutless:
+            platform_type = self._get_data("platform_type") 
+            platform_url = self._get_data("platform_url")
+            # Let FlagManager handle the compatibility check
+            FlagManager.evaluate_platform_compatibility(platform_type, platform_url)
+
         if self.use_redis:
             self.redis_client = redis.Redis(host='localhost', port=6379, db=0)
         else:
@@ -31,10 +39,14 @@ class LogicController():
             self._status_update_subscribers = []
             self._filtered_files_subscribers = []  # New subscriber list for filtered files
             self._auth_url_subscribers = []  # New subscriber list for auth URLs
+            self._cutless_state_subscribers = []  # New subscriber list for cutless state
         self.plex_servers = []
         self.plex_libraries = []
         self.filter_complete_event = threading.Event()
         self.filtered_files_for_selection = []  # List to store filtered files for prepopulation
+
+        # Register callback for cutless state changes
+        FlagManager.register_cutless_callback(self._on_cutless_change)
 
     def _setup_database(self):
         with sqlite3.connect(self.db_path) as conn:
@@ -102,6 +114,11 @@ class LogicController():
             print("Please open the following URL in your browser to authenticate with Plex: \n" + auth_url)
             # Note: The browser will be opened by TOM when it processes the Redis message,
             # so we don't call webbrowser.open here to avoid opening the browser twice
+
+        def publish_cutless_state(self, enabled):
+            """Publish cutless state to Redis channel 'cutless_state' as 'true' or 'false'"""
+            self._publish_status_update('cutless_state', 'true' if enabled else 'false')
+
     else:
         # Else
         def subscribe_to_new_server_choices(self, callback):
@@ -129,6 +146,11 @@ class LogicController():
             if callable(callback):
                 self._auth_url_subscribers.append(callback)
 
+        def subscribe_to_cutless_state(self, callback):
+            """Subscribe to cutless state changes."""
+            if callable(callback):
+                self._cutless_state_subscribers.append(callback)
+
         def _broadcast_status_update(self, message):
             """Notify all subscribers about a status update."""
             for subscriber in self._status_update_subscribers:
@@ -145,7 +167,21 @@ class LogicController():
             for subscriber in self._auth_url_subscribers:
                 subscriber(auth_url)            
             print("Please open the following URL in your browser to authenticate with Plex: \n" + auth_url)
-    
+
+        def _broadcast_cutless_state(self, enabled):
+            """Notify all subscribers about a cutless state change."""
+            for callback in self._cutless_state_subscribers:
+                callback(enabled)
+
+    def _on_cutless_change(self, enabled):
+        """
+        Callback for FlagManager cutless state changes. Broadcasts/publishes the new state.
+        """
+        if self.use_redis:
+            self.publish_cutless_state(enabled)
+        else:
+            self._broadcast_cutless_state(enabled)
+        self._broadcast_status_update(f"Cutless mode {'enabled' if enabled else 'disabled'}")
 
     def is_filtered_complete(self):
         return self.filter_complete_event.is_set()
@@ -155,6 +191,13 @@ class LogicController():
 
     def set_filter_event(self):
         self.filter_complete_event.set()
+
+    def check_dizquetv_compatibility(self):
+        platform_url = self._get_data("platform_url")
+        platform_type = self._get_data("platform_type")
+        
+        # Delegate to FlagManager's evaluation
+        return FlagManager.evaluate_platform_compatibility(platform_type, platform_url)
 
     def login_to_plex(self):
         def login_thread():
@@ -280,6 +323,12 @@ class LogicController():
         self._set_data("selected_toonami_library", selected_toonami_library)
         self._set_data("platform_url", platform_url)
         self._set_data("platform_type", platform_type)
+        
+        # Re-evaluate cutless mode using FlagManager
+        FlagManager.evaluate_platform_compatibility(platform_type, platform_url)
+        
+        # Sync our instance variable with FlagManager
+        self.cutless = FlagManager.cutless
 
         print("Saved values:")
         print(f"Anime Library: {selected_anime_library}")
@@ -309,6 +358,12 @@ class LogicController():
         self._set_data("plex_token", plex_token)
         self._set_data("platform_url", platform_url)
         self._set_data("platform_type", platform_type)
+        
+        # Re-evaluate cutless mode using FlagManager
+        FlagManager.evaluate_platform_compatibility(platform_type, platform_url)
+        
+        # Sync our instance variable with FlagManager
+        self.cutless = FlagManager.cutless
 
         # Optional: Print values for verification
         print(selected_anime_library, selected_toonami_library, plex_url, plex_token, platform_url, platform_type)

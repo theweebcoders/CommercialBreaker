@@ -17,19 +17,35 @@ except ImportError:
 
 class CommercialBreakerCLI:
     """A class that represents the CLI of the Commercial Breaker program."""
-    def __init__(self):
+    def __init__(self, *, cutless_enabled: bool | None = None):
+        # make sure __del__ can always find stdscr even if __init__ aborts
+        self.stdscr = None
         self.logic = CommercialBreakerLogic()
-        self.fe_logic = LogicController()
-        self.working_folder = self.fe_logic._get_data("working_folder")
+        # Guard against missing LogicController
         if has_logic_controller:
-            self.frontendLogic = LogicController
-            if LogicController.cutless:
-                self.cutless = True
-            else:
-                self.cutless = False
+            self.fe_logic = LogicController()
+            self.working_folder = self.fe_logic._get_data("working_folder")
+        else:
+            self.fe_logic = None
+            self.working_folder = None
+        # ------------------------------------------------------------------
+        # Decide initial cutless flag
+        # Priority: caller-provided value  >  live LogicController  >  False
+        # ------------------------------------------------------------------
+        if cutless_enabled is not None:
+            self.cutless = cutless_enabled
+        elif has_logic_controller:
+            self.cutless = bool(getattr(LogicController, "cutless", False))
         else:
             self.cutless = False
         
+        # Working folder can be missing on a fresh standalone run
+        if not self.working_folder:
+            fallback = input(
+                "Working folder not configured. "
+                "Enter a path or press <Enter> to use the current directory: "
+            ).strip()
+            self.working_folder = fallback or os.getcwd()
         # Convert the working folder into a Path object and construct subpaths
         self.working_folder = Path(self.working_folder)
         self.input_path = self.working_folder / "toonami_filtered"
@@ -65,9 +81,10 @@ class CommercialBreakerCLI:
     def __del__(self):
         """Safely reset the terminal before exiting."""
         try:
-            if self.stdscr is not None:
+            stdscr = getattr(self, "stdscr", None)
+            if stdscr is not None:
                 curses.nocbreak()
-                self.stdscr.keypad(False)
+                stdscr.keypad(False)
                 curses.echo()
                 curses.endwin()
         except curses.error:
@@ -403,9 +420,9 @@ class CommercialBreakerCLI:
         if self.confirm("Would you like to run Commercial Breaker? This process can take a long time to complete. (y/n): "):
             self.commercial_breaker()
             
-def main():
-    cli = CommercialBreakerCLI()
+def main(*, cutless_enabled: bool | None = None):
+    cli = CommercialBreakerCLI(cutless_enabled=cutless_enabled)
     cli.run()
 
 if __name__ == "__main__":
-    main()
+    main()  # still works stand-alone

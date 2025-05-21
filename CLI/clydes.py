@@ -427,7 +427,8 @@ class ClydesApp:
         pubsub = redis_client.pubsub()
         pubsub.subscribe('status_updates', 'new_server_choices', 
                          'new_library_choices', 'plex_servers', 
-                         'plex_libraries', 'plex_auth_url')
+                         'plex_libraries', 'plex_auth_url',
+                         'cutless_state')
 
         for message in pubsub.listen():
             if message['type'] == 'message':
@@ -442,14 +443,16 @@ class ClydesApp:
             channel = message['channel'].decode('utf-8')
             if channel == 'status_updates':
                 self.status_queue.put(f"Status: {message['data'].decode('utf-8')}")
+            elif channel == 'cutless_state':
+                new_value = message['data'].decode('utf-8').lower() == 'true'
+                self.logic.cutless = new_value
 
     def run(self):
         if not self.load_existing_configurations():
             self.plex_manager.get_plex_creds()
             self.folder_manager.get_folders()
-        
         self.content_preparer.prepare_content()
-        CommercialBreakerCLI()
+        CommercialBreakerCLI(cutless_enabled=self.logic.cutless)
         self.toonami_manager.create_toonami_channels()
         print("Clydes has finished running.")
 

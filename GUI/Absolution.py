@@ -721,6 +721,8 @@ class BasePage(gui.Container):
         hbox.append(checkbox)
         hbox.append(label)
         container.append(hbox)
+        # keep a reference to the wrapper so callers can show/hide it
+        checkbox.wrapper = hbox
         return checkbox
 
 class RedisListenerMixin:
@@ -743,8 +745,9 @@ class RedisListenerMixin:
     def listen_for_redis_updates(self, redis_queue):
         redis_client = self.logic.redis_client
         pubsub = redis_client.pubsub()
-        pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices', 
-                        'plex_servers', 'plex_libraries', 'filtered_files', 'plex_auth_url')
+        pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices',
+                         'plex_servers', 'plex_libraries', 'filtered_files',
+                         'plex_auth_url', 'cutless_state')
 
         for message in pubsub.listen():
             if message['type'] == 'message':
@@ -1597,10 +1600,13 @@ class Page4(BasePage, RedisListenerMixin):
         self.low_power_checkbox = self.add_checkbox(checkbox_container, 'Low Power Mode', False)
         self.low_power_checkbox.onchange.do(self.on_low_power_mode_changed)
         
-        # Cutless Mode checkbox
-        if self.cutless:
-            self.cutless_checkbox = self.add_checkbox(checkbox_container, 'Cutless Mode', False)
-            self.cutless_checkbox.onchange.do(self.on_cutless_mode_changed)
+        # Cutless Mode checkbox  (always create – show/hide dynamically)
+        self.cutless_checkbox = self.add_checkbox(checkbox_container, 'Cutless Mode', False)
+        # wrapper HBox saved by add_checkbox
+        self.cutless_container = self.cutless_checkbox.wrapper
+        if not self.cutless:
+            self.cutless_container.style['display'] = 'none'
+        self.cutless_checkbox.onchange.do(self.on_cutless_mode_changed)
 
         self.main_container.append(checkbox_container)
 
@@ -1952,6 +1958,19 @@ class Page4(BasePage, RedisListenerMixin):
     def done_detect_commercials(self, task_name):
         self.update_status(f"{task_name} - Done!")
 
+    def update_cutless_checkbox(self, enabled: bool):
+        """Show / hide the Cutless-mode checkbox depending on flag state."""
+        if enabled:
+            self.cutless_container.style['display'] = 'flex'
+        else:
+            self.cutless_container.style['display'] = 'none'
+            self.cutless_checkbox.set_value(False)
+            self.cutless_mode = False
+
+    # Pub-sub callback
+    def on_cutless_state_change(self, enabled: bool):
+        self.update_cutless_checkbox(enabled)
+
     def handle_redis_message(self, channel, data):
         """Handle incoming Redis messages"""
         if channel == 'filtered_files':
@@ -1975,6 +1994,9 @@ class Page4(BasePage, RedisListenerMixin):
                 self.update_status("Error: Received invalid filtered files data")
             except Exception as e:
                 self.update_status(f"Error processing filtered files: {str(e)}")
+        elif channel == 'cutless_state':
+            # Redis sends "true"/"false"
+            self.update_cutless_checkbox(data.lower() == 'true')
 
 class Page5(BasePage, RedisListenerMixin):
     def __init__(self, app, *args, **kwargs):

@@ -483,6 +483,8 @@ class Page5(ttk.Frame):
             # PubSub mode - subscribe to filtered files and status updates
             self.TOM_logic.subscribe_to_filtered_files(self.load_filtered_files)
             self.TOM_logic.subscribe_to_status_updates(self.update_status_label)
+            # Subscribe to cutless state changes
+            self.TOM_logic.subscribe_to_cutless_state(self.on_cutless_state_change)
         
         if LogicController.cutless:
             self.cutless = True
@@ -586,10 +588,8 @@ class Page5(ttk.Frame):
         self.cutless_mode = tk.BooleanVar()
         self.cutless_mode.trace("w", self.toggle_cutless_mode) # Add a callback when the value changes
         self.cutless_checkbox = ttk.Checkbutton(self.checkbox_frame, text='Cutless Mode', variable=self.cutless_mode)
-        
-        # Only add the Cutless Mode checkbox to the UI if the cutless flag is enabled
-        if self.cutless:
-            self.cutless_checkbox.pack(side="left")  # 'left' will align the checkbox to the left
+        # Dynamically show/hide the Cutless Mode checkbox based on the cutless flag
+        self.update_cutless_checkbox(LogicController.cutless)
 
         # Input/output directory selection frames
         self.directory_frame = ttk.Frame(self.master)
@@ -930,7 +930,8 @@ class Page5(ttk.Frame):
                 elif channel == 'filtered_files':
                     filtered_files = json.loads(data)
                     self.load_filtered_files(filtered_files)
-            
+                elif channel == 'cutless_state':
+                    self.update_cutless_checkbox(data.lower() == 'true')
             # Schedule the next check
             self.after(100, self.process_redis_messages)
 
@@ -974,6 +975,20 @@ class Page5(ttk.Frame):
     def update_status_label(self, status):
         """Update the status label with the given text."""
         self.status_label.config(text=status)
+
+    def update_cutless_checkbox(self, enabled):
+        """Show or hide the Cutless Mode checkbox depending on flag state."""
+        if enabled:
+            if not self.cutless_checkbox.winfo_ismapped():
+                self.cutless_checkbox.pack(side="left")
+        else:
+            if self.cutless_checkbox.winfo_ismapped():
+                self.cutless_checkbox.pack_forget()
+            self.cutless_mode.set(False)  # reset UI state
+
+    def on_cutless_state_change(self, enabled):
+        """Callback for cutless state changes from LogicController."""
+        self.update_cutless_checkbox(enabled)
 
 class Page6(ttk.Frame):
     def __init__(self, parent, controller, logic):
@@ -1272,8 +1287,9 @@ class MainApplication(tk.Tk):
         def listen_for_redis_updates(self, redis_queue):
             redis_client = self.logic.redis_client
             pubsub = redis_client.pubsub()
-            pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices', 
-                            'plex_servers', 'plex_libraries', 'filtered_files', 'plex_auth_url')
+            pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices',
+                             'plex_servers', 'plex_libraries', 'filtered_files',
+                             'plex_auth_url', 'cutless_state')
 
             for message in pubsub.listen():
                 if message['type'] == 'message':
