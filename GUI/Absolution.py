@@ -721,6 +721,8 @@ class BasePage(gui.Container):
         hbox.append(checkbox)
         hbox.append(label)
         container.append(hbox)
+        # keep a reference to the wrapper so callers can show/hide it
+        checkbox.wrapper = hbox
         return checkbox
 
 class RedisListenerMixin:
@@ -743,8 +745,9 @@ class RedisListenerMixin:
     def listen_for_redis_updates(self, redis_queue):
         redis_client = self.logic.redis_client
         pubsub = redis_client.pubsub()
-        pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices', 
-                        'plex_servers', 'plex_libraries', 'filtered_files', 'plex_auth_url')
+        pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices',
+                         'plex_servers', 'plex_libraries', 'filtered_files',
+                         'plex_auth_url', 'cutless_state')
 
         for message in pubsub.listen():
             if message['type'] == 'message':
@@ -1486,6 +1489,12 @@ class Page4(BasePage, RedisListenerMixin):
         super(Page4, self).__init__(app, 'Page4', *args, **kwargs)
         self.cblogic = CommercialBreakerLogic()
         self.logic = LogicController()
+        
+        if LogicController.cutless:
+            self.cutless = True
+        else:
+            self.cutless = False
+            
         self.redis_queue = Queue()
         self.start_redis_listener_thread(self.redis_queue)
         self.after(100, self.process_redis_messages)
@@ -1590,6 +1599,14 @@ class Page4(BasePage, RedisListenerMixin):
         # Low Power Mode checkbox
         self.low_power_checkbox = self.add_checkbox(checkbox_container, 'Low Power Mode', False)
         self.low_power_checkbox.onchange.do(self.on_low_power_mode_changed)
+        
+        # Cutless Mode checkbox  (always create – show/hide dynamically)
+        self.cutless_checkbox = self.add_checkbox(checkbox_container, 'Cutless Mode', False)
+        # wrapper HBox saved by add_checkbox
+        self.cutless_container = self.cutless_checkbox.wrapper
+        if not self.cutless:
+            self.cutless_container.style['display'] = 'none'
+        self.cutless_checkbox.onchange.do(self.on_cutless_mode_changed)
 
         self.main_container.append(checkbox_container)
 
@@ -1719,20 +1736,41 @@ class Page4(BasePage, RedisListenerMixin):
         self.app.set_current_page('Page5')
 
     # Checkbox event handlers
-    def on_destructive_mode_changed(self, widget, value):
-        self.destructive_mode = value
+    def on_destructive_mode_changed(self, widget, value=None):
+        """Handle when destructive mode is toggled"""
+        self.destructive_mode = widget.get_value()
+        
+        # If Destructive Mode is turned on, turn off Cutless Mode
+        if self.destructive_mode and hasattr(self, 'cutless_checkbox') and self.cutless_checkbox.get_value():
+            self.cutless_checkbox.set_value(False)
+            self.cutless_mode = False
 
-    def on_fast_mode_changed(self, widget, value):
-        if value:
+    def on_fast_mode_changed(self, widget, value=None):
+        """Handle when fast mode is toggled"""
+        self.fast_mode = widget.get_value()
+        
+        # If Fast Mode is turned on, turn off Low Power Mode
+        if self.fast_mode and hasattr(self, 'low_power_checkbox') and self.low_power_checkbox.get_value():
             self.low_power_checkbox.set_value(False)
             self.low_power_mode = False
-        self.fast_mode = value
 
-    def on_low_power_mode_changed(self, widget, value):
-        if value:
+    def on_low_power_mode_changed(self, widget, value=None):
+        """Handle when low power mode is toggled"""
+        self.low_power_mode = widget.get_value()
+        
+        # If Low Power Mode is turned on, turn off Fast Mode
+        if self.low_power_mode and hasattr(self, 'fast_checkbox') and self.fast_checkbox.get_value():
             self.fast_checkbox.set_value(False)
             self.fast_mode = False
-        self.low_power_mode = value
+
+    def on_cutless_mode_changed(self, widget, value=None):
+        """Handle when cutless mode is toggled"""
+        self.cutless_mode = widget.get_value()
+        
+        # If Cutless Mode is turned on, turn off Destructive Mode
+        if self.cutless_mode and hasattr(self, 'destructive_checkbox') and self.destructive_checkbox.get_value():
+            self.destructive_checkbox.set_value(False)
+            self.destructive_mode = False
 
     # Methods for action buttons
     def detect_commercials(self, widget):
@@ -1749,11 +1787,13 @@ class Page4(BasePage, RedisListenerMixin):
 
     def cut_videos(self, widget):
         if self.validate_input_output_dirs():
+            # Pass cutless_mode to the async _run_and_notify method
             threading.Thread(target=self._run_and_notify, args=(
-                self.cblogic.cut_videos,
-                self.done_cut_videos,
-                "Cut Video",
-                self.destructive_mode
+                self.cblogic.cut_videos, 
+                self.done_cut_videos, 
+                "Cut Video", 
+                self.destructive_mode,  # Pass the destructive mode value
+                self.cutless_mode       # Pass the cutless mode value
             )).start()
 
     def delete_txt_files(self, widget):
@@ -1867,7 +1907,7 @@ class Page4(BasePage, RedisListenerMixin):
             
         return True
 
-    def _run_and_notify(self, task, done_callback, task_name, destructive_mode=False, low_power_mode=False, fast_mode=False, reset_callback=None):
+    def _run_and_notify(self, task, done_callback, task_name, destructive_mode=False, cutless_mode=False, low_power_mode=False, fast_mode=False, reset_callback=None):
         """Run a task and update UI with progress"""
         # Reset progress before starting
         self.reset_progress_bar()
@@ -1899,8 +1939,9 @@ class Page4(BasePage, RedisListenerMixin):
                     current_input_path = "/"
                 
                 current_output_path = self.output_path_input.get_value()
+                # Pass the cutless_mode parameter to the cut_videos method
                 task(current_input_path, current_output_path, self.update_progress, 
-                     self.update_status, destructive_mode)
+                     self.update_status, destructive_mode, cutless_mode)
             
             # Task completed successfully
             self.update_status(f"Finished task: {task_name}")
@@ -1916,6 +1957,19 @@ class Page4(BasePage, RedisListenerMixin):
 
     def done_detect_commercials(self, task_name):
         self.update_status(f"{task_name} - Done!")
+
+    def update_cutless_checkbox(self, enabled: bool):
+        """Show / hide the Cutless-mode checkbox depending on flag state."""
+        if enabled:
+            self.cutless_container.style['display'] = 'flex'
+        else:
+            self.cutless_container.style['display'] = 'none'
+            self.cutless_checkbox.set_value(False)
+            self.cutless_mode = False
+
+    # Pub-sub callback
+    def on_cutless_state_change(self, enabled: bool):
+        self.update_cutless_checkbox(enabled)
 
     def handle_redis_message(self, channel, data):
         """Handle incoming Redis messages"""
@@ -1940,6 +1994,9 @@ class Page4(BasePage, RedisListenerMixin):
                 self.update_status("Error: Received invalid filtered files data")
             except Exception as e:
                 self.update_status(f"Error processing filtered files: {str(e)}")
+        elif channel == 'cutless_state':
+            # Redis sends "true"/"false"
+            self.update_cutless_checkbox(data.lower() == 'true')
 
 class Page5(BasePage, RedisListenerMixin):
     def __init__(self, app, *args, **kwargs):

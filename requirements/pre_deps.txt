@@ -1,0 +1,4 @@
+m3u8==3.*
+PlexAPI==4.*; python_version >= "3.6"
+numpy==1.*
+objectrest==1.*

@@ -2,26 +2,57 @@ import threading
 import time
 import os
 import glob
-from GUI import LogicController
+import sys
 from ComBreak import CommercialBreakerLogic
 import config
 import curses
 from pathlib import Path
+try:
+    from GUI.FrontEndLogic import LogicController
+    has_logic_controller = True
+except ImportError:
+    has_logic_controller = False
+
 
 
 class CommercialBreakerCLI:
     """A class that represents the CLI of the Commercial Breaker program."""
-    def __init__(self):
+    def __init__(self, *, cutless_enabled: bool | None = None):
+        # make sure __del__ can always find stdscr even if __init__ aborts
+        self.stdscr = None
         self.logic = CommercialBreakerLogic()
-        self.fe_logic = LogicController()
-        self.working_folder = self.fe_logic._get_data("working_folder")
+        # Guard against missing LogicController
+        if has_logic_controller:
+            self.fe_logic = LogicController()
+            self.working_folder = self.fe_logic._get_data("working_folder")
+        else:
+            self.fe_logic = None
+            self.working_folder = None
+        # ------------------------------------------------------------------
+        # Decide initial cutless flag
+        # Priority: caller-provided value  >  live LogicController  >  False
+        # ------------------------------------------------------------------
+        if cutless_enabled is not None:
+            self.cutless = cutless_enabled
+        elif has_logic_controller:
+            self.cutless = bool(getattr(LogicController, "cutless", False))
+        else:
+            self.cutless = False
         
+        # Working folder can be missing on a fresh standalone run
+        if not self.working_folder:
+            fallback = input(
+                "Working folder not configured. "
+                "Enter a path or press <Enter> to use the current directory: "
+            ).strip()
+            self.working_folder = fallback or os.getcwd()
         # Convert the working folder into a Path object and construct subpaths
         self.working_folder = Path(self.working_folder)
         self.input_path = self.working_folder / "toonami_filtered"
         self.output_path = self.working_folder / "cut"
         
         self.destructive_mode = False
+        self.cutless_mode = False  # Added Cutless Mode flag
         self.mode = "normal"
         self.low_power_mode = False
         self.fast_mode = False
@@ -50,9 +81,10 @@ class CommercialBreakerCLI:
     def __del__(self):
         """Safely reset the terminal before exiting."""
         try:
-            if self.stdscr is not None:
+            stdscr = getattr(self, "stdscr", None)
+            if stdscr is not None:
                 curses.nocbreak()
-                self.stdscr.keypad(False)
+                stdscr.keypad(False)
                 curses.echo()
                 curses.endwin()
         except curses.error:
@@ -115,7 +147,7 @@ class CommercialBreakerCLI:
             curses.endwin()
             self.stdscr = None  # Reset the stdscr attribute
 
-    def _run_and_notify(self, task, done_callback, task_name, destructive_mode=False, low_power_mode=False, fast_mode=False, reset_callback=None):
+    def _run_and_notify(self, task, done_callback, task_name, destructive_mode=False, cutless_mode=False, low_power_mode=False, fast_mode=False, reset_callback=None):
         self.task_complete.clear()  # Clear the event at the start of a new task
         try:
             self.update_status(f"Started task: {task_name}")
@@ -129,7 +161,7 @@ class CommercialBreakerCLI:
                 self.start_curses()
                 self.show_status_bar()
                 self.reset_progress_bar()
-                task(self.input_path, self.output_path, self.update_progress, self.update_status, destructive_mode)
+                task(self.input_path, self.output_path, self.update_progress, self.update_status, destructive_mode, cutless_mode)
                 self.stop_curses()
             self.update_status(f"Finished task: {task_name}")
             done_callback(task_name)
@@ -232,7 +264,7 @@ class CommercialBreakerCLI:
     def cut_videos(self):
         """Split the videos at the commercial breaks."""
         if self.validate_input_output_dirs():
-            threading.Thread(target=self._run_and_notify, args=(self.logic.cut_videos, self.done_cut_videos, "Cut Video", self.destructive_mode)).start()
+            threading.Thread(target=self._run_and_notify, args=(self.logic.cut_videos, self.done_cut_videos, "Cut Video", self.destructive_mode, self.cutless_mode)).start()
 
     def detect_commercials(self):
         """Detect the commercials in the videos."""
@@ -325,6 +357,13 @@ class CommercialBreakerCLI:
         # Options for destructive mode
         self.destructive_mode = self.confirm("Would you like to run Commercial Breaker in destructive mode? This mode will delete the original files after they have been cut. (y/n): ")
 
+        # If not in destructive mode, offer cutless mode
+        if self.cutless and not self.destructive_mode:
+            self.cutless_mode = self.confirm("Would you like to run Commercial Breaker in cutless mode? This mode generates cut metadata without physically cutting the files. (y/n): ")
+        else:
+            # Ensure cutless mode is disabled if destructive mode is enabled
+            self.cutless_mode = False
+
         # Select operating mode
         self.mode = self.choose_mode()
 
@@ -339,6 +378,7 @@ class CommercialBreakerCLI:
             
         print(f"Cut anime output: {self.output_path}")
         print(f"Destructive mode: {'Enabled' if self.destructive_mode else 'Disabled'}")
+        print(f"Cutless mode: {'Enabled' if self.cutless_mode else 'Disabled'}")
         print(f"Processing mode: {self.mode}")
 
         if self.confirm("Would you like to continue with these settings? (y/n): "):
@@ -380,9 +420,9 @@ class CommercialBreakerCLI:
         if self.confirm("Would you like to run Commercial Breaker? This process can take a long time to complete. (y/n): "):
             self.commercial_breaker()
             
-def main():
-    cli = CommercialBreakerCLI()
+def main(*, cutless_enabled: bool | None = None):
+    cli = CommercialBreakerCLI(cutless_enabled=cutless_enabled)
     cli.run()
 
 if __name__ == "__main__":
-    main()
+    main()  # still works stand-alone

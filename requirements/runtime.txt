@@ -1,3 +1,4 @@
+git+https://github.com/theweebcoders/dizqueTV-python.git#egg=dizquetv
 pandas==1.5.3
 levenshtein>=0.21.1
 numpy>=1.26.1
@@ -16,3 +17,4 @@ argparse>=1.4.0
 remi>=2022.7.27
 opencv-python-headless>=4.5.5.64
 ffmpeg-python>=0.2.0
+plexauth>=0.0.6
