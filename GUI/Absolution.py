@@ -1,5 +1,6 @@
 from ComBreak import CommercialBreakerLogic
 from GUI import LogicController
+from GUI.message_broker import get_message_broker
 from CLI import PlexManager
 import config
 import threading
@@ -725,37 +726,59 @@ class BasePage(gui.Container):
         checkbox.wrapper = hbox
         return checkbox
 
-class RedisListenerMixin:
+class MessageBrokerMixin:
+    """Mixin class to provide message broker subscription functionality to any page."""
+    
     def after(self, time_ms, callback):
+        """Schedule a callback to run after time_ms milliseconds."""
         threading.Timer(time_ms / 1000, callback).start()
-
-    def process_redis_messages(self):
-        while not self.redis_queue.empty():
-            message = self.redis_queue.get()
-            channel = message['channel'].decode('utf-8')
-            data = message['data'].decode('utf-8')
-
-            if channel == 'status_updates':
-                self.update_status_label(data)
-            elif hasattr(self, 'handle_redis_message'):
-                self.handle_redis_message(channel, data)
-
-        self.after(100, self.process_redis_messages)
-
-    def listen_for_redis_updates(self, redis_queue):
-        redis_client = self.logic.redis_client
-        pubsub = redis_client.pubsub()
-        pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices',
-                         'plex_servers', 'plex_libraries', 'filtered_files',
-                         'plex_auth_url', 'cutless_state')
-
-        for message in pubsub.listen():
-            if message['type'] == 'message':
-                redis_queue.put(message)
-
-    def start_redis_listener_thread(self, redis_queue):
-        threading.Thread(target=self.listen_for_redis_updates, args=(redis_queue,), daemon=True).start()
-
+    
+    def setup_message_broker(self):
+        """Initialize the message broker subscription and processing."""
+        
+        self.broker = get_message_broker()
+        
+        # Subscribe to channels
+        self.subscription = self.broker.subscribe([
+            'status_updates', 'new_server_choices', 'new_library_choices',
+            'plex_servers', 'plex_libraries', 'filtered_files',
+            'plex_auth_url', 'cutless_state'
+        ])
+        
+        # Start the message processing thread
+        threading.Thread(target=self._listen_for_messages, daemon=True).start()
+        
+        # Schedule periodic processing of messages in the UI thread
+        self.after(100, self.process_messages)
+    
+    def _listen_for_messages(self):
+        """Background thread to listen for messages and put them in our queue."""
+        while True:
+            try:
+                # Get message from broker subscription
+                channel, data = self.subscription.get()
+                # Put in our queue for UI thread to process
+                self.message_queue.put((channel, data))
+            except Exception as e:
+                print(f"Error in message listener: {e}")
+    
+    def process_messages(self):
+        """Process all pending messages in the queue (called in UI thread)."""
+        try:
+            while not self.message_queue.empty():
+                channel, data = self.message_queue.get_nowait()
+                if channel == 'status_updates':
+                    self.update_status_label(data)
+                elif hasattr(self, 'handle_message'):
+                    self.handle_message(channel, data)
+                
+            # Schedule the next check
+            self.after(100, self.process_messages)
+        except Exception as e:
+            print(f"Error processing messages: {e}")
+            # Ensure we keep checking for messages even after an error
+            self.after(100, self.process_messages)
+    
     def update_status_label(self, status):
         # Use the new method from BasePage
         if hasattr(self, 'update_status_display'):
@@ -951,12 +974,12 @@ class NavigationBar(gui.Container):
         container.append(button)
         return button
 
-class Page1(BasePage, RedisListenerMixin):
+class Page1(BasePage, MessageBrokerMixin):
     def __init__(self, app, *args, **kwargs):
         super(Page1, self).__init__(app, 'Page1', *args, **kwargs)
         self.logic = LogicController()
         self.PlexManager = PlexManager(self.logic, app)
-        self.redis_queue = Queue()
+        
         
         # Define the JavaScript function for opening URLs early in initialization
         self.app.execute_javascript("""
@@ -965,8 +988,8 @@ class Page1(BasePage, RedisListenerMixin):
             }
         """)
         
-        self.start_redis_listener_thread(self.redis_queue)
-        self.after(100, self.process_redis_messages)
+        self.setup_message_broker(self.message_queue)
+        self.after(100, self.process_messages)
         self.libraries_selected = 0
 
         # Build the page using helper methods
@@ -1075,26 +1098,26 @@ class Page1(BasePage, RedisListenerMixin):
 
     def update_dropdown(self):
         try:
-            message = self.redis_queue.get_nowait()
+            message = self.message_queue.get_nowait()
             if message['channel'].decode('utf-8') == 'plex_servers':
                 server_list = json.loads(message['data'].decode('utf-8'))
                 for server in server_list:
                     self.plex_server_dropdown.append(gui.DropDownItem(server))
             else:
-                self.redis_queue.put(message)
+                self.message_queue.put(message)
         except Empty:
             self.after(100, self.update_dropdown)
 
     def update_library_dropdowns(self):
         try:
-            message = self.redis_queue.get_nowait()
+            message = self.message_queue.get_nowait()
             if message['channel'].decode('utf-8') == 'plex_libraries':
                 library_list = json.loads(message['data'].decode('utf-8'))
                 for library in library_list:
                     self.plex_anime_library_dropdown.append(gui.DropDownItem(library))
                     self.plex_library_dropdown.append(gui.DropDownItem(library))
             else:
-                self.redis_queue.put(message)
+                self.message_queue.put(message)
         except Empty:
             self.after(100, self.update_library_dropdowns)
 
@@ -1112,7 +1135,7 @@ class Page1(BasePage, RedisListenerMixin):
         self.app.visited_page2 = False
         self.app.set_current_page('Page3')
 
-    def handle_redis_message(self, channel, data):
+    def handle_message(self, channel, data):
         if channel == 'plex_auth_url':
             # Use the JavaScript function to open the Plex auth URL directly
             auth_url = data  # The data contains the full URL
@@ -1198,14 +1221,14 @@ class Page2(BasePage):
         self.app.visited_page2 = True
         self.app.set_current_page('Page3')
 
-class Page3(BasePage, RedisListenerMixin):
+class Page3(BasePage, MessageBrokerMixin):
     def __init__(self, app, *args, **kwargs):
         super(Page3, self).__init__(app, 'Page3', *args, **kwargs)
         self.logic = LogicController()
         self.ToonamiChecker = ToonamiTools.ToonamiChecker
-        self.redis_queue = Queue()
-        self.start_redis_listener_thread(self.redis_queue)
-        self.after(100, self.process_redis_messages)
+        
+        self.setup_message_broker()
+        self.after(100, self.process_messages)
         
         # Track filter mode selection
         self.filter_mode = "move_files"  # Default to legacy mode
@@ -1478,14 +1501,14 @@ class Page3(BasePage, RedisListenerMixin):
                 time.sleep(2)
         self.prepare_content_continue()
 
-    def handle_redis_message(self, channel, data):
+    def handle_message(self, channel, data):
         pass
 
     def toggle_all_checkboxes(self, state):
         for checkbox in self.checkboxes.values():
             checkbox.set_value(state)
 
-class Page4(BasePage, RedisListenerMixin):
+class Page4(BasePage, MessageBrokerMixin):
     def __init__(self, app, *args, **kwargs):
         super(Page4, self).__init__(app, 'Page4', *args, **kwargs)
         self.cblogic = CommercialBreakerLogic()
@@ -1496,9 +1519,9 @@ class Page4(BasePage, RedisListenerMixin):
         else:
             self.cutless = False
             
-        self.redis_queue = Queue()
-        self.start_redis_listener_thread(self.redis_queue)
-        self.after(100, self.process_redis_messages)
+        
+        self.setup_message_broker()
+        self.after(100, self.process_messages)
 
         # Initialize the working folder and default directories
         self.working_folder = self.logic._get_data("working_folder")
@@ -1858,7 +1881,7 @@ class Page4(BasePage, RedisListenerMixin):
         print("Progress reset")
 
     def update_status(self, text):
-        # Forward status update to Redis if applicable
+        # Forward status update to message broker if applicable
         if hasattr(self.logic, '_broadcast_status_update'):
             self.logic._broadcast_status_update(text)
         
@@ -1972,8 +1995,8 @@ class Page4(BasePage, RedisListenerMixin):
     def on_cutless_state_change(self, enabled: bool):
         self.update_cutless_checkbox(enabled)
 
-    def handle_redis_message(self, channel, data):
-        """Handle incoming Redis messages"""
+    def handle_message(self, channel, data):
+        """Handle incoming messages"""
         if channel == 'filtered_files':
             try:
                 # The data will be a JSON string containing the list of filtered files
@@ -1996,16 +2019,16 @@ class Page4(BasePage, RedisListenerMixin):
             except Exception as e:
                 self.update_status(f"Error processing filtered files: {str(e)}")
         elif channel == 'cutless_state':
-            # Redis sends "true"/"false"
+            # Message broker sends "true"/"false"
             self.update_cutless_checkbox(data.lower() == 'true')
 
-class Page5(BasePage, RedisListenerMixin):
+class Page5(BasePage, MessageBrokerMixin):
     def __init__(self, app, *args, **kwargs):
         super(Page5, self).__init__(app, 'Page5', *args, **kwargs)
         self.logic = LogicController()
-        self.redis_queue = Queue()
-        self.start_redis_listener_thread(self.redis_queue)
-        self.after(100, self.process_redis_messages)
+        
+        self.setup_message_broker()
+        self.after(100, self.process_messages)
         
         # After initialization, check platform type to update UI
         self.after(100, self.check_platform_type)
@@ -2104,16 +2127,16 @@ class Page5(BasePage, RedisListenerMixin):
         flex_duration = self.flex_duration_entry.get_value()
         self.logic.add_flex(channel_number, flex_duration)
 
-    def handle_redis_message(self, channel, data):
+    def handle_message(self, channel, data):
         pass
 
-class Page6(BasePage, RedisListenerMixin):
+class Page6(BasePage, MessageBrokerMixin):
     def __init__(self, app, *args, **kwargs):
         super(Page6, self).__init__(app, 'Page6', *args, **kwargs)
         self.logic = LogicController()
-        self.redis_queue = Queue()
-        self.start_redis_listener_thread(self.redis_queue)
-        self.after(100, self.process_redis_messages)
+        
+        self.setup_message_broker()
+        self.after(100, self.process_messages)
         self.logic._broadcast_status_update("Idle")
         
         # After initialization, check platform type to update UI
@@ -2194,7 +2217,7 @@ class Page6(BasePage, RedisListenerMixin):
         flex_duration = self.flex_duration_entry.get_value()
         self.logic.add_flex(channel_number, flex_duration)
 
-    def handle_redis_message(self, channel, data):
+    def handle_message(self, channel, data):
         pass
 
 class MainApp(App):
