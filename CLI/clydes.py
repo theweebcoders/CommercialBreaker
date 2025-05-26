@@ -1,8 +1,8 @@
 import threading
 import queue
 import time
-import redis
 from GUI import LogicController
+from GUI.message_broker import get_message_broker
 from CLI.CommercialBreakerCLI import main as CommercialBreakerCLI
 
 class PlexManager:
@@ -376,12 +376,18 @@ class ClydesApp:
         self.toonami_manager = ToonamiManager(self.logic, self)
         
         self.status_queue = queue.Queue()
-        self.redis_queue = queue.Queue()
         
-        # Start Redis listener for status updates
-        self.start_redis_listener_thread(self.redis_queue)
-        self.redis_listener_thread = threading.Thread(target=self.process_redis_messages, daemon=True)
-        self.redis_listener_thread.start()
+        # Set up message broker
+        self.message_broker = get_message_broker()
+        self.message_subscription = self.message_broker.subscribe([
+            'status_updates', 'new_server_choices', 'new_library_choices',
+            'plex_servers', 'plex_libraries', 'plex_auth_url',
+            'cutless_state'
+        ])
+        
+        # Start message listener for status updates
+        self.message_listener_thread = threading.Thread(target=self.process_messages, daemon=True)
+        self.message_listener_thread.start()
         
         # Start the status printer
         self.printer_thread = threading.Thread(target=self.status_printer, daemon=True)
@@ -422,30 +428,21 @@ class ClydesApp:
                 return True
         return False
 
-    def listen_for_redis_updates(self, redis_queue):
-        redis_client = self.logic.redis_client
-        pubsub = redis_client.pubsub()
-        pubsub.subscribe('status_updates', 'new_server_choices', 
-                         'new_library_choices', 'plex_servers', 
-                         'plex_libraries', 'plex_auth_url',
-                         'cutless_state')
-
-        for message in pubsub.listen():
-            if message['type'] == 'message':
-                redis_queue.put(message)
-
-    def start_redis_listener_thread(self, redis_queue):
-        threading.Thread(target=self.listen_for_redis_updates, args=(redis_queue,), daemon=True).start()
-
-    def process_redis_messages(self):
+    def process_messages(self):
+        """Process messages from the message broker."""
         while True:
-            message = self.redis_queue.get()
-            channel = message['channel'].decode('utf-8')
-            if channel == 'status_updates':
-                self.status_queue.put(f"Status: {message['data'].decode('utf-8')}")
-            elif channel == 'cutless_state':
-                new_value = message['data'].decode('utf-8').lower() == 'true'
-                self.logic.cutless = new_value
+            try:
+                # Get message from message broker subscription
+                channel, data = self.message_subscription.get()
+                
+                # Process based on channel
+                if channel == 'status_updates':
+                    self.status_queue.put(f"Status: {data}")
+                elif channel == 'cutless_state':
+                    new_value = data.lower() == 'true'
+                    self.logic.cutless = new_value
+            except Exception as e:
+                print(f"Error processing message: {e}")
 
     def run(self):
         if not self.load_existing_configurations():
