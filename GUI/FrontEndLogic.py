@@ -94,7 +94,7 @@ class LogicController():
             plex_servers_json = json.dumps(self.plex_servers)
             self._publish_status_update('plex_servers', plex_servers_json)
 
-        def publish_plex_libaries(self):
+        def publish_plex_libraries(self):
             plex_libraries_json = json.dumps(self.plex_libraries)
             self._publish_status_update('plex_libraries', plex_libraries_json)
 
@@ -272,7 +272,7 @@ class LogicController():
 
                             # Announce that new library choices are available
                             self._publish_status_update("new_library_choices", "new_library_choices")
-                            self.publish_plex_libaries()
+                            self.publish_plex_libraries()
 
                 except Exception as e:  # Replace with more specific exceptions if known
                     print(f"An error occurred while fetching libraries: {e}")
