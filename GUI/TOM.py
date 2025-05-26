@@ -3,31 +3,83 @@ from tkinter import ttk, filedialog, messagebox
 import sv_ttk
 from ComBreak import CommercialBreakerLogic
 from GUI import LogicController
+from GUI.message_broker import get_message_broker
 import config
 import threading
 import os
 import psutil
-import redis
 import json
 from queue import Queue
 
 
-class Page1(ttk.Frame):
+class MessageBrokerMixin:
+    """Mixin class to provide message broker subscription functionality to any page."""
+    
+    def setup_message_broker(self):
+        """Initialize the message broker subscription and processing."""
+        self.message_queue = Queue()
+        self.broker = get_message_broker()
+        
+        # Subscribe to channels
+        self.subscription = self.broker.subscribe([
+            'status_updates', 'new_server_choices', 'new_library_choices',
+            'plex_servers', 'plex_libraries', 'filtered_files',
+            'plex_auth_url', 'cutless_state'
+        ])
+        
+        # Start the message processing thread
+        threading.Thread(target=self._listen_for_messages, daemon=True).start()
+        
+        # Schedule periodic processing of messages in the UI thread
+        self.after(100, self.process_messages)
+    
+    def _listen_for_messages(self):
+        """Background thread to listen for messages and put them in our queue."""
+        while True:
+            try:
+                # Get message from broker subscription
+                channel, data = self.subscription.get()
+                # Put in our queue for UI thread to process
+                self.message_queue.put((channel, data))
+            except Exception as e:
+                print(f"Error in message listener: {e}")
+    
+    def process_messages(self):
+        """Process all pending messages in the queue (called in UI thread)."""
+        try:
+            while not self.message_queue.empty():
+                channel, data = self.message_queue.get_nowait()
+                self.handle_message(channel, data)
+                
+            # Schedule the next check
+            self.after(100, self.process_messages)
+        except Exception as e:
+            print(f"Error processing messages: {e}")
+            # Ensure we keep checking for messages even after an error
+            self.after(100, self.process_messages)
+    
+    def handle_message(self, channel, data):
+        """Handle a message from a specific channel. Override in subclasses."""
+        if channel == 'status_updates':
+            self.update_status_label(data)
+        elif hasattr(self, 'handle_specific_message'):
+            self.handle_specific_message(channel, data)
+    
+    def update_status_label(self, status):
+        """Update the status label if it exists."""
+        if hasattr(self, 'status_label') and hasattr(self.status_label, 'config'):
+            self.status_label.config(text=f"Status: {status}")
+
+
+class Page1(ttk.Frame, MessageBrokerMixin):
     def __init__(self, parent, controller, logic):
         ttk.Frame.__init__(self, parent)
         self.controller = controller
         self.logic = logic
         self.libraries_selected = 0
 
-# do something to pick one
-        # Start the Redis listener thread
-        # -------------------------------
-        if LogicController.use_redis:
-            self.redis_queue = Queue()
-            self.controller.start_redis_listener_thread(self.redis_queue)
-            self.after(100, self.process_redis_messages)
-            # -------------------------------
-        # Pubsub stuff
+        # Set up message broker subscription
+        self.setup_message_broker()
         # ----------------
         else:
             self.logic.subscribe_to_new_server_choices(self.update_dropdown)
@@ -207,7 +259,7 @@ class Page1(ttk.Frame):
                                    platform_url, platform_type)
         self.controller.show_frame("Page3")
 
-class Page2(ttk.Frame):
+class Page2(ttk.Frame, MessageBrokerMixin):
     def __init__(self, parent, controller, logic):
         ttk.Frame.__init__(self, parent)
         self.controller = controller
@@ -215,6 +267,9 @@ class Page2(ttk.Frame):
         label.pack(pady=10, padx=10)
 
         self.logic = logic
+        
+        # Set up message broker subscription
+        self.setup_message_broker()
 
         plex_url_label = ttk.Label(self, text="Plex URL:")
         plex_url_label.pack(pady=3)
@@ -272,13 +327,16 @@ class Page2(ttk.Frame):
         self.controller.show_frame("Page3")
 
 
-class Page3(ttk.Frame):
+class Page3(ttk.Frame, MessageBrokerMixin):
     def __init__(self, parent, controller, logic):
         ttk.Frame.__init__(self, parent)
         self.controller = controller
         label = ttk.Label(self, text="Select your folders:", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
         self.logic = logic
+
+        # Set up message broker subscription
+        self.setup_message_broker()
 
         self.anime_folder_entry = ttk.Entry(self)
         self.anime_folder_entry.pack(pady=3)
@@ -319,7 +377,7 @@ class Page3(ttk.Frame):
         self.logic.on_continue_third(anime_folder, bump_folder, special_bump_folder, working_folder)
         self.controller.show_frame("Page4")
 
-class Page4(ttk.Frame):
+class Page4(ttk.Frame, MessageBrokerMixin):
     def __init__(self, parent, controller, logic):
         ttk.Frame.__init__(self, parent)
         self.controller = controller
@@ -460,7 +518,7 @@ class Page4(ttk.Frame):
 
         return selected_shows
 
-class Page5(ttk.Frame):
+class Page5(ttk.Frame, MessageBrokerMixin):
     def __init__(self, parent, controller, logic):
         ttk.Frame.__init__(self, parent)
         self.controller = controller
@@ -990,7 +1048,7 @@ class Page5(ttk.Frame):
         """Callback for cutless state changes from LogicController."""
         self.update_cutless_checkbox(enabled)
 
-class Page6(ttk.Frame):
+class Page6(ttk.Frame, MessageBrokerMixin):
     def __init__(self, parent, controller, logic):
         ttk.Frame.__init__(self, parent)
         self.controller = controller
@@ -1127,11 +1185,14 @@ class Page6(ttk.Frame):
         flex_duration = self.flex_duration_entry.get()
         self.logic.add_flex(channel_number, flex_duration)
 
-class Page7(ttk.Frame):
+class Page7(ttk.Frame, MessageBrokerMixin):
     def __init__(self, parent, controller, logic):
         ttk.Frame.__init__(self, parent)
         self.controller = controller
         self.logic = logic
+        
+        # Set up message broker subscription
+        self.setup_message_broker()
 
     # do something to pick one
         if LogicController.use_redis:
@@ -1228,16 +1289,12 @@ class Page7(ttk.Frame):
         # Call the parent class's tkraise
         super().tkraise()
 
-    if LogicController.use_redis:
-        # -------------------------------------
-            def process_redis_messages(self):
-                while not self.redis_queue.empty():
-                    message = self.redis_queue.get()
-                    if message['channel'].decode('utf-8') == 'status_updates':
-                        self.update_status_label(message['data'].decode('utf-8'))
-                
-                self.after(100, self.process_redis_messages)
-        # -------------------------------------
+    def handle_specific_message(self, channel, data):
+        """Handle specific messages for this page."""
+        if channel == 'plex_auth_url':
+            # Open the auth URL in the browser
+            import webbrowser
+            webbrowser.open(data)
 
     def update_status_label(self, status):
         self.status_label.config(text=f"Status: {status}")
@@ -1278,24 +1335,7 @@ class MainApplication(tk.Tk):
             self.frames[page_name] = frame
             frame.grid(row=0, column=0, sticky="nsew")
 
-
         self.show_frame("Page1")
-# don't use this if not needed
-# Listen for Redis updates
-# ------------------------
-    if LogicController.use_redis:
-        def listen_for_redis_updates(self, redis_queue):
-            redis_client = self.logic.redis_client
-            pubsub = redis_client.pubsub()
-            pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices',
-                             'plex_servers', 'plex_libraries', 'filtered_files',
-                             'plex_auth_url', 'cutless_state')
-
-            for message in pubsub.listen():
-                if message['type'] == 'message':
-                    redis_queue.put(message)
-
-        def start_redis_listener_thread(self, redis_queue):
             threading.Thread(target=self.listen_for_redis_updates, args=(redis_queue,), daemon=True).start()
         # ------------------------
 
