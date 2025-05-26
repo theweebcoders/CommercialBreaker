@@ -3,7 +3,9 @@ name: Build & Push Docker Image with GitHub Cache
 on:
   push:
     branches: [ "main" ]
-
+    paths-ignore:
+      - 'docs/**'
+      
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
