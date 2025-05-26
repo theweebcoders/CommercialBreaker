@@ -168,7 +168,7 @@ class LogicController():
     def on_server_selected(self, selected_server):
         self.fetch_libraries(selected_server)
 
-     def fetch_libraries(self, selected_server):
+    def fetch_libraries(self, selected_server):
         def fetch_libraries_thread():
             try:
                 # Create PlexLibraryManager and PlexLibraryFetcher instances

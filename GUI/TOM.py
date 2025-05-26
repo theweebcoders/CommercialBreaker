@@ -80,14 +80,11 @@ class Page1(ttk.Frame, MessageBrokerMixin):
 
         # Set up message broker subscription
         self.setup_message_broker()
+        
         # ----------------
-        else:
-            self.logic.subscribe_to_new_server_choices(self.update_dropdown)
-            self.logic.subscribe_to_new_library_choices(self.update_anime_dropdown)
-            self.logic.subscribe_to_new_library_choices(self.update_toonami_dropdown)
-            self.logic.subscribe_to_status_updates(self.update_status_label)
-            self.logic.subscribe_to_auth_url(self.open_auth_url)
-            # ----------------
+        # Subscribe to specific channels for updates
+        # Note: These subscriptions are handled by the MessageBrokerMixin now
+        # ----------------
 
         label = ttk.Label(self, text="Login with Plex", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
@@ -161,72 +158,25 @@ class Page1(ttk.Frame, MessageBrokerMixin):
 
         self.continue_button = ttk.Button(button_frame, text="Continue",
                                         command=self.on_continue_button_click)
- 
- # do something to pick one       
-    # Process messages from the Redis queue
-    # -------------------------------------
-    if LogicController.use_redis:
-        def process_redis_messages(self):
-            while not self.redis_queue.empty():
-                message = self.redis_queue.get()
-                channel = message['channel'].decode('utf-8')
-                data = message['data'].decode('utf-8')
-                
-                if channel == 'plex_auth_url':
-                    print(f"Received auth URL from Redis - opening browser")
-                    self.open_auth_url(data)
-                elif channel == 'status_updates':
-                    self.update_status_label(data)
-                elif channel == 'new_server_choices':
-                    self.update_dropdown()
-                elif channel == 'new_library_choices':
-                    self.update_library_dropdowns()
-            
-            self.after(100, self.process_redis_messages)
+        self.continue_button.pack(side="right", padx=5, pady=5) 
 
-        def update_dropdown(self, *args, **kwargs):
-            try:
-                message = self.redis_queue.get_nowait()
-                if message['channel'].decode('utf-8') == 'plex_servers':
-                    server_list = json.loads(message['data'].decode('utf-8'))
-                    self.plex_server_dropdown['values'] = server_list
-                else:
-                    self.redis_queue.put(message)
-            except self.redis_queue.empty():
-                self.after(100, self.update_dropdown)
-            
+    def handle_message(self, channel, data):
+        """Handle a message from a specific channel."""
+        if channel == 'plex_servers':
+            # Parse and update dropdown
+            server_list = json.loads(data)
+            self.plex_server_dropdown['values'] = server_list
+        elif channel == 'plex_libraries':
+            # Parse and update both library dropdowns
+            library_list = json.loads(data)
+            self.plex_anime_library_dropdown['values'] = library_list
+            self.plex_library_dropdown['values'] = library_list
+        elif channel == 'plex_auth_url':
+            # Handle auth URL
+            self.open_auth_url(data)
+        # Add any other specific channel handlers here
 
-        def update_library_dropdowns(self, *args, **kwargs):
-            try:
-                message = self.redis_queue.get_nowait()
-                if message['channel'].decode('utf-8') == 'plex_libraries':
-                    library_list = json.loads(message['data'].decode('utf-8'))
-                    self.plex_anime_library_dropdown['values'] = library_list
-                    self.plex_library_dropdown['values'] = library_list
-                else:
-                    self.redis_queue.put(message)
-            except self.redis_queue.empty():
-                self.after(100, self.update_library_dropdowns)
-
-# ---------------------------------------------------------------------
-
-
-# pubsub stuff
-# ----------------
-    else:
-        def update_dropdown(self, *args, **kwargs):
-            """Callback to update the dropdown when new server choices are announced."""
-            self.plex_server_dropdown['values'] = self.logic.plex_servers
-
-        def update_anime_dropdown(self, *args, **kwargs):
-            """Callback to update the dropdown when new library choices are announced."""
-            self.plex_anime_library_dropdown['values'] = self.logic.plex_libraries
-
-        def update_toonami_dropdown(self, *args, **kwargs):
-            """Callback to update the dropdown when new library choices are announced."""
-            self.plex_library_dropdown['values'] = self.logic.plex_libraries
-# ---------------------------------
-
+    # Required methods to handle display updates
     def open_auth_url(self, auth_url):
         self.logic.open_auth_url(auth_url)
 
@@ -456,18 +406,13 @@ class Page4(ttk.Frame, MessageBrokerMixin):
         prepopulate = (self.filtered_files_action.get() == "prepopulate")
         self.logic.move_filtered(prepopulate=prepopulate)
 
-    if LogicController.use_redis:
-         # -------------------------------------
-            def process_redis_messages(self):
-                while not self.redis_queue.empty():
-                    message = self.redis_queue.get()
-                    if message['channel'].decode('utf-8') == 'status_updates':
-                        self.update_status_label(message['data'].decode('utf-8'))
-                
-                self.after(100, self.process_redis_messages)
-        # -------------------------------------
-            # Pubsub stuff
-            # ----------------
+    # Handle messages from Page4
+    def handle_specific_message(self, channel, data):
+        if channel == 'filtered_files':
+            filtered_files = json.loads(data)
+            self.load_filtered_files(filtered_files)
+        elif channel == 'cutless_state':
+            self.update_cutless_checkbox(data.lower() == 'true')
 
     def on_continue_button_click(self):
         self.logic.on_continue_fourth()
@@ -1336,8 +1281,16 @@ class MainApplication(tk.Tk):
             frame.grid(row=0, column=0, sticky="nsew")
 
         self.show_frame("Page1")
-            threading.Thread(target=self.listen_for_redis_updates, args=(redis_queue,), daemon=True).start()
-        # ------------------------
+        
+        self.frame_titles = {
+            "Page1": "Step 1 - Login to Plex - Welcome to the Absolution",
+            "Page2": "Step 1 - Enter Details - A Little Detour",
+            "Page3": "Step 2 - Select Folders - Deploy the Clydes",
+            "Page4": "Step 3 - Prepare Content - Intruder Alert",
+            "Page5": "Step 4 - Commercial Breaker - Toonami Will Be Right Back",
+            "Page6": "Step 5 - Create your Toonami Channel - All aboard the Absolution",
+            "Page7": "Step 6 - Let's Make Another Channel! - Toonami's Back Bitches",
+        }
 
     def set_theme(self):
         if self.dark_mode:
@@ -1351,19 +1304,9 @@ class MainApplication(tk.Tk):
         # Refresh frames if needed
 
     def show_frame(self, page_name):
-        frame_titles = {
-            "Page1": "Step 1 - Login to Plex - Welcome to the Absolution",
-            "Page2": "Step 1 - Enter Details - A Little Detour",
-            "Page3": "Step 2 - Select Folders - Deploy the Clydes",
-            "Page4": "Step 3 - Prepare Content - Intruder Alert",
-            "Page5": "Step 4 - Commercial Breaker - Toonami Will Be Right Back",
-            "Page6": "Step 5 - Create your Toonami Channel - All aboard the Absolution",
-            "Page7": "Step 6 - Let's Make Another Channel! - Toonami's Back Bitches",
-        }
-
         frame = self.frames[page_name]
         frame.tkraise()
-        self.title(frame_titles[page_name])
+        self.title(self.frame_titles[page_name])
 
 
 def main():
