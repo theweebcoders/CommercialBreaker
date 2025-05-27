@@ -24,7 +24,21 @@ jobs:
 
       - name: Install m3u8 early for build
         run: pip install m3u8
-        
+
+      # Generate a minimal setup.py on the fly so pip can install the project directory
+      - name: Create minimal setup.py
+        run: |
+          cat << 'EOF' > setup.py
+          from setuptools import setup, find_packages
+
+          setup(
+            name="commercialbreaker",
+            version="0.1.0",
+            packages=find_packages(),
+          )
+          EOF
+
+      # Now pip can install the root directory as a package
       - name: Install your project with no build isolation
         run: pip install --no-build-isolation .
 
