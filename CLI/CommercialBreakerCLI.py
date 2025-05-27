@@ -269,7 +269,7 @@ class CommercialBreakerCLI:
     def detect_commercials(self):
         """Detect the commercials in the videos."""
         if self.validate_input_output_dirs():
-            threading.Thread(target=self._run_and_notify, args=(self.logic.detect_commercials, self.done_detect_commercials, "Detect Black Frames", False, self.low_power_mode, self.fast_mode, self.reset_progress_bar)).start()
+            threading.Thread(target=self._run_and_notify, args=(self.logic.detect_commercials, self.done_detect_commercials, "Detect Black Frames", False, False, self.low_power_mode, self.fast_mode, self.reset_progress_bar)).start()
 
     def validate_input_output_dirs(self):
         """Validate the input and output directories."""

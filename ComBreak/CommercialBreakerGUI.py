@@ -316,16 +316,16 @@ class CommercialBreakerGUI:
                 self.done_cut_videos, 
                 "Cut Video", 
                 self.destructive_mode.get(), 
-                False,
-                False,
-                None,
-                self.cutless_mode.get()
+                self.cutless_mode.get(), 
+                False, 
+                False, 
+                None
             )).start()
 
     def detect_commercials(self):
         """Detect the commercials in the videos."""
         if self.validate_input_output_dirs():
-            threading.Thread(target=self._run_and_notify, args=(self.logic.detect_commercials, self.done_detect_commercials, "Detect Black Frames", False, self.low_power_mode.get(), self.fast_mode.get(), self.reset_progress_bar)).start()
+            threading.Thread(target=self._run_and_notify, args=(self.logic.detect_commercials, self.done_detect_commercials, "Detect Black Frames", False, False, self.low_power_mode.get(), self.fast_mode.get(), self.reset_progress_bar)).start()
 
     def validate_input_output_dirs(self):
         """Validate the input and output directories."""
@@ -392,7 +392,7 @@ class CommercialBreakerGUI:
         self.status_label.config(text=text)
         self.status_label.update()
 
-    def _run_and_notify(self, task, done_callback, task_name, destructive_mode=False, low_power_mode=False, fast_mode=False, reset_callback=None, cutless_mode=False): # Add cutless_mode parameter
+    def _run_and_notify(self, task, done_callback, task_name, destructive_mode=False, cutless_mode=False, low_power_mode=False, fast_mode=False, reset_callback=None):
         self.update_status(f"Started task: {task_name}")
         if task_name == "Detect Black Frames":
             # Detect commercials doesn't need cutless_mode

@@ -1,5 +1,4 @@
 import sqlite3
-import redis
 import ToonamiTools
 from GUI.FlagManager import FlagManager
 import config
@@ -9,9 +8,9 @@ import json
 from queue import Queue
 import sys
 import webbrowser
+from GUI.message_broker import get_message_broker
 
 class LogicController():
-    use_redis = FlagManager.use_redis
     docker = FlagManager.docker
     cutless_in_args = FlagManager.cutless_in_args
     cutless = FlagManager.cutless
@@ -19,27 +18,34 @@ class LogicController():
     def __init__(self):
         self.db_path = f'{config.network}.db'
         self._setup_database()
-        self.use_redis = FlagManager.use_redis
         self.docker = FlagManager.docker
         self.cutless = FlagManager.cutless
         
         # Check platform compatibility if needed - let FlagManager handle this
         if self.cutless:
-            platform_type = self._get_data("platform_type") 
+            platform_type = self._get_data("platform_type")
             platform_url = self._get_data("platform_url")
             # Let FlagManager handle the compatibility check
             FlagManager.evaluate_platform_compatibility(platform_type, platform_url)
 
-        if self.use_redis:
-            self.redis_client = redis.Redis(host='localhost', port=6379, db=0)
-        else:
-            # Pubsub subscribers
-            self._new_server_choice_subscribers = []
-            self._new_library_choice_subscribers = []
-            self._status_update_subscribers = []
-            self._filtered_files_subscribers = []  # New subscriber list for filtered files
-            self._auth_url_subscribers = []  # New subscriber list for auth URLs
-            self._cutless_state_subscribers = []  # New subscriber list for cutless state
+        # Get the message broker singleton
+        self.message_broker = get_message_broker()
+        
+        # UI callback management
+        self._ui_callbacks = {
+            'status_updates': [],
+            'progress_updates': [],
+            'plex_servers': [],
+            'plex_libraries': [],
+            'filtered_files': [],
+            'plex_auth_url': [],
+            'cutless_state': [],
+            'new_server_choices': [],
+            'new_library_choices': []
+        }
+        
+        self._start_message_handler_thread()
+        
         self.plex_servers = []
         self.plex_libraries = []
         self.filter_complete_event = threading.Event()
@@ -47,6 +53,90 @@ class LogicController():
 
         # Register callback for cutless state changes
         FlagManager.register_cutless_callback(self._on_cutless_change)
+
+    def subscribe_to_status_updates(self, callback: callable):
+        """Subscribe to status updates. Callback receives (status_message)"""
+        self.subscribe_to_updates('status_updates', callback)
+
+    def subscribe_to_progress_updates(self, callback: callable):
+        """Subscribe to progress updates. Callback receives (progress_data)"""
+        self.subscribe_to_updates('progress_updates', callback)
+
+    def subscribe_to_plex_servers(self, callback: callable):
+        """Subscribe to Plex server updates. Callback receives (server_list_json)"""
+        self.subscribe_to_updates('plex_servers', callback)
+
+    def subscribe_to_plex_libraries(self, callback: callable):
+        """Subscribe to Plex library updates. Callback receives (library_list_json)"""
+        self.subscribe_to_updates('plex_libraries', callback)
+
+    def subscribe_to_filtered_files(self, callback: callable):
+        """Subscribe to filtered files updates. Callback receives (filtered_files_json)"""
+        self.subscribe_to_updates('filtered_files', callback)
+
+    def subscribe_to_plex_auth_url(self, callback: callable):
+        """Subscribe to Plex auth URL. Callback receives (auth_url)"""
+        self.subscribe_to_updates('plex_auth_url', callback)
+
+    def subscribe_to_cutless_state(self, callback: callable):
+        """Subscribe to cutless state changes. Callback receives ('true' or 'false')"""
+        self.subscribe_to_updates('cutless_state', callback)
+
+    def subscribe_to_server_choices(self, callback: callable):
+        """Subscribe to new server choices. Callback receives (signal)"""
+        self.subscribe_to_updates('new_server_choices', callback)
+
+    def subscribe_to_library_choices(self, callback: callable):
+        """Subscribe to new library choices. Callback receives (signal)"""
+        self.subscribe_to_updates('new_library_choices', callback)
+
+    def subscribe_to_updates(self, channel: str, callback: callable):
+        """Simple subscription method for UIs"""
+        if channel not in self._ui_callbacks:
+            self._ui_callbacks[channel] = [] # Initialize if new channel (should be pre-defined though)
+            print(f"Warning: Subscribing to a new, previously unknown channel: {channel}")
+        if callback not in self._ui_callbacks[channel]: # Avoid duplicate subscriptions
+            self._ui_callbacks[channel].append(callback)
+    
+    def unsubscribe_from_updates(self, channel: str, callback: callable):
+        """Simple unsubscription method"""
+        if channel in self._ui_callbacks and callback in self._ui_callbacks[channel]:
+            self._ui_callbacks[channel].remove(callback)
+            # Optionally, clean up empty channel list if desired, though not strictly necessary
+            # if not self._ui_callbacks[channel]:
+            #     del self._ui_callbacks[channel]
+    
+    def _start_message_handler_thread(self):
+        """Internal method to start the thread that routes broker messages to UI callbacks"""
+        handler_thread = threading.Thread(target=self._message_handler_loop, daemon=True)
+        handler_thread.start()
+
+    def _message_handler_loop(self):
+        """Continuously fetches messages from the broker and routes them to UI callbacks."""
+        # Subscribe to all channels that LogicController manages for UI callbacks
+        known_channels = list(self._ui_callbacks.keys())
+        queue = self.message_broker.subscribe(known_channels)
+        
+        while True:
+            try:
+                channel, data = queue.get() # Blocks until a message is available
+                
+                # Iterate over a copy of the callbacks list for thread safety
+                callbacks_to_run = list(self._ui_callbacks.get(channel, []))
+                
+                for callback in callbacks_to_run:
+                    try:
+                        # Ensure UI updates are scheduled on the main thread if necessary
+                        # For Remi/Tkinter, this might involve using their respective mechanisms
+                        # For now, direct call. UIs must handle thread safety if needed.
+                        callback(data)
+                    except Exception as e:
+                        print(f"Error in UI callback for channel {channel} with data '{data}': {e}")
+                queue.task_done()
+            except Exception as e:
+                print(f"Error in message handler loop: {e}")
+                # Avoid busy-looping on persistent errors
+                time.sleep(1)
 
     def _setup_database(self):
         with sqlite3.connect(self.db_path) as conn:
@@ -81,108 +171,66 @@ class LogicController():
             cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
             return cursor.fetchone() is not None
 
-    if use_redis:
-        # If Redis is used, include the following
-        def _publish_status_update(self, channel, message):
-            self.redis_client.publish(channel, message)
+    def _publish_status_update(self, channel, message):
+        """
+        Publish a message to the specified channel using the message broker.
+        
+        Args:
+            channel: Channel name
+            message: Message to publish
+        """
+        self.message_broker.publish(channel, message)
 
-        def _broadcast_status_update(self, message):
-            """Publish status update to Redis channel."""
-            self.redis_client.publish('status_updates', message)
+    def _broadcast_status_update(self, message):
+        """
+        Publish a status update to the 'status_updates' channel.
+        
+        Args:
+            message: Status message
+        """
+        # Publish to the broker
+        self.message_broker.publish('status_updates', message)
 
-        def publish_plex_servers(self):
-            plex_servers_json = json.dumps(self.plex_servers)
-            self._publish_status_update('plex_servers', plex_servers_json)
+    def publish_plex_servers(self):
+        """Publish server list via message broker"""
+        plex_servers_json = json.dumps(self.plex_servers)
+        self._publish_status_update('plex_servers', plex_servers_json)
 
-        def publish_plex_libaries(self):
-            plex_libraries_json = json.dumps(self.plex_libraries)
-            self._publish_status_update('plex_libraries', plex_libraries_json)
+    def publish_plex_libraries(self):
+        """Publish libraries list via message broker"""
+        plex_libraries_json = json.dumps(self.plex_libraries)
+        self._publish_status_update('plex_libraries', plex_libraries_json)
 
-        # New method for filtered files
-        def publish_filtered_files(self, filtered_files):
-            """Publish filtered files to Redis channel."""
-            filtered_files_json = json.dumps(filtered_files)
-            self._publish_status_update('filtered_files', filtered_files_json)
+    def publish_filtered_files(self, filtered_files):
+        """Publish filtered files to channel"""
+        filtered_files_json = json.dumps(filtered_files)
+        self._publish_status_update('filtered_files', filtered_files_json)
 
-        def get_token(self):
-            plex_token = self._get_data("plex_token")
-            return plex_token
+    def get_token(self):
+        """Get Plex token from database"""
+        plex_token = self._get_data("plex_token")
+        return plex_token
 
-        def publish_plex_auth_url(self, auth_url):
-            """Publish Plex authentication URL to Redis channel but don't open it directly."""
-            self.redis_client.publish('plex_auth_url', auth_url)
-            print("Please open the following URL in your browser to authenticate with Plex: \n" + auth_url)
-            # Note: The browser will be opened by TOM when it processes the Redis message,
-            # so we don't call webbrowser.open here to avoid opening the browser twice
+    def publish_plex_auth_url(self, auth_url):
+        """Publish Plex authentication URL to channel"""
+        self.message_broker.publish('plex_auth_url', auth_url)
+        print("Please open the following URL in your browser to authenticate with Plex: \n" + auth_url)
 
-        def publish_cutless_state(self, enabled):
-            """Publish cutless state to Redis channel 'cutless_state' as 'true' or 'false'"""
-            self._publish_status_update('cutless_state', 'true' if enabled else 'false')
-
-    else:
-        # Else
-        def subscribe_to_new_server_choices(self, callback):
-            if callable(callback):
-                self._new_server_choice_subscribers.append(callback)
-
-        def subscribe_to_new_library_choices(self, callback):
-            if callable(callback):
-                self._new_library_choice_subscribers.append(callback)
-
-        def subscribe_to_status_updates(self, callback):
-            """Subscribe to status updates."""
-            if callable(callback):
-                self._status_update_subscribers.append(callback)
-
-        # New method for filtered files
-        def subscribe_to_filtered_files(self, callback):
-            """Subscribe to filtered files updates."""
-            if callable(callback):
-                self._filtered_files_subscribers.append(callback)
-
-        # New subscriber list for auth URL
-        def subscribe_to_auth_url(self, callback):
-            """Subscribe to authentication URL updates."""
-            if callable(callback):
-                self._auth_url_subscribers.append(callback)
-
-        def subscribe_to_cutless_state(self, callback):
-            """Subscribe to cutless state changes."""
-            if callable(callback):
-                self._cutless_state_subscribers.append(callback)
-
-        def _broadcast_status_update(self, message):
-            """Notify all subscribers about a status update."""
-            for subscriber in self._status_update_subscribers:
-                subscriber(message)
-                
-        # New method for filtered files
-        def _broadcast_filtered_files(self, filtered_files):
-            """Notify all subscribers about new filtered files."""
-            for subscriber in self._filtered_files_subscribers:
-                subscriber(filtered_files)
-
-        def _broadcast_auth_url(self, auth_url):
-            """Notify all subscribers about a new auth URL."""
-            for subscriber in self._auth_url_subscribers:
-                subscriber(auth_url)            
-            print("Please open the following URL in your browser to authenticate with Plex: \n" + auth_url)
-
-        def _broadcast_cutless_state(self, enabled):
-            """Notify all subscribers about a cutless state change."""
-            for callback in self._cutless_state_subscribers:
-                callback(enabled)
+    def publish_cutless_state(self, enabled):
+        """Publish cutless state to 'cutless_state' channel as 'true' or 'false'"""
+        self._publish_status_update('cutless_state', 'true' if enabled else 'false')
 
     def _on_cutless_change(self, enabled):
         """
-        Callback for FlagManager cutless state changes. Broadcasts/publishes the new state.
+        Callback for FlagManager cutless state changes. Broadcasts the new state.
         """
         LogicController.cutless = enabled  # Keep class variable in sync
         self.cutless = enabled             # Keep instance variable in sync
-        if self.use_redis:
-            self.publish_cutless_state(enabled)
-        else:
-            self._broadcast_cutless_state(enabled)
+        
+        # Publish to the message broker
+        self.publish_cutless_state(enabled)
+        
+        # Broadcast status update
         self._broadcast_status_update(f"Cutless mode {'enabled' if enabled else 'disabled'}")
 
     def is_filtered_complete(self):
@@ -209,11 +257,8 @@ class LogicController():
                 self._broadcast_status_update("Logging in to Plex...")
                 self.server_list = ToonamiTools.PlexServerList()
                 
-                # Set up the callback to handle auth URL based on mode
-                if self.use_redis:
-                    self.server_list.set_auth_url_callback(self.publish_plex_auth_url)
-                else:
-                    self.server_list.set_auth_url_callback(self._broadcast_auth_url)
+                # Set up the callback to handle auth URL
+                self.server_list.set_auth_url_callback(self.publish_plex_auth_url)
                 
                 self.server_list.run()
                 self._broadcast_status_update("Plex login successful. Fetching servers...")
@@ -223,13 +268,8 @@ class LogicController():
                 self._broadcast_status_update("Plex servers fetched!")
 
                 # Announce that new server choices are available
-                if self.use_redis:
-                    self._publish_status_update("new_server_choices", "new_server_choices")
-                    self.publish_plex_servers()
-                else:
-                    for subscriber in self._new_server_choice_subscribers:
-                        subscriber(self.plex_servers)
-                        print(self.plex_servers)
+                self.message_broker.publish("new_server_choices", "new_server_choices")
+                self.publish_plex_servers()
 
             except Exception as e:
                 print(f"An error occurred while logging in to Plex: {e}")
@@ -245,67 +285,51 @@ class LogicController():
     def on_server_selected(self, selected_server):
         self.fetch_libraries(selected_server)
 
- # There are Two versions of fetch_libraries depending on if it is with or without redis
-    if use_redis:
-        # If using Redis, include the following
-        def fetch_libraries(self, selected_server):
-            def fetch_libraries_thread():
-                try:
-                    # Create PlexLibraryManager and PlexLibraryFetcher instances
-                    self._broadcast_status_update(f"Fetching libraries for {selected_server}...")
-                    plex_token = self.get_token()
-                    if plex_token is None:
-                        raise Exception("Could not fetch Plex Token")
-                    else:
-                        self.library_manager = ToonamiTools.PlexLibraryManager(selected_server, plex_token)
-                        plex_url = self.library_manager.run()
-                        self._set_data("plex_url", plex_url)
-                        if plex_url is None:
-                            raise Exception("Could not fetch Plex URL")
-                        else:
-                            self.library_fetcher = ToonamiTools.PlexLibraryFetcher(plex_url, plex_token)
-                            self.library_fetcher.run()
-
-                            # Update the list of libraries
-                            self.plex_libraries = self.library_fetcher.libraries
-                            self._broadcast_status_update("Libraries fetched successfully!")
-
-                            # Announce that new library choices are available
-                            self._publish_status_update("new_library_choices", "new_library_choices")
-                            self.publish_plex_libaries()
-
-                except Exception as e:  # Replace with more specific exceptions if known
-                    print(f"An error occurred while fetching libraries: {e}")
-
-            thread = threading.Thread(target=fetch_libraries_thread)
-            thread.start()
-    else:
-        # Else use the following
-        def fetch_libraries(self, selected_server):
-            def fetch_libraries_thread():
-                try:
-                    # Create PlexLibraryManager and PlexLibraryFetcher instances
-                    self._broadcast_status_update(f"Fetching libraries for {selected_server}...")
-                    self.library_manager = ToonamiTools.PlexLibraryManager(selected_server, self.server_list.plex_token)
-                    plex_url = self.library_manager.run()
-                    self._set_data("plex_url", plex_url)  # Add this line
+    def fetch_libraries(self, selected_server):
+        """Unified fetch libraries method that uses the message broker"""
+        def fetch_libraries_thread():
+            try:
+                # Create PlexLibraryManager and PlexLibraryFetcher instances
+                self._broadcast_status_update(f"Fetching libraries for {selected_server}...")
+                
+                # Get token either from get_token or from server_list
+                plex_token = self.get_token()
+                if plex_token is None and hasattr(self, 'server_list'):
+                    plex_token = self.server_list.plex_token
+                
+                if plex_token is None:
+                    raise Exception("Could not fetch Plex Token")
                     
-                    self.library_fetcher = ToonamiTools.PlexLibraryFetcher(self.library_manager.plex_url, self.server_list.plex_token)
-                    self.library_fetcher.run()
+                # Create library manager
+                self.library_manager = ToonamiTools.PlexLibraryManager(selected_server, plex_token)
+                plex_url = self.library_manager.run()
+                self._set_data("plex_url", plex_url)
+                
+                if plex_url is None:
+                    raise Exception("Could not fetch Plex URL")
+                
+                # Use either direct URL or one from library manager
+                url_to_use = plex_url
+                if hasattr(self.library_manager, 'plex_url'):
+                    url_to_use = self.library_manager.plex_url
+                
+                # Create library fetcher
+                self.library_fetcher = ToonamiTools.PlexLibraryFetcher(url_to_use, plex_token)
+                self.library_fetcher.run()
 
-                    # Update the list of libraries
-                    self.plex_libraries = self.library_fetcher.libraries
-                    self._broadcast_status_update("Libraries fetched successfully!")
+                # Update the list of libraries
+                self.plex_libraries = self.library_fetcher.libraries
+                self._broadcast_status_update("Libraries fetched successfully!")
 
-                    # Announce that new library choices are available
-                    for subscriber in self._new_library_choice_subscribers:
-                        subscriber()
+                # Announce that new library choices are available
+                self.message_broker.publish("new_library_choices", "new_library_choices")
+                self.publish_plex_libraries()
 
-                except Exception as e:  # Replace with more specific exceptions if known
-                    print(f"An error occurred while fetching libraries: {e}")
+            except Exception as e:
+                print(f"An error occurred while fetching libraries: {e}")
 
-            thread = threading.Thread(target=fetch_libraries_thread)
-            thread.start()
+        thread = threading.Thread(target=fetch_libraries_thread)
+        thread.start()
 
     def on_continue_first(self, selected_anime_library, selected_toonami_library, platform_url, platform_type='dizquetv'):
         """
@@ -467,13 +491,9 @@ class LogicController():
                 # Call run with prepopulate=True to get filtered paths without moving
                 filtered_files = fmove.run(prepopulate=True)
                 
-                # Publish filtered files based on mode
-                if self.use_redis:
-                    self.publish_filtered_files(filtered_files)
-                    print(f"Published {len(filtered_files)} filtered files to Redis")
-                else:
-                    self._broadcast_filtered_files(filtered_files)
-                    print(f"Broadcast {len(filtered_files)} filtered files to subscribers")
+                # Publish filtered files via broker
+                self.publish_filtered_files(filtered_files)
+                print(f"Published {len(filtered_files)} filtered files")
                 
                 self._broadcast_status_update(f"Found {len(filtered_files)} files for selection")
             else:
@@ -586,7 +606,7 @@ class LogicController():
             table = toon_config["table"]
             
             # If cutless mode is enabled, use the cutless table instead
-            if cutless_enabled:
+            if (cutless_enabled):
                 table = f"{table}_cutless"
                 self._broadcast_status_update(f"Cutless Mode: Using {table} table")
 

@@ -1,7 +1,7 @@
 # Base image for dependencies
 FROM python:3.11-slim as deps
 
-# Install system dependencies including Tk, OpenCV requirements, FFmpeg, and Redis
+# Install system dependencies including Tk, OpenCV requirements, and FFmpeg
 RUN apt-get update && apt-get install -y \
     build-essential \
     python3-tk \
@@ -12,7 +12,6 @@ RUN apt-get update && apt-get install -y \
     libxrender1 \
     libxext6 \
     ffmpeg \
-    redis-server \
     git \
     && rm -rf /var/lib/apt/lists/*
 
@@ -35,9 +34,6 @@ RUN cd requirements && pip install --no-cache-dir -r pre_deps.txt
 # Install Python dependencies using the modified requirements file
 RUN cd requirements && pip install --no-cache-dir -r runtime_docker.txt
 RUN pip install --no-cache-dir -r requirements/graphics.txt
-
-# Install Redis Python client
-RUN pip install --no-cache-dir redis
 
 # Final stage
 FROM deps AS final
@@ -84,16 +80,14 @@ ENV ANIME_FOLDER=/app/anime \
     WORKING_FOLDER=/app/working \
     ENVIRONMENT=production \
     PYTHONUNBUFFERED=1 \
-    REDIS_HOST=localhost \
-    REDIS_PORT=6379 \
     DISABLE_TTK_THEMES=1 \
     CUTLESS=true
 
-# Expose the ports
-EXPOSE 8081 6379
+# Expose the application port
+EXPOSE 8081
 
 # Create startup script that checks for Cutless environment variable
-RUN echo '#!/bin/bash\nservice redis-server start\npython3 AutoDockerFolders.py\nif [ "$CUTLESS" = "true" ] || [ "$CUTLESS" = "True" ]; then\n  python3 main.py --webui --docker --cutless\nelse\n  python3 main.py --webui --docker\nfi' > /app/start.sh && \
+RUN echo '#!/bin/bash\npython3 AutoDockerFolders.py\nif [ "$CUTLESS" = "true" ] || [ "$CUTLESS" = "True" ]; then\n  python3 main.py --webui --docker --cutless\nelse\n  python3 main.py --webui --docker\nfi' > /app/start.sh && \
     chmod +x /app/start.sh
 
 # Command to run the startup script
