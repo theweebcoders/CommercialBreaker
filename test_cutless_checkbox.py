@@ -59,8 +59,9 @@ def test_scenario_1_bad_url():
     print(f"   EXPECTED: Checkbox should be HIDDEN")
     print(f"   ACTUAL: Checkbox is VISIBLE")
     
-
-    return False
+    assert not page4_sees_cutless, (
+        "Checkbox should be HIDDEN when DizqueTV URL is bad, but it is VISIBLE"
+    )
 
 def test_scenario_2_good_url():
     """Test scenario 2: User starts app with --cutless, enters good DizqueTV URL"""
@@ -122,7 +123,9 @@ def test_scenario_2_good_url():
         print(f"   EXPECTED: Checkbox should be VISIBLE")
         print(f"   ACTUAL: Checkbox is VISIBLE")
         
-        return True  # This is correct behavior
+        assert page4_sees_cutless, (
+            "Checkbox should be VISIBLE when DizqueTV URL is good, but it is HIDDEN"
+        )
 
 def test_scenario_3_no_cutless_flag():
     """Test scenario 3: User starts app WITHOUT --cutless flag"""
@@ -171,7 +174,9 @@ def test_scenario_3_no_cutless_flag():
         print(f"   EXPECTED: Checkbox should be HIDDEN")
         print(f"   ACTUAL: Checkbox is HIDDEN")
         
-        return True  # This is correct behavior
+        assert not page4_sees_cutless, (
+            "Checkbox should be HIDDEN when --cutless flag is not present, but it is VISIBLE"
+        )
 
 def main():
     print("CUTLESS CHECKBOX TEST")
@@ -182,8 +187,8 @@ def main():
     
     # Test bad URL scenario
     try:
-        result1 = test_scenario_1_bad_url()
-        results.append(("Scenario 1: --cutless + bad URL", result1))
+        test_scenario_1_bad_url()
+        results.append(("Scenario 1: --cutless + bad URL", True))
     except Exception as e:
         print(f"\nERROR in Scenario 1: {e}")
         import traceback
@@ -192,8 +197,8 @@ def main():
     
     # Test good URL scenario  
     try:
-        result2 = test_scenario_2_good_url()
-        results.append(("Scenario 2: --cutless + good URL", result2))
+        test_scenario_2_good_url()
+        results.append(("Scenario 2: --cutless + good URL", True))
     except Exception as e:
         print(f"\nERROR in Scenario 2: {e}")
         import traceback
@@ -202,8 +207,8 @@ def main():
     
     # Test no flag scenario
     try:
-        result3 = test_scenario_3_no_cutless_flag()
-        results.append(("Scenario 3: No --cutless flag", result3))
+        test_scenario_3_no_cutless_flag()
+        results.append(("Scenario 3: No --cutless flag", True))
     except Exception as e:
         print(f"\nERROR in Scenario 3: {e}")
         import traceback
