@@ -1126,6 +1126,20 @@ class Page1(BasePage, MessageListenerMixin):
             self.update_dropdown()
         elif channel == 'new_library_choices':
             self.update_library_dropdowns()
+        elif channel == 'plex_servers':
+            try:
+                server_list = json.loads(data)
+                self.plex_servers = server_list
+                self.update_dropdown()
+            except Exception as e:
+                print(f"Error processing server list: {e}")
+        elif channel == 'plex_libraries':
+            try:
+                library_list = json.loads(data)
+                self.plex_libraries = library_list
+                self.update_library_dropdowns()
+            except Exception as e:
+                print(f"Error processing library list: {e}")
 
     def on_skip_button_click(self, widget):
         # Skip button should take us to Manual Setup (Page2)
@@ -1482,7 +1496,27 @@ class Page3(BasePage, MessageListenerMixin):
         self.prepare_content_continue()
 
     def handle_redis_message(self, channel, data):
-        pass
+        # Handle messages from the message broker
+        if channel == 'filtered_files':
+            try:
+                filtered_files = json.loads(data)
+                if filtered_files:
+                    file_count = len(filtered_files)
+                    self.update_status_display(f"Received {file_count} filtered files")
+            except Exception as e:
+                print(f"Error processing filtered files: {e}")
+        elif channel == 'plex_servers':
+            try:
+                server_list = json.loads(data)
+                print(f"Received server list with {len(server_list)} items")
+            except Exception as e:
+                print(f"Error processing server list: {e}")
+        elif channel == 'plex_libraries':
+            try:
+                library_list = json.loads(data)
+                print(f"Received library list with {len(library_list)} items")
+            except Exception as e:
+                print(f"Error processing library list: {e}")
 
     def toggle_all_checkboxes(self, state):
         for checkbox in self.checkboxes.values():
@@ -2108,7 +2142,26 @@ class Page5(BasePage, MessageListenerMixin):
         self.logic.add_flex(channel_number, flex_duration)
 
     def handle_redis_message(self, channel, data):
-        pass
+        # Handle messages for server names, library names, etc.
+        if channel == 'plex_servers':
+            try:
+                server_list = json.loads(data)
+                print(f"Received server list with {len(server_list)} items")
+            except Exception as e:
+                print(f"Error processing server list: {e}")
+        elif channel == 'plex_libraries':
+            try:
+                library_list = json.loads(data)
+                print(f"Received library list with {len(library_list)} items")
+            except Exception as e:
+                print(f"Error processing library list: {e}")
+        elif channel == 'cutless_state':
+            # Handle cutless mode state changes
+            try:
+                is_enabled = data.lower() == 'true'
+                print(f"Cutless state changed: {is_enabled}")
+            except Exception as e:
+                print(f"Error processing cutless state: {e}")
 
 class Page6(BasePage, MessageListenerMixin):
     def __init__(self, app, *args, **kwargs):
@@ -2198,7 +2251,26 @@ class Page6(BasePage, MessageListenerMixin):
         self.logic.add_flex(channel_number, flex_duration)
 
     def handle_redis_message(self, channel, data):
-        pass
+        # Handle messages for server names, library names, etc.
+        if channel == 'plex_servers':
+            try:
+                server_list = json.loads(data)
+                print(f"Received server list with {len(server_list)} items")
+            except Exception as e:
+                print(f"Error processing server list: {e}")
+        elif channel == 'plex_libraries':
+            try:
+                library_list = json.loads(data)
+                print(f"Received library list with {len(library_list)} items")
+            except Exception as e:
+                print(f"Error processing library list: {e}")
+        elif channel == 'cutless_state':
+            # Handle cutless mode state changes
+            try:
+                is_enabled = data.lower() == 'true'
+                print(f"Cutless state changed: {is_enabled}")
+            except Exception as e:
+                print(f"Error processing cutless state: {e}")
 
 class MainApp(App):
     def __init__(self, *args, **kwargs):
