@@ -1,5 +1,6 @@
 from ComBreak import CommercialBreakerLogic
 from GUI import LogicController
+from GUI.message_broker_mixin import MessageBrokerMixin
 from CLI import PlexManager
 import config
 import threading
@@ -725,45 +726,47 @@ class BasePage(gui.Container):
         checkbox.wrapper = hbox
         return checkbox
 
-class RedisListenerMixin:
-    def after(self, time_ms, callback):
-        threading.Timer(time_ms / 1000, callback).start()
-
-    def process_redis_messages(self):
-        while not self.redis_queue.empty():
-            message = self.redis_queue.get()
-            channel = message['channel'].decode('utf-8')
-            data = message['data'].decode('utf-8')
-
-            if channel == 'status_updates':
-                self.update_status_label(data)
-            elif hasattr(self, 'handle_redis_message'):
-                self.handle_redis_message(channel, data)
-
-        self.after(100, self.process_redis_messages)
-
-    def listen_for_redis_updates(self, redis_queue):
-        redis_client = self.logic.redis_client
-        pubsub = redis_client.pubsub()
-        pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices',
-                         'plex_servers', 'plex_libraries', 'filtered_files',
-                         'plex_auth_url', 'cutless_state')
-
-        for message in pubsub.listen():
-            if message['type'] == 'message':
-                redis_queue.put(message)
-
+class MessageListenerMixin(MessageBrokerMixin):
+    """
+    Backward compatibility wrapper for MessageBrokerMixin
+    that handles the transition from Redis to the message broker.
+    
+    This maintains compatibility with existing code that expects
+    RedisListenerMixin behavior while using the new broker.
+    """
+    
     def start_redis_listener_thread(self, redis_queue):
-        threading.Thread(target=self.listen_for_redis_updates, args=(redis_queue,), daemon=True).start()
-
-    def update_status_label(self, status):
-        # Use the new method from BasePage
-        if hasattr(self, 'update_status_display'):
-            self.update_status_display(status)
-        else:
-            # Fallback for backward compatibility
-            if hasattr(self, 'status_label'):
-                self.status_label.set_text(f"Status: {status}")
+        """
+        Backward compatibility method that now uses the message broker.
+        
+        Args:
+            redis_queue: Queue instance (kept for backward compatibility)
+        """
+        # Store the queue for compatibility
+        self.redis_queue = redis_queue
+        
+        # Start the message broker listener
+        self.start_message_listener()
+    
+    def handle_message(self, channel, data):
+        """
+        Process messages from broker and maintain backwards compatibility.
+        
+        Args:
+            channel: The channel the message was published to
+            data: The message data
+        """
+        # For backward compatibility, if there's a handle_redis_message method
+        if hasattr(self, 'handle_redis_message'):
+            self.handle_redis_message(channel, data)
+    
+    def process_redis_messages(self):
+        """
+        This method is kept for backward compatibility.
+        The actual message processing is done by MessageBrokerMixin.
+        """
+        # No need to do anything, as message processing is handled by MessageBrokerMixin
+        pass
 
 class NavigationBar(gui.Container):
     def __init__(self, app, current_page, *args, **kwargs):
@@ -951,7 +954,7 @@ class NavigationBar(gui.Container):
         container.append(button)
         return button
 
-class Page1(BasePage, RedisListenerMixin):
+class Page1(BasePage, MessageListenerMixin):
     def __init__(self, app, *args, **kwargs):
         super(Page1, self).__init__(app, 'Page1', *args, **kwargs)
         self.logic = LogicController()
@@ -1198,7 +1201,7 @@ class Page2(BasePage):
         self.app.visited_page2 = True
         self.app.set_current_page('Page3')
 
-class Page3(BasePage, RedisListenerMixin):
+class Page3(BasePage, MessageListenerMixin):
     def __init__(self, app, *args, **kwargs):
         super(Page3, self).__init__(app, 'Page3', *args, **kwargs)
         self.logic = LogicController()
@@ -1485,7 +1488,7 @@ class Page3(BasePage, RedisListenerMixin):
         for checkbox in self.checkboxes.values():
             checkbox.set_value(state)
 
-class Page4(BasePage, RedisListenerMixin):
+class Page4(BasePage, MessageListenerMixin):
     def __init__(self, app, *args, **kwargs):
         super(Page4, self).__init__(app, 'Page4', *args, **kwargs)
         self.cblogic = CommercialBreakerLogic()
@@ -1999,7 +2002,7 @@ class Page4(BasePage, RedisListenerMixin):
             # Redis sends "true"/"false"
             self.update_cutless_checkbox(data.lower() == 'true')
 
-class Page5(BasePage, RedisListenerMixin):
+class Page5(BasePage, MessageListenerMixin):
     def __init__(self, app, *args, **kwargs):
         super(Page5, self).__init__(app, 'Page5', *args, **kwargs)
         self.logic = LogicController()
@@ -2107,7 +2110,7 @@ class Page5(BasePage, RedisListenerMixin):
     def handle_redis_message(self, channel, data):
         pass
 
-class Page6(BasePage, RedisListenerMixin):
+class Page6(BasePage, MessageListenerMixin):
     def __init__(self, app, *args, **kwargs):
         super(Page6, self).__init__(app, 'Page6', *args, **kwargs)
         self.logic = LogicController()
