@@ -23,11 +23,9 @@ class MockPage4:
         
     def handle_cutless_state_update(self, enabled):
         """Handle cutless state updates from LogicController (like real Page4)"""
-        print(f"   DEBUG: MockPage4.handle_cutless_state_update called with: '{enabled}' (type: {type(enabled)})")
         # Convert string 'true'/'false' to boolean if needed
         if isinstance(enabled, str):
             enabled = enabled.lower() == 'true'
-            print(f"   DEBUG: Converted string to bool: {enabled}")
         self.update_cutless_checkbox(enabled)
         
     def update_cutless_checkbox(self, enabled):

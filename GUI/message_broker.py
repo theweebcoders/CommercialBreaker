@@ -46,21 +46,17 @@ class MessageBroker:
             channel: The channel name to publish to
             message: The message to publish (can be any serializable object)
         """
-        print(f"DEBUG: MessageBroker.publish called for channel '{channel}' with message: {message}")
         with self._lock:
             if channel not in self._subscribers:
-                print(f"DEBUG: No subscribers for channel '{channel}'")
                 return  # No subscribers for this channel
             
             # Create a copy of the subscribers list to avoid modification during iteration
             subscribers = self._subscribers[channel].copy()
-            print(f"DEBUG: Found {len(subscribers)} subscribers for channel '{channel}'")
         
         # Deliver the message to each subscriber's queue
         # We do this outside the lock to avoid potential deadlocks
         for queue in subscribers:
             queue.put((channel, message))
-            print(f"DEBUG: Message delivered to subscriber queue for channel '{channel}'")
     
     def subscribe(self, channels: List[str]) -> Queue:
         """

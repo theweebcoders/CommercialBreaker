@@ -218,7 +218,6 @@ class LogicController():
 
     def publish_cutless_state(self, enabled):
         """Publish cutless state to 'cutless_state' channel as 'true' or 'false'"""
-        print(f"DEBUG: LogicController.publish_cutless_state called with: {enabled}")
         self._publish_status_update('cutless_state', 'true' if enabled else 'false')
 
     def _on_cutless_change(self, enabled):
