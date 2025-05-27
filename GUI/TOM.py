@@ -7,7 +7,6 @@ import config
 import threading
 import os
 import psutil
-import redis
 import json
 from queue import Queue
 
@@ -20,12 +19,12 @@ class Page1(ttk.Frame):
         self.libraries_selected = 0
 
 # do something to pick one
-        # Start the Redis listener thread
+        # Start the message broker listener thread
         # -------------------------------
-        if LogicController.use_redis:
-            self.redis_queue = Queue()
-            self.controller.start_redis_listener_thread(self.redis_queue)
-            self.after(100, self.process_redis_messages)
+        if LogicController.use_message_broker:
+            self.message_queue = Queue()
+            self.controller.start_message_listener_thread(self.message_queue)
+            self.after(100, self.process_messages)
             # -------------------------------
         # Pubsub stuff
         # ----------------
@@ -111,17 +110,17 @@ class Page1(ttk.Frame):
                                         command=self.on_continue_button_click)
  
  # do something to pick one       
-    # Process messages from the Redis queue
+    # Process messages from the message broker queue
     # -------------------------------------
-    if LogicController.use_redis:
-        def process_redis_messages(self):
-            while not self.redis_queue.empty():
-                message = self.redis_queue.get()
+    if LogicController.use_message_broker:
+        def process_messages(self):
+            while not self.message_queue.empty():
+                message = self.message_queue.get()
                 channel = message['channel'].decode('utf-8')
                 data = message['data'].decode('utf-8')
                 
                 if channel == 'plex_auth_url':
-                    print(f"Received auth URL from Redis - opening browser")
+                    print(f"Received auth URL from message broker - opening browser")
                     self.open_auth_url(data)
                 elif channel == 'status_updates':
                     self.update_status_label(data)
@@ -130,30 +129,30 @@ class Page1(ttk.Frame):
                 elif channel == 'new_library_choices':
                     self.update_library_dropdowns()
             
-            self.after(100, self.process_redis_messages)
+            self.after(100, self.process_messages)
 
         def update_dropdown(self, *args, **kwargs):
             try:
-                message = self.redis_queue.get_nowait()
+                message = self.message_queue.get_nowait()
                 if message['channel'].decode('utf-8') == 'plex_servers':
                     server_list = json.loads(message['data'].decode('utf-8'))
                     self.plex_server_dropdown['values'] = server_list
                 else:
-                    self.redis_queue.put(message)
-            except self.redis_queue.empty():
+                    self.message_queue.put(message)
+            except self.message_queue.empty():
                 self.after(100, self.update_dropdown)
             
 
         def update_library_dropdowns(self, *args, **kwargs):
             try:
-                message = self.redis_queue.get_nowait()
+                message = self.message_queue.get_nowait()
                 if message['channel'].decode('utf-8') == 'plex_libraries':
                     library_list = json.loads(message['data'].decode('utf-8'))
                     self.plex_anime_library_dropdown['values'] = library_list
                     self.plex_library_dropdown['values'] = library_list
                 else:
-                    self.redis_queue.put(message)
-            except self.redis_queue.empty():
+                    self.message_queue.put(message)
+            except self.message_queue.empty():
                 self.after(100, self.update_library_dropdowns)
 
 # ---------------------------------------------------------------------
@@ -329,12 +328,12 @@ class Page4(ttk.Frame):
         self.filtered_files_action = tk.StringVar(value="move")  # Default to move action
 
     # do something to pick one
-        if LogicController.use_redis:
-            # Start the Redis listener thread
+        if LogicController.use_message_broker:
+            # Start the message broker listener thread
             # -------------------------------
-            self.redis_queue = Queue()
-            self.controller.start_redis_listener_thread(self.redis_queue)
-            self.after(100, self.process_redis_messages)
+            self.message_queue = Queue()
+            self.controller.start_message_listener_thread(self.message_queue)
+            self.after(100, self.process_messages)
             # -------------------------------
            
         else:
@@ -398,15 +397,15 @@ class Page4(ttk.Frame):
         prepopulate = (self.filtered_files_action.get() == "prepopulate")
         self.logic.move_filtered(prepopulate=prepopulate)
 
-    if LogicController.use_redis:
+    if LogicController.use_message_broker:
          # -------------------------------------
-            def process_redis_messages(self):
-                while not self.redis_queue.empty():
-                    message = self.redis_queue.get()
+            def process_messages(self):
+                while not self.message_queue.empty():
+                    message = self.message_queue.get()
                     if message['channel'].decode('utf-8') == 'status_updates':
                         self.update_status_label(message['data'].decode('utf-8'))
                 
-                self.after(100, self.process_redis_messages)
+                self.after(100, self.process_messages)
         # -------------------------------------
             # Pubsub stuff
             # ----------------
@@ -474,11 +473,11 @@ class Page5(ttk.Frame):
         self.file_path_map = {}  # Dict to map displayed filenames to full paths
 
         # Set up communication channels based on mode
-        if LogicController.use_redis:
-            # Redis mode - set up queue and listener
-            self.redis_queue = Queue()
-            self.controller.start_redis_listener_thread(self.redis_queue)
-            self.after(100, self.process_redis_messages)
+        if LogicController.use_message_broker:
+            # Message broker mode - set up queue and listener
+            self.message_queue = Queue()
+            self.controller.start_message_listener_thread(self.message_queue)
+            self.after(100, self.process_messages)
         else:
             # PubSub mode - subscribe to filtered files and status updates
             self.TOM_logic.subscribe_to_filtered_files(self.load_filtered_files)
@@ -916,12 +915,12 @@ class Page5(ttk.Frame):
         """Notify that the commercials have been detected."""
         messagebox.showinfo(task_name, "Done!")
 
-    # Process Redis messages
-    if LogicController.use_redis:
-        def process_redis_messages(self):
-            """Process messages from Redis queue."""
-            while not self.redis_queue.empty():
-                message = self.redis_queue.get()
+    # Process messages from broker
+    if LogicController.use_message_broker:
+        def process_messages(self):
+            """Process messages from message broker queue."""
+            while not self.message_queue.empty():
+                message = self.message_queue.get()
                 channel = message['channel'].decode('utf-8')
                 data = message['data'].decode('utf-8')
                 
@@ -933,7 +932,7 @@ class Page5(ttk.Frame):
                 elif channel == 'cutless_state':
                     self.update_cutless_checkbox(data.lower() == 'true')
             # Schedule the next check
-            self.after(100, self.process_redis_messages)
+            self.after(100, self.process_messages)
 
     def load_filtered_files(self, filtered_files):
         """Load filtered files into the file selection interface."""
@@ -999,12 +998,12 @@ class Page6(ttk.Frame):
         self.logic = logic
 
     # do something to pick one
-        if LogicController.use_redis:
-            # Start the Redis listener thread
+        if LogicController.use_message_broker:
+            # Start the message broker listener thread
             # -------------------------------
-            self.redis_queue = Queue()
-            self.controller.start_redis_listener_thread(self.redis_queue)
-            self.after(100, self.process_redis_messages)
+            self.message_queue = Queue()
+            self.controller.start_message_listener_thread(self.message_queue)
+            self.after(100, self.process_messages)
             # -------------------------------
         else:
             self.logic.subscribe_to_status_updates(self.update_status_label)
@@ -1098,15 +1097,15 @@ class Page6(ttk.Frame):
         # Call the parent class's tkraise
         super().tkraise()
 
-    if LogicController.use_redis:
+    if LogicController.use_message_broker:
          # -------------------------------------
-            def process_redis_messages(self):
-                while not self.redis_queue.empty():
-                    message = self.redis_queue.get()
+            def process_messages(self):
+                while not self.message_queue.empty():
+                    message = self.message_queue.get()
                     if message['channel'].decode('utf-8') == 'status_updates':
                         self.update_status_label(message['data'].decode('utf-8'))
                 
-                self.after(100, self.process_redis_messages)
+                self.after(100, self.process_messages)
         # -------------------------------------
 
     def on_continue_button_click(self):
@@ -1134,12 +1133,12 @@ class Page7(ttk.Frame):
         self.logic = logic
 
     # do something to pick one
-        if LogicController.use_redis:
-            # Start the Redis listener thread
+        if LogicController.use_message_broker:
+            # Start the message broker listener thread
             # -------------------------------
-            self.redis_queue = Queue()
-            self.controller.start_redis_listener_thread(self.redis_queue)
-            self.after(100, self.process_redis_messages)
+            self.message_queue = Queue()
+            self.controller.start_message_listener_thread(self.message_queue)
+            self.after(100, self.process_messages)
             # -------------------------------
         else:
             self.logic.subscribe_to_status_updates(self.update_status_label)
@@ -1228,15 +1227,15 @@ class Page7(ttk.Frame):
         # Call the parent class's tkraise
         super().tkraise()
 
-    if LogicController.use_redis:
+    if LogicController.use_message_broker:
         # -------------------------------------
-            def process_redis_messages(self):
-                while not self.redis_queue.empty():
-                    message = self.redis_queue.get()
+            def process_messages(self):
+                while not self.message_queue.empty():
+                    message = self.message_queue.get()
                     if message['channel'].decode('utf-8') == 'status_updates':
                         self.update_status_label(message['data'].decode('utf-8'))
                 
-                self.after(100, self.process_redis_messages)
+                self.after(100, self.process_messages)
         # -------------------------------------
 
     def update_status_label(self, status):
@@ -1281,22 +1280,27 @@ class MainApplication(tk.Tk):
 
         self.show_frame("Page1")
 # don't use this if not needed
-# Listen for Redis updates
+# Listen for message broker updates
 # ------------------------
-    if LogicController.use_redis:
-        def listen_for_redis_updates(self, redis_queue):
-            redis_client = self.logic.redis_client
-            pubsub = redis_client.pubsub()
-            pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices',
-                             'plex_servers', 'plex_libraries', 'filtered_files',
-                             'plex_auth_url', 'cutless_state')
+    if LogicController.use_message_broker:
+        def listen_for_message_updates(self, message_queue):
+            # Use the message broker instead of direct messaging
+            broker = self.logic.message_broker
+            queue = broker.subscribe([
+                'status_updates', 'new_server_choices', 'new_library_choices',
+                'plex_servers', 'plex_libraries', 'filtered_files',
+                'plex_auth_url', 'cutless_state'
+            ])
+            
+            # Forward messages from the broker queue to our UI queue
+            while True:
+                channel, data = queue.get()
+                # Format message for backward compatibility
+                message = {'channel': channel.encode('utf-8'), 'data': data.encode('utf-8'), 'type': 'message'}
+                message_queue.put(message)
 
-            for message in pubsub.listen():
-                if message['type'] == 'message':
-                    redis_queue.put(message)
-
-        def start_redis_listener_thread(self, redis_queue):
-            threading.Thread(target=self.listen_for_redis_updates, args=(redis_queue,), daemon=True).start()
+        def start_message_listener_thread(self, message_queue):
+            threading.Thread(target=self.listen_for_message_updates, args=(message_queue,), daemon=True).start()
         # ------------------------
 
     def set_theme(self):

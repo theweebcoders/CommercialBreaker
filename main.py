@@ -10,7 +10,7 @@ def main():
     group.add_argument('--combreak', action='store_true', help="Run the standalone Commercial Breaker GUI")
     group.add_argument('--webui', action='store_true', help="Run the web interface")
     group.add_argument('--combreakcli', action='store_true', help="Run the CLI interface for the Commercial Breaker")
-    parser.add_argument('--use_redis', action='store_true', help="Use Redis for caching or message brokering")
+    parser.add_argument('--use_message_broker', action='store_true', help="Use message broker for inter-component communication")
     parser.add_argument('--docker', action='store_true', help="Do not use this unless you are running the application in a Docker container")
     parser.add_argument('--cutless', action='store_true', help="Enable Cutless Mode feature in the application")
     args = parser.parse_args()

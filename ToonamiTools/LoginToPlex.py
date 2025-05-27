@@ -8,12 +8,12 @@ from plexapi.server import PlexServer
 
 
 class PlexServerList:
-    use_redis = ('--use_redis' in sys.argv or '--webui' in sys.argv or '--clydes' in sys.argv) and '--tom' not in sys.argv
+    use_message_broker = ('--use_message_broker' in sys.argv or '--webui' in sys.argv or '--clydes' in sys.argv) and '--tom' not in sys.argv
 
     def __init__(self):
         self.plex_servers = []
         self.plex_token = None
-        self.use_redis = self.__class__.use_redis  # Use class variable
+        self.use_message_broker = self.__class__.use_message_broker  # Use class variable
         self.auth_url_callback = None  # New callback for auth URL
         self.auth_url = None  # Store the auth URL as an instance attribute
 

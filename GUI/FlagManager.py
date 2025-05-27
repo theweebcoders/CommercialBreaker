@@ -22,7 +22,7 @@ class FlagManager:
     _lock = threading.Lock()
     
     # Define class-level flags for static access
-    use_redis = '--use_redis' in sys.argv or '--webui' in sys.argv or '--clydes' in sys.argv
+    use_message_broker = '--use_message_broker' in sys.argv or '--webui' in sys.argv or '--clydes' in sys.argv
     docker = '--docker' in sys.argv
     cutless_in_args = '--cutless' in sys.argv
     cutless = cutless_in_args  # Initialize with CLI value

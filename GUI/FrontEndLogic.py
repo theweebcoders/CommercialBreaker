@@ -11,7 +11,7 @@ import webbrowser
 from GUI.message_broker import get_message_broker
 
 class LogicController():
-    use_redis = FlagManager.use_redis
+    use_message_broker = FlagManager.use_message_broker
     docker = FlagManager.docker
     cutless_in_args = FlagManager.cutless_in_args
     cutless = FlagManager.cutless
@@ -19,7 +19,7 @@ class LogicController():
     def __init__(self):
         self.db_path = f'{config.network}.db'
         self._setup_database()
-        self.use_redis = FlagManager.use_redis
+        self.use_message_broker = FlagManager.use_message_broker
         self.docker = FlagManager.docker
         self.cutless = FlagManager.cutless
         

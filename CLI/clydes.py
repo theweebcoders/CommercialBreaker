@@ -386,7 +386,7 @@ class ClydesApp(MessageBrokerMixin):
         ])
         
         # For backwards compatibility
-        self.redis_queue = queue.Queue()
+        self.message_queue = queue.Queue()
         
         # Start the status printer
         self.printer_thread = threading.Thread(target=self.status_printer, daemon=True)
