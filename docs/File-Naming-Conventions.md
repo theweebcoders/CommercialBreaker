@@ -280,4 +280,4 @@ Toonami 2 0 Gundam back 03 blue.mp4
 
 ---
 
-Need help with naming? Check the [FAQ](FAQ) for additional examples and solutions, or join our [Discord community](https://discord.gg/S7NcUdhKRD) for assistance.
+Need help with naming? Check the [FAQ](FAQ.md) for additional examples and solutions, or join our [Discord community](https://discord.gg/S7NcUdhKRD) for assistance.

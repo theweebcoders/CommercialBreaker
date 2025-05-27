@@ -385,9 +385,9 @@ Follow Python conventions:
 ### Documentation Updates
 
 When adding features:
-1. Update API-Reference for new orchestrator methods
-2. Update Component-Documentation for new tools
-3. Update User-Guides for new UI features
+1. Update API-Reference.md for new orchestrator methods
+2. Update Component-Documentation.md for new tools
+3. Update User-Guides.md for new UI features
 4. Add FAQ entries for common questions
 
 ## Advanced Topics

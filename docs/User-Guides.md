@@ -239,8 +239,8 @@ The system looks for commercial break points in this order:
 
 ### For New Users (TOM Recommended)
 
-1. **Install** following the [Installation Guide](Installation-Guide)
-2. **Prepare files** using [naming conventions](File-Naming-Conventions)
+1. **Install** following the [Installation Guide](Installation-Guide.md)
+2. **Prepare files** using [naming conventions](File-Naming-Conventions.md)
 3. **Launch TOM**: `python3 main.py --tom`
 4. **Configure Plex** integration
 5. **Select folders** for content
@@ -266,9 +266,9 @@ The system looks for commercial break points in this order:
 
 After completing your first channel:
 
-- **[Configuration Reference](Configuration-Reference)**: Customize advanced settings
-- **[File Naming Conventions](File-Naming-Conventions)**: Optimize your content organization  
-- **[Troubleshooting](Troubleshooting)**: Solve common issues
-- **[FAQ](FAQ)**: Find answers to frequently asked questions
+- **[Configuration Reference](Configuration-Reference.md)**: Customize advanced settings
+- **[File Naming Conventions](File-Naming-Conventions.md)**: Optimize your content organization  
+- **[Troubleshooting](Troubleshooting.md)**: Solve common issues
+- **[FAQ](FAQ.md)**: Find answers to frequently asked questions
 
-Ready to dive deeper? Check out the [Architecture Overview](Architecture-Overview) to understand how everything works under the hood.
+Ready to dive deeper? Check out the [Architecture Overview](Architecture-Overview.md) to understand how everything works under the hood.

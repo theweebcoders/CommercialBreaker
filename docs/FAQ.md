@@ -128,7 +128,7 @@ Community contributions for other platforms are welcome!
 **A**: Very strict. The software uses regex patterns to identify content:
 
 **Episodes MUST be**: `Show Name - S##E## - Title.ext`
-**Bumps MUST follow**: [Specific bump naming convention](File-Naming-Conventions)
+**Bumps MUST follow**: [Specific bump naming convention](File-Naming-Conventions.md)
 
 Even small deviations (like missing spaces around hyphens) will cause files to be ignored.
 
@@ -243,7 +243,7 @@ Even small deviations (like missing spaces around hyphens) will cause files to b
 - Fork the repository
 - Modify components as needed
 - Submit pull requests for improvements
-- Check the [Developer Guide](Developer-Guide) for technical details
+- Check the [Developer Guide](Developer-Guide.md) for technical details
 
 ### Q: Why is the naming scheme inconsistent in the code?
 
@@ -285,7 +285,7 @@ Even small deviations (like missing spaces around hyphens) will cause files to b
 **A**: Multiple channels:
 1. **Discord**: [Join our community](https://discord.gg/S7NcUdhKRD)
 2. **GitHub Issues**: Report bugs and request features
-3. **Documentation**: Check [Troubleshooting](Troubleshooting) guide
+3. **Documentation**: Check [Troubleshooting](Troubleshooting.md) guide
 4. **FAQ**: You're reading it!
 5. **ChatGPT**: Give them all these documents and a link to the repo for assistance
 

@@ -17,29 +17,29 @@ CommercialBreaker & Toonami Tools automate a continuous Toonami marathon by inte
 
 ## Quick Start
 
-1. **[Installation Guide](Installation-Guide)** - Get up and running quickly
-2. **[User Guides](User-Guides)** - Choose your interface and start creating
-3. **[Configuration](Configuration-Reference)** - Customize your setup
+1. **[Installation Guide](Installation-Guide.md)** - Get up and running quickly
+2. **[User Guides](User-Guides.md)** - Choose your interface and start creating
+3. **[Configuration](Configuration-Reference.md)** - Customize your setup
 
 ## Documentation Sections
 
 ### User Documentation
-- **[Installation Guide](Installation-Guide)** - Step-by-step setup instructions
-- **[User Guides](User-Guides)** - Interface-specific guides
-- **[File Naming Conventions](File-Naming-Conventions)** - Proper naming schemes
-- **[Troubleshooting](Troubleshooting)** - Common issues and solutions
-- **[FAQ](FAQ)** - Frequently asked questions
+- **[Installation Guide](Installation-Guide.md)** - Step-by-step setup instructions
+- **[User Guides](User-Guides.md)** - Interface-specific guides
+- **[File Naming Conventions](File-Naming-Conventions.md)** - Proper naming schemes
+- **[Troubleshooting](Troubleshooting.md)** - Common issues and solutions
+- **[FAQ](FAQ.md)** - Frequently asked questions
 
 ### Technical Documentation
-- **[Architecture Overview](Architecture-Overview)** - System design and components
-- **[API Reference](API-Reference)** - Technical implementation details
-- **[Component Documentation](Component-Documentation)** - Individual tool descriptions
-- **[Developer Guide](Developer-Guide)** - Contributing and development info
+- **[Architecture Overview](Architecture-Overview.md)** - System design and components
+- **[API Reference](API-Reference.md)** - Technical implementation details
+- **[Component Documentation](Component-Documentation.md)** - Individual tool descriptions
+- **[Developer Guide](Developer-Guide.md)** - Contributing and development info
 
 ### Reference Materials
-- **[Configuration Reference](Configuration-Reference)** - All configuration options
-- **[Docker Setup](Docker-Setup)** - Container deployment
-- **[Platform Integration](Platform-Integration)** - DizqueTV and Tunarr setup
+- **[Configuration Reference](Configuration-Reference.md)** - All configuration options
+- **[Docker Setup](Docker-Setup.md)** - Container deployment
+- **[Platform Integration](Platform-Integration.md)** - DizqueTV and Tunarr setup
 
 ## Project Structure
 
@@ -60,15 +60,15 @@ CommercialBreaker/
 
 ## Getting Help
 
-- **[FAQ](FAQ)** - Check common questions first
-- **[Troubleshooting](Troubleshooting)** - Solve specific issues
+- **[FAQ](FAQ.md)** - Check common questions first
+- **[Troubleshooting](Troubleshooting.md)** - Solve specific issues
 - **Discord**: [Join our community](https://discord.gg/S7NcUdhKRD)
 - **GitHub Issues**: Report bugs and request features
 - **ChatGPT**: Give all these documents and a link to the repo to ChatGPT for assistance
 
 ## Contributing
 
-See our **[Developer Guide](Developer-Guide)** for information on contributing to the project.
+See our **[Developer Guide](Developer-Guide.md)** for information on contributing to the project.
 
 ---
 

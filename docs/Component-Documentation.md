@@ -523,7 +523,7 @@ The CommercialBreaker system is composed of several specialized components worki
 
 ---
 
-**For a full technical breakdown, see `docs/ComBreakDocs` in the repository.**
+**For a full technical breakdown, see `docs/ComBreakDocs.md` in the repository.**
 
 ## Content Enhancement Components
 
@@ -814,7 +814,7 @@ Plex's automatic matching can sometimes incorrectly merge multiple video files (
 - Requires custom bumps ("to ads", "back", optionally "generic")
 - Automatically integrates with existing lineup system
 
-**Note**: The file `ExtraTools/ManualShowAdder.py` was not provided in the codebase. The documentation above is based on the description in the `README` and the placeholder in `Component-Documentation`. Functionality details cannot be confirmed without the source code.
+**Note**: The file `ExtraTools/ManualShowAdder.py` was not provided in the codebase. The documentation above is based on the description in the `README.md` and the placeholder in `Component-Documentation.md`. Functionality details cannot be confirmed without the source code.
 
 ### Manual Timestamp Editor
 **File**: `ExtraTools/ManualTimestampEditor.py`

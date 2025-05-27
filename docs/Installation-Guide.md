@@ -115,10 +115,10 @@ cp example-config.py config.py
 
 ### 3. Verify File Naming
 
-Ensure your files follow the [naming conventions](File-Naming-Conventions):
+Ensure your files follow the [naming conventions](File-Naming-Conventions.md):
 
 **Episodes**: `Show Name - S01E01 - Episode Title.mkv`
-**Bumps**: Follow the specific [bump naming guide](File-Naming-Conventions#bump-naming)
+**Bumps**: Follow the specific [bump naming guide](File-Naming-Conventions.md#bump-naming)
 
 ## Interface Options
 
@@ -169,8 +169,8 @@ pip install -r requirements.txt
 
 If you encounter issues not covered here:
 
-1. Check the [Troubleshooting guide](Troubleshooting)
-2. Review the [FAQ](FAQ)
+1. Check the [Troubleshooting guide](Troubleshooting.md)
+2. Review the [FAQ](FAQ.md)
 3. Join our [Discord community](https://discord.gg/S7NcUdhKRD)
 4. Create an issue on GitHub
 
@@ -178,10 +178,10 @@ If you encounter issues not covered here:
 
 Once installation is complete:
 
-1. Review the [File Naming Conventions](File-Naming-Conventions)
-2. Choose your interface from the [User Guides](User-Guides)
-3. Configure your setup using the [Configuration Reference](Configuration-Reference)
+1. Review the [File Naming Conventions](File-Naming-Conventions.md)
+2. Choose your interface from the [User Guides](User-Guides.md)
+3. Configure your setup using the [Configuration Reference](Configuration-Reference.md)
 
 ---
 
-Ready to start your Toonami journey? Head to the [User Guides](User-Guides) to begin!
+Ready to start your Toonami journey? Head to the [User Guides](User-Guides.md) to begin!

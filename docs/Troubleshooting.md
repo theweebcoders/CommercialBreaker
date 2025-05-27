@@ -49,7 +49,7 @@ pip install -r requirements.txt
 
 **Solutions**:
 1. **Refresh Plex libraries**: Scan for new content
-2. **Check file naming**: Ensure files follow [naming conventions](File-Naming-Conventions)
+2. **Check file naming**: Ensure files follow [naming conventions](File-Naming-Conventions.md)
 3. **Verify permissions**: Ensure Plex can access file locations
 4. **Library type**: Confirm you're selecting the correct library type (TV Shows)
 
@@ -104,7 +104,7 @@ pip install -r requirements.txt
 - Clean up temporary files in working directory
 
 **Timestamp Accuracy**:
-- Use [Manual Timestamp Editor](Component-Documentation#manual-timestamp-editor)
+- Use [Manual Timestamp Editor](Component-Documentation.md#manual-timestamp-editor)
 - Fine-tune break points manually
 
 ---
@@ -148,14 +148,14 @@ pip install -r requirements.txt
 **Solutions**:
 1. **Check Naming Format**: Must be `Show Name - S##E## - Title`
 2. **Show Name Matching**: Verify show names match expected format
-3. **Manual Addition**: Use [Manual Show Adder](Component-Documentation#manual-show-adder)
+3. **Manual Addition**: Use [Manual Show Adder](Component-Documentation.md#manual-show-adder)
 4. **Database Update**: Show may not be in Toonami database
 
 ### Bumps Not Found
 **Problem**: Bump files not recognized during lineup creation
 
 **Solutions**:
-1. **Follow Naming Convention**: Use exact [bump naming format](File-Naming-Conventions#bump-naming)
+1. **Follow Naming Convention**: Use exact [bump naming format](File-Naming-Conventions.md#bump-naming)
 2. **Show Name Consistency**: Ensure bump show names match episode show names
 3. **Version Numbers**: Include Toonami version in bump names
 4. **Placement Keywords**: Use correct transition keywords
@@ -254,7 +254,7 @@ pip install -r requirements.txt
 
 If issues persist:
 
-1. **Check FAQ**: Review [FAQ](FAQ) for additional solutions
+1. **Check FAQ**: Review [FAQ.md](FAQ.md) for additional solutions
 2. **Discord Community**: Join our [Discord](https://discord.gg/S7NcUdhKRD)
 3. **GitHub Issues**: Create an issue with detailed error information
 4. **Log Files**: Include relevant log files and error messages

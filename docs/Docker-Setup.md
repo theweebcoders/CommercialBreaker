@@ -597,6 +597,6 @@ spec:
 ---
 
 For more information:
-- [Configuration Reference](Configuration-Reference) - Environment variables
-- [Troubleshooting](Troubleshooting) - Common issues
-- [Architecture Overview](Architecture-Overview) - System design
+- [Configuration Reference](Configuration-Reference.md) - Environment variables
+- [Troubleshooting](Troubleshooting.md) - Common issues
+- [Architecture Overview](Architecture-Overview.md) - System design
