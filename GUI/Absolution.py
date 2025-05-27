@@ -1075,22 +1075,22 @@ class Page1(BasePage, MessageListenerMixin):
         self.continue_button.style['display'] = 'block'
         self.skip_button.style['display'] = 'none'
 
-    def update_dropdown(self):
-        """Update the server dropdown with the current list of servers"""
+    def update_server_dropdown(self, server_list):
+        """Update the server dropdown with the provided list of servers"""
         # Clear existing items except for the first instruction item
         first_item = self.plex_server_dropdown.children.get('0')
         self.plex_server_dropdown.empty()
         if first_item:
             self.plex_server_dropdown.append(first_item)
         
-        # Add all servers from the stored list
-        if hasattr(self, 'plex_servers') and self.plex_servers:
-            for server in self.plex_servers:
+        # Add all servers from the provided list
+        if server_list:
+            for server in server_list:
                 self.plex_server_dropdown.append(gui.DropDownItem(server))
-            print(f"Updated server dropdown with {len(self.plex_servers)} servers")
+            print(f"Updated server dropdown with {len(server_list)} servers")
 
-    def update_library_dropdowns(self):
-        """Update the library dropdowns with the current list of libraries"""
+    def update_library_dropdowns(self, library_list):
+        """Update the library dropdowns with the provided list of libraries"""
         # Clear existing items except for the first instruction item in each dropdown
         first_anime_item = self.plex_anime_library_dropdown.children.get('0')
         first_toonami_item = self.plex_library_dropdown.children.get('0')
@@ -1098,10 +1098,21 @@ class Page1(BasePage, MessageListenerMixin):
         self.plex_anime_library_dropdown.empty()
         self.plex_library_dropdown.empty()
         
+        # Add back the first instruction items
         if first_anime_item:
             self.plex_anime_library_dropdown.append(first_anime_item)
         if first_toonami_item:
             self.plex_library_dropdown.append(first_toonami_item)
+        
+        # Add all libraries to both dropdowns
+        if library_list:
+            for library in library_list:
+                self.plex_anime_library_dropdown.append(gui.DropDownItem(library))
+                self.plex_library_dropdown.append(gui.DropDownItem(library))
+            print(f"Updated library dropdowns with {len(library_list)} libraries")
+            
+            # Reset libraries_selected counter since we're repopulating the dropdown
+            self.libraries_selected = 0
         
         # Add all libraries from the stored list
         if hasattr(self, 'plex_libraries') and self.plex_libraries:
@@ -1527,12 +1538,27 @@ class Page3(BasePage, MessageListenerMixin):
             try:
                 server_list = json.loads(data)
                 print(f"Received server list with {len(server_list)} items")
+                
+                # Store server list for reference
+                self.plex_servers = server_list
+                
+                # Update server dropdown
+                self.update_server_dropdown(server_list)
             except Exception as e:
                 print(f"Error processing server list: {e}")
         elif channel == 'plex_libraries':
             try:
                 library_list = json.loads(data)
                 print(f"Received library list with {len(library_list)} items")
+                
+                # Store library list for reference
+                self.plex_libraries = library_list
+                
+                # Update library dropdowns
+                self.update_library_dropdowns(library_list)
+                
+                # Update status
+                self.update_status_display(f"Loaded {len(library_list)} libraries")
             except Exception as e:
                 print(f"Error processing library list: {e}")
 
