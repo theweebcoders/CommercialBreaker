@@ -56,6 +56,9 @@ jobs:
 
       - name: Install test dependencies
         run: pip install -r requirements/tests.txt
-
+        
+      - name: Copy example-config.py to config.py
+        run: cp example-config.py config.py
+        
       - name: Run cutless checkbox tests
         run: pytest test_cutless_checkbox.py
