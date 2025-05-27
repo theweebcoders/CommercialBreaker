@@ -958,8 +958,6 @@ class Page1(BasePage, MessageListenerMixin):
     def __init__(self, app, *args, **kwargs):
         super(Page1, self).__init__(app, 'Page1', *args, **kwargs)
         self.logic = LogicController()
-        self.PlexManager = PlexManager(self.logic, app)
-        self.redis_queue = Queue()
         
         # Define the JavaScript function for opening URLs early in initialization
         self.app.execute_javascript("""
@@ -968,9 +966,13 @@ class Page1(BasePage, MessageListenerMixin):
             }
         """)
         
-        self.start_redis_listener_thread(self.redis_queue)
-        self.after(100, self.process_redis_messages)
+        # Start message broker listener
+        self.start_message_listener()
+        
+        # Initialize variables
         self.libraries_selected = 0
+        self.plex_servers = []
+        self.plex_libraries = []
 
         # Build the page using helper methods
         self.add_label(self.main_container, "Login with Plex")
@@ -1053,19 +1055,16 @@ class Page1(BasePage, MessageListenerMixin):
     def login_to_plex(self, widget):
         print("You pressed the login button")
         self.logic.login_to_plex()
-        self.PlexManager._wait_for_servers()
-        self.update_dropdown()
+        # With the message broker system, we don't need to wait or poll
+        # Messages will come via handle_redis_message when available
+        self.update_status_display("Logging into Plex...")
 
     def on_server_selected(self, widget, value):
         self.selected_server = self.plex_server_dropdown.get_value()
         print(f"Selected server: {self.selected_server}")
+        # The broker will handle the delivery of libraries when ready
         self.logic.on_server_selected(self.selected_server)
-        
-        # Run library fetching in a separate thread to prevent UI freezing
-        def fetch_libraries_thread():
-            self.PlexManager._wait_for_libraries()
-            
-        threading.Thread(target=fetch_libraries_thread).start()
+        self.update_status_display(f"Fetching libraries from {self.selected_server}...")
 
     def add_1_to_libraries_selected(self, widget, value):
         self.libraries_selected += 1
@@ -1077,29 +1076,39 @@ class Page1(BasePage, MessageListenerMixin):
         self.skip_button.style['display'] = 'none'
 
     def update_dropdown(self):
-        try:
-            message = self.redis_queue.get_nowait()
-            if message['channel'].decode('utf-8') == 'plex_servers':
-                server_list = json.loads(message['data'].decode('utf-8'))
-                for server in server_list:
-                    self.plex_server_dropdown.append(gui.DropDownItem(server))
-            else:
-                self.redis_queue.put(message)
-        except Empty:
-            self.after(100, self.update_dropdown)
+        """Update the server dropdown with the current list of servers"""
+        # Clear existing items except for the first instruction item
+        first_item = self.plex_server_dropdown.children.get('0')
+        self.plex_server_dropdown.empty()
+        if first_item:
+            self.plex_server_dropdown.append(first_item)
+        
+        # Add all servers from the stored list
+        if hasattr(self, 'plex_servers') and self.plex_servers:
+            for server in self.plex_servers:
+                self.plex_server_dropdown.append(gui.DropDownItem(server))
+            print(f"Updated server dropdown with {len(self.plex_servers)} servers")
 
     def update_library_dropdowns(self):
-        try:
-            message = self.redis_queue.get_nowait()
-            if message['channel'].decode('utf-8') == 'plex_libraries':
-                library_list = json.loads(message['data'].decode('utf-8'))
-                for library in library_list:
-                    self.plex_anime_library_dropdown.append(gui.DropDownItem(library))
-                    self.plex_library_dropdown.append(gui.DropDownItem(library))
-            else:
-                self.redis_queue.put(message)
-        except Empty:
-            self.after(100, self.update_library_dropdowns)
+        """Update the library dropdowns with the current list of libraries"""
+        # Clear existing items except for the first instruction item in each dropdown
+        first_anime_item = self.plex_anime_library_dropdown.children.get('0')
+        first_toonami_item = self.plex_library_dropdown.children.get('0')
+        
+        self.plex_anime_library_dropdown.empty()
+        self.plex_library_dropdown.empty()
+        
+        if first_anime_item:
+            self.plex_anime_library_dropdown.append(first_anime_item)
+        if first_toonami_item:
+            self.plex_library_dropdown.append(first_toonami_item)
+        
+        # Add all libraries from the stored list
+        if hasattr(self, 'plex_libraries') and self.plex_libraries:
+            for library in self.plex_libraries:
+                self.plex_anime_library_dropdown.append(gui.DropDownItem(library))
+                self.plex_library_dropdown.append(gui.DropDownItem(library))
+            print(f"Updated library dropdowns with {len(self.plex_libraries)} libraries")
 
     def on_continue_button_click(self, widget):
         selected_anime_library = self.plex_anime_library_dropdown.get_value()
@@ -1123,20 +1132,30 @@ class Page1(BasePage, MessageListenerMixin):
             self.app.execute_javascript(f"window.open('{auth_url}', '_blank')")
             print(f"Opening Plex auth URL: {auth_url}")
         elif channel == 'new_server_choices':
-            self.update_dropdown()
+            print("Received notification about new server choices")
+            # This is a notification that new servers are available
+            # The actual server data comes in the 'plex_servers' message
         elif channel == 'new_library_choices':
-            self.update_library_dropdowns()
+            print("Received notification about new library choices")
+            # This is a notification that new libraries are available
+            # The actual library data comes in the 'plex_libraries' message
         elif channel == 'plex_servers':
             try:
-                server_list = json.loads(data)
+                print(f"Received plex_servers message: {data[:100]}...")  # Log first 100 chars
+                server_list = json.loads(data) if isinstance(data, str) else data
                 self.plex_servers = server_list
+                print(f"Parsed server list with {len(self.plex_servers)} servers")
+                # Update the dropdown UI
                 self.update_dropdown()
             except Exception as e:
                 print(f"Error processing server list: {e}")
         elif channel == 'plex_libraries':
             try:
-                library_list = json.loads(data)
+                print(f"Received plex_libraries message: {data[:100]}...")  # Log first 100 chars
+                library_list = json.loads(data) if isinstance(data, str) else data
                 self.plex_libraries = library_list
+                print(f"Parsed library list with {len(self.plex_libraries)} libraries")
+                # Update the library dropdowns
                 self.update_library_dropdowns()
             except Exception as e:
                 print(f"Error processing library list: {e}")
@@ -1220,9 +1239,8 @@ class Page3(BasePage, MessageListenerMixin):
         super(Page3, self).__init__(app, 'Page3', *args, **kwargs)
         self.logic = LogicController()
         self.ToonamiChecker = ToonamiTools.ToonamiChecker
-        self.redis_queue = Queue()
-        self.start_redis_listener_thread(self.redis_queue)
-        self.after(100, self.process_redis_messages)
+        # Start the message broker listener
+        self.start_message_listener()
         
         # Track filter mode selection
         self.filter_mode = "move_files"  # Default to legacy mode
@@ -1533,9 +1551,8 @@ class Page4(BasePage, MessageListenerMixin):
         else:
             self.cutless = False
             
-        self.redis_queue = Queue()
-        self.start_redis_listener_thread(self.redis_queue)
-        self.after(100, self.process_redis_messages)
+        # Start the message broker listener
+        self.start_message_listener()
 
         # Initialize the working folder and default directories
         self.working_folder = self.logic._get_data("working_folder")
@@ -2040,9 +2057,8 @@ class Page5(BasePage, MessageListenerMixin):
     def __init__(self, app, *args, **kwargs):
         super(Page5, self).__init__(app, 'Page5', *args, **kwargs)
         self.logic = LogicController()
-        self.redis_queue = Queue()
-        self.start_redis_listener_thread(self.redis_queue)
-        self.after(100, self.process_redis_messages)
+        # Start the message broker listener
+        self.start_message_listener()
         
         # After initialization, check platform type to update UI
         self.after(100, self.check_platform_type)
@@ -2167,9 +2183,7 @@ class Page6(BasePage, MessageListenerMixin):
     def __init__(self, app, *args, **kwargs):
         super(Page6, self).__init__(app, 'Page6', *args, **kwargs)
         self.logic = LogicController()
-        self.redis_queue = Queue()
-        self.start_redis_listener_thread(self.redis_queue)
-        self.after(100, self.process_redis_messages)
+        self.start_message_listener()
         self.logic._broadcast_status_update("Idle")
         
         # After initialization, check platform type to update UI
