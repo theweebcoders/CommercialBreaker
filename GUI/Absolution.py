@@ -1157,7 +1157,7 @@ class Page1(BasePage, MessageListenerMixin):
                 self.plex_servers = server_list
                 print(f"Parsed server list with {len(self.plex_servers)} servers")
                 # Update the dropdown UI
-                self.update_dropdown()
+                self.update_dropdown(server_list)
             except Exception as e:
                 print(f"Error processing server list: {e}")
         elif channel == 'plex_libraries':
@@ -1167,9 +1167,25 @@ class Page1(BasePage, MessageListenerMixin):
                 self.plex_libraries = library_list
                 print(f"Parsed library list with {len(self.plex_libraries)} libraries")
                 # Update the library dropdowns
-                self.update_library_dropdowns()
+                self.update_library_dropdowns(library_list)
             except Exception as e:
                 print(f"Error processing library list: {e}")
+            
+                
+    def update_dropdown(self, server_list):
+        """Update the server dropdown with the provided list of servers"""
+        if hasattr(self, 'plex_server_dropdown'):
+            # Clear existing items except for the first instruction item
+            first_item = self.plex_server_dropdown.children.get('0')
+            self.plex_server_dropdown.empty()
+            if first_item:
+                self.plex_server_dropdown.append(first_item)
+            
+            # Add all servers from the provided list
+            if server_list:
+                for server in server_list:
+                    self.plex_server_dropdown.append(gui.DropDownItem(server))
+                print(f"Updated server dropdown with {len(server_list)} servers")
 
     def on_skip_button_click(self, widget):
         # Skip button should take us to Manual Setup (Page2)
@@ -1561,6 +1577,22 @@ class Page3(BasePage, MessageListenerMixin):
                 self.update_status_display(f"Loaded {len(library_list)} libraries")
             except Exception as e:
                 print(f"Error processing library list: {e}")
+
+    def update_server_dropdown(self, server_list):
+        """Update the server dropdown with the provided list of servers"""
+        # Check if dropdown exists to avoid attribute errors
+        if hasattr(self, 'plex_server_dropdown'):
+            # Clear existing items except for the first instruction item
+            first_item = self.plex_server_dropdown.children.get('0')
+            self.plex_server_dropdown.empty()
+            if first_item:
+                self.plex_server_dropdown.append(first_item)
+            
+            # Add all servers from the provided list
+            if server_list:
+                for server in server_list:
+                    self.plex_server_dropdown.append(gui.DropDownItem(server))
+                print(f"Updated server dropdown with {len(server_list)} servers")
 
     def toggle_all_checkboxes(self, state):
         for checkbox in self.checkboxes.values():
