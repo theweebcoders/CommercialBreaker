@@ -16,11 +16,26 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
       - name: Install pre-dependencies
         run: pip install -r requirements/pre_deps.txt
 
-      - name: Install dependencies
+      - name: Install runtime dependencies
+        run: pip install -r requirements/runtime.txt
+
+      - name: Install graphics dependencies
+        run: pip install -r requirements/graphics.txt
+
+      - name: Install headless dependencies (optional, if needed)
+        run: pip install -r requirements/headless.txt
+
+      - name: Install main requirements (this will handle -r includes cleanly)
         run: pip install -r requirements.txt
+
+      - name: Install test dependencies
+        run: pip install -r requirements/tests.txt
 
       - name: Run cutless checkbox tests
         run: pytest test_cutless_checkbox.py
