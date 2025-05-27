@@ -20,7 +20,7 @@ The codebase uses a central orchestrator pattern where `GUI/FrontEndLogic.py` se
 │               FrontEndLogic.py (Orchestrator)               │
 │  • LogicController class                                    │
 │  • State management via SQLite                             │
-│  • Real-time communication (Redis/PubSub)                  │
+│  • Unified in-memory message broker                        │
 │  • Threading for background operations                     │
 └─────────────────────────────────────────────────────────────┘
                             │
@@ -34,7 +34,7 @@ The codebase uses a central orchestrator pattern where `GUI/FrontEndLogic.py` se
 
 1. **Single Source of Truth**: FrontEndLogic.LogicController manages all application state
 2. **Interface Agnostic**: Same API works for GUI, web, and CLI interfaces
-3. **Real-time Updates**: Status broadcasting keeps all UIs synchronized
+3. **Real-time Updates**: Unified message broker keeps all UIs synchronized
 4. **Background Processing**: Long operations run in threads with progress updates
 5. **Platform Compatibility**: Automatic evaluation of features like cutless mode
 
@@ -59,13 +59,15 @@ pip install -r requirements/graphics.txt
 CommercialBreaker/
 ├── main.py                 # Entry point - interface selection
 ├── GUI/                    # User interfaces
-│   ├── FrontEndLogic.py   # Central orchestrator API
-│   ├── TOM.py             # Primary Tkinter GUI
-│   ├── Absolution.py      # Web interface (REMI)
+│   ├── FrontEndLogic.py    # Central orchestrator API
+│   ├── message_broker.py   # Unified message broker system
+│   ├── message_broker_mixin.py # Mixin for UI components
+│   ├── TOM.py              # Primary Tkinter GUI
+│   ├── Absolution.py       # Web interface (REMI)
 │   ├── CommercialBreaker.py # Standalone GUI for ComBreak
-│   └── FlagManager.py     # Global flag management
+│   └── FlagManager.py      # Global flag management
 ├── CLI/                    # Command-line interfaces
-│   ├── clydes.py          # Interactive CLI
+│   ├── clydes.py           # Interactive CLI
 │   └── CommercialBreakerCLI.py
 ├── ComBreak/              # Commercial detection system
 │   ├── CommercialBreakerLogic.py   # Main orchestrator
@@ -115,19 +117,20 @@ class NewPage(ttk.Frame):
     def __init__(self, parent, controller, logic):
         self.logic = logic  # LogicController instance
         
-        # Subscribe to updates
-        self.logic.subscribe_to_status_updates(self.update_status)
+        # Subscribe to message broker directly or via mixin
+        from GUI.message_broker import get_message_broker
+        queue = get_message_broker().subscribe(['status_updates'])
         
         # Button handler
         button = ttk.Button(self, command=self.logic.new_feature)
 
 # For Absolution (Web)
-class NewPage(BasePage, RedisListenerMixin):
+class NewPage(BasePage, MessageListenerMixin):
     def __init__(self, app, *args, **kwargs):
         self.logic = LogicController()
         
-        # Redis listener for real-time updates
-        self.start_redis_listener_thread(self.redis_queue)
+        # Use the message broker mixin for real-time updates
+        self.start_message_listener()
         
         # Same API call
         button.onclick.connect(self.logic.new_feature)
@@ -135,7 +138,7 @@ class NewPage(BasePage, RedisListenerMixin):
 
 ### 3. Status Broadcasting
 
-Provide user feedback for all operations:
+Provide user feedback for all operations using the message broker:
 
 ```python
 def long_running_operation(self):
@@ -340,6 +343,93 @@ def platform_specific_feature(self):
         raise ValueError(f"Unsupported platform: {platform_type}")
 ```
 
+## Message Broker System
+
+The application uses a unified in-memory message broker system for communication between components.
+
+### Message Broker Architecture
+
+```
+┌─────────────────┬─────────────────┬─────────────────┐
+│   TOM.py        │ Absolution.py   │   clydes.py     │
+│   (Tkinter)     │ (Web/REMI)      │   (CLI)         │
+└─────────┬───────┴─────────┬───────┴─────────┬───────┘
+          │                 │                 │
+          ▼                 ▼                 ▼
+┌─────────────────────────────────────────────────────┐
+│             Message Broker (Singleton)              │
+└─────────────────────┬───────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────┐
+│       LogicController & Business Logic Modules      │
+└─────────────────────────────────────────────────────┘
+```
+
+### Using the Message Broker
+
+#### Publishing Messages
+
+```python
+from GUI.message_broker import get_message_broker
+
+# Get the broker singleton
+broker = get_message_broker()
+
+# Publish a message
+broker.publish('status_updates', 'Processing started')
+broker.publish('progress_updates', {'current': 5, 'total': 10})
+```
+
+#### Subscribing to Messages
+
+```python
+# Subscribe to one or more channels
+message_queue = broker.subscribe(['status_updates', 'progress_updates'])
+
+# Process messages in a loop (typically in a background thread)
+def process_messages():
+    while True:
+        channel, message = message_queue.get()
+        print(f"Received on {channel}: {message}")
+        message_queue.task_done()
+
+# Start processing thread
+threading.Thread(target=process_messages, daemon=True).start()
+```
+
+#### Using the MessageBrokerMixin
+
+For UI components, use the provided mixin:
+
+```python
+from GUI.message_broker_mixin import MessageBrokerMixin
+
+class MyUIComponent(SomeBaseClass, MessageBrokerMixin):
+    def __init__(self):
+        # Start listening for messages
+        self.start_message_listener()
+        
+    def handle_message(self, channel, data):
+        # Override this to handle messages
+        if channel == 'progress_updates':
+            self.update_progress_bar(data)
+```
+
+### Standard Channels
+
+The application uses these standard channels:
+
+- `status_updates`: General status messages
+- `progress_updates`: Progress bar updates
+- `plex_servers`: Server list updates
+- `plex_libraries`: Library list updates
+- `filtered_files`: File filtering results
+- `cutless_state`: Cutless mode status
+- `new_server_choices`: Plex server selection updates
+- `new_library_choices`: Plex library selection updates
+- `plex_auth_url`: Plex authentication URLs
+
 ## Debugging Guidelines
 
 ### Logging Best Practices
@@ -359,8 +449,8 @@ def debug_operation(self):
 
 ### Common Debugging Scenarios
 
-1. **Status Updates Not Appearing**: Check Redis vs PubSub configuration
-2. **Threading Issues**: Ensure UI updates only via broadcasts
+1. **Status Updates Not Appearing**: Check message broker subscription
+2. **Threading Issues**: Ensure UI updates only via message broker
 3. **Database Locks**: Use shorter connection contexts
 4. **Platform Compatibility**: Verify FlagManager.cutless evaluation
 
@@ -396,12 +486,25 @@ When adding features:
 
 To create a new interface:
 
-1. **Implement LogicController Integration**:
+1. **Implement LogicController and Message Broker Integration**:
 ```python
 class CustomInterface:
     def __init__(self):
         self.logic = LogicController()
-        self.logic.subscribe_to_status_updates(self.handle_status)
+        
+        # Use the message broker directly
+        from GUI.message_broker import get_message_broker
+        self.message_queue = get_message_broker().subscribe(['status_updates'])
+        
+        # Start a thread to process messages
+        threading.Thread(target=self.process_messages, daemon=True).start()
+    
+    def process_messages(self):
+        while True:
+            channel, message = self.message_queue.get()
+            if channel == 'status_updates':
+                self.handle_status(message)
+            self.message_queue.task_done()
     
     def handle_status(self, message):
         # Update your interface
