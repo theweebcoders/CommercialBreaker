@@ -1703,13 +1703,17 @@ class Page4(BasePage):
         # wrapper HBox saved by add_checkbox
         self.cutless_container = self.cutless_checkbox.wrapper
         
-        # Check for both --cutless flag AND DizqueTV compatibility
-        # NOTE: This will trigger a check even if self.cutless is already False
-        is_compatible = self.cutless and self.logic.check_dizquetv_compatibility()
+        # Always initially hide the checkbox
+        self.cutless_container.style['display'] = 'none'
         
-        # Only show the checkbox if both conditions are met
-        if not is_compatible:
-            self.cutless_container.style['display'] = 'none'
+        # Only check compatibility and potentially show the checkbox if cutless flag was provided
+        if self.cutless:
+            # Check DizqueTV compatibility - will only return True if both flag is present AND compatibility passes
+            is_compatible = self.logic.check_dizquetv_compatibility()
+            
+            # Only show the checkbox if compatibility check passes
+            if is_compatible:
+                self.cutless_container.style['display'] = 'flex'
             
         self.cutless_checkbox.onchange.do(self.on_cutless_mode_changed)
 
