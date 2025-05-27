@@ -218,6 +218,7 @@ class LogicController():
 
     def publish_cutless_state(self, enabled):
         """Publish cutless state to 'cutless_state' channel as 'true' or 'false'"""
+        print(f"DEBUG: LogicController.publish_cutless_state called with: {enabled}")
         self._publish_status_update('cutless_state', 'true' if enabled else 'false')
 
     def _on_cutless_change(self, enabled):
@@ -247,7 +248,16 @@ class LogicController():
         platform_type = self._get_data("platform_type")
         
         # Delegate to FlagManager's evaluation
-        return FlagManager.evaluate_platform_compatibility(platform_type, platform_url)
+        compatible = FlagManager.evaluate_platform_compatibility(platform_type, platform_url)
+        
+        # Sync our instance and class variable with FlagManager's current state
+        self.cutless = FlagManager.cutless
+        LogicController.cutless = FlagManager.cutless
+        
+        # Explicitly publish cutless state to subscribers
+        self.publish_cutless_state(FlagManager.cutless)
+        
+        return compatible
 
     def login_to_plex(self):
         def login_thread():

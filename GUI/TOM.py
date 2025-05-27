@@ -875,6 +875,9 @@ class Page5(ttk.Frame):
         self.update_cutless_checkbox(enabled)
 
     def handle_cutless_state_update(self, enabled):
+        # Convert string 'true'/'false' to boolean if needed
+        if isinstance(enabled, str):
+            enabled = enabled.lower() == 'true'
         self.on_cutless_state_change(enabled)
         if enabled:
             self.cutless_checkbox.config(state=tk.NORMAL)
