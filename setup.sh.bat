@@ -123,9 +123,7 @@ if exist "%CB_HOME%\conda" (
     echo 📦 Installing Miniforge (lightweight conda^)...
     
     :: Download Miniforge
-    set "MINIFORGE_URL=https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Windows-x86_64.exe"
-    
-    powershell -Command "Invoke-WebRequest -Uri '%MINIFORGE_URL%' -OutFile 'miniforge.exe'" || goto :error
+    powershell -Command "Invoke-WebRequest -Uri 'https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Windows-x86_64.exe' -OutFile 'miniforge.exe'" || goto :error
     
     :: Install silently
     start /wait miniforge.exe /S /D=%CB_HOME%\conda || goto :error
@@ -184,4 +182,3 @@ exit /b 0
 echo ❌ Installation failed!
 pause
 exit /b 1
-
