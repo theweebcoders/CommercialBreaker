@@ -41,7 +41,7 @@ CommercialBreaker & Toonami Tools is a modular Python application designed to au
 ├─────────────────────────────────────────────────────────────┤
 │ • LogicController class - Central API for all UIs           │
 │ • State management via SQLite database                      │
-│ • Redis/PubSub communication for real-time updates          │
+│ • In-memory message broker for real-time updates            │
 │ • Threading for background operations                       │
 │ • Platform compatibility evaluation                         │
 └─────────────────────────────────────────────────────────────┘
@@ -70,6 +70,15 @@ CommercialBreaker & Toonami Tools is a modular Python application designed to au
 │ • Lineup State  │ • File Paths    │                         │
 └─────────────────┴─────────────────┴─────────────────────────┘
 ```
+
+---
+
+## In-Memory Message Broker
+
+A unified in-memory message broker is responsible for all real-time communication between the LogicController and the various user interfaces (GUI, Web, CLI).
+
+- **Channel-Based Communication**: All UIs subscribe to relevant channels for updates and publish user actions/events.
+- **Decoupled Integration**: Interfaces interact with the LogicController exclusively through the message broker, ensuring modularity and testability.
 
 ---
 

@@ -7,7 +7,6 @@ import os
 import psutil
 import json
 import ToonamiTools
-from queue import Queue, Empty
 import remi.gui as gui
 from remi import start, App
 import time
@@ -725,46 +724,6 @@ class BasePage(gui.Container):
         checkbox.wrapper = hbox
         return checkbox
 
-class RedisListenerMixin:
-    def after(self, time_ms, callback):
-        threading.Timer(time_ms / 1000, callback).start()
-
-    def process_redis_messages(self):
-        while not self.redis_queue.empty():
-            message = self.redis_queue.get()
-            channel = message['channel'].decode('utf-8')
-            data = message['data'].decode('utf-8')
-
-            if channel == 'status_updates':
-                self.update_status_label(data)
-            elif hasattr(self, 'handle_redis_message'):
-                self.handle_redis_message(channel, data)
-
-        self.after(100, self.process_redis_messages)
-
-    def listen_for_redis_updates(self, redis_queue):
-        redis_client = self.logic.redis_client
-        pubsub = redis_client.pubsub()
-        pubsub.subscribe('status_updates', 'new_server_choices', 'new_library_choices',
-                         'plex_servers', 'plex_libraries', 'filtered_files',
-                         'plex_auth_url', 'cutless_state')
-
-        for message in pubsub.listen():
-            if message['type'] == 'message':
-                redis_queue.put(message)
-
-    def start_redis_listener_thread(self, redis_queue):
-        threading.Thread(target=self.listen_for_redis_updates, args=(redis_queue,), daemon=True).start()
-
-    def update_status_label(self, status):
-        # Use the new method from BasePage
-        if hasattr(self, 'update_status_display'):
-            self.update_status_display(status)
-        else:
-            # Fallback for backward compatibility
-            if hasattr(self, 'status_label'):
-                self.status_label.set_text(f"Status: {status}")
-
 class NavigationBar(gui.Container):
     def __init__(self, app, current_page, *args, **kwargs):
         super(NavigationBar, self).__init__(*args, **kwargs)
@@ -951,12 +910,10 @@ class NavigationBar(gui.Container):
         container.append(button)
         return button
 
-class Page1(BasePage, RedisListenerMixin):
+class Page1(BasePage):
     def __init__(self, app, *args, **kwargs):
         super(Page1, self).__init__(app, 'Page1', *args, **kwargs)
         self.logic = LogicController()
-        self.PlexManager = PlexManager(self.logic, app)
-        self.redis_queue = Queue()
         
         # Define the JavaScript function for opening URLs early in initialization
         self.app.execute_javascript("""
@@ -965,9 +922,18 @@ class Page1(BasePage, RedisListenerMixin):
             }
         """)
         
-        self.start_redis_listener_thread(self.redis_queue)
-        self.after(100, self.process_redis_messages)
+        # Subscribe to updates using simplified interface
+        self.logic.subscribe_to_status_updates(self.update_status_display)
+        self.logic.subscribe_to_plex_servers(self.handle_plex_servers_update)
+        self.logic.subscribe_to_plex_libraries(self.handle_plex_libraries_update)
+        self.logic.subscribe_to_plex_auth_url(self.handle_plex_auth_url)
+        self.logic.subscribe_to_server_choices(self.handle_new_server_choices)
+        self.logic.subscribe_to_library_choices(self.handle_new_library_choices)
+        
+        # Initialize variables
         self.libraries_selected = 0
+        self.plex_servers = []
+        self.plex_libraries = []
 
         # Build the page using helper methods
         self.add_label(self.main_container, "Login with Plex")
@@ -1050,19 +1016,16 @@ class Page1(BasePage, RedisListenerMixin):
     def login_to_plex(self, widget):
         print("You pressed the login button")
         self.logic.login_to_plex()
-        self.PlexManager._wait_for_servers()
-        self.update_dropdown()
+        # With the message broker system, we don't need to wait or poll
+        # Messages will come via handle_message when available
+        self.update_status_display("Logging into Plex...")
 
     def on_server_selected(self, widget, value):
         self.selected_server = self.plex_server_dropdown.get_value()
         print(f"Selected server: {self.selected_server}")
+        # The broker will handle the delivery of libraries when ready
         self.logic.on_server_selected(self.selected_server)
-        
-        # Run library fetching in a separate thread to prevent UI freezing
-        def fetch_libraries_thread():
-            self.PlexManager._wait_for_libraries()
-            
-        threading.Thread(target=fetch_libraries_thread).start()
+        self.update_status_display(f"Fetching libraries from {self.selected_server}...")
 
     def add_1_to_libraries_selected(self, widget, value):
         self.libraries_selected += 1
@@ -1073,30 +1036,54 @@ class Page1(BasePage, RedisListenerMixin):
         self.continue_button.style['display'] = 'block'
         self.skip_button.style['display'] = 'none'
 
-    def update_dropdown(self):
-        try:
-            message = self.redis_queue.get_nowait()
-            if message['channel'].decode('utf-8') == 'plex_servers':
-                server_list = json.loads(message['data'].decode('utf-8'))
-                for server in server_list:
-                    self.plex_server_dropdown.append(gui.DropDownItem(server))
-            else:
-                self.redis_queue.put(message)
-        except Empty:
-            self.after(100, self.update_dropdown)
+    def update_server_dropdown(self, server_list):
+        """Update the server dropdown with the provided list of servers"""
+        # Clear existing items except for the first instruction item
+        first_item = self.plex_server_dropdown.children.get('0')
+        self.plex_server_dropdown.empty()
+        if (first_item):
+            self.plex_server_dropdown.append(first_item)
+        
+        # Add all servers from the provided list
+        if (server_list):
+            for server in server_list:
+                self.plex_server_dropdown.append(gui.DropDownItem(server))
+            print(f"Updated server dropdown with {len(server_list)} servers")
+            
+            # Auto-select if there's only one server
+            if (len(server_list) == 1):
+                server_name = server_list[0]
+                print(f"Auto-selecting single server: {server_name}")
+                self.plex_server_dropdown.set_value(server_name)
+                self.selected_server = server_name
+                # Trigger the selection logic
+                self.logic.on_server_selected(server_name)
+                self.update_status_display(f"Fetching libraries from {server_name}...")
 
-    def update_library_dropdowns(self):
-        try:
-            message = self.redis_queue.get_nowait()
-            if message['channel'].decode('utf-8') == 'plex_libraries':
-                library_list = json.loads(message['data'].decode('utf-8'))
-                for library in library_list:
-                    self.plex_anime_library_dropdown.append(gui.DropDownItem(library))
-                    self.plex_library_dropdown.append(gui.DropDownItem(library))
-            else:
-                self.redis_queue.put(message)
-        except Empty:
-            self.after(100, self.update_library_dropdowns)
+    def update_library_dropdowns(self, library_list):
+        """Update the library dropdowns with the provided list of libraries"""
+        # Clear existing items except for the first instruction item in each dropdown
+        first_anime_item = self.plex_anime_library_dropdown.children.get('0')
+        first_toonami_item = self.plex_library_dropdown.children.get('0')
+        
+        self.plex_anime_library_dropdown.empty()
+        self.plex_library_dropdown.empty()
+        
+        # Add back the first instruction items
+        if (first_anime_item):
+            self.plex_anime_library_dropdown.append(first_anime_item)
+        if (first_toonami_item):
+            self.plex_library_dropdown.append(first_toonami_item)
+        
+        # Add all libraries to both dropdowns
+        if (library_list):
+            for library in library_list:
+                self.plex_anime_library_dropdown.append(gui.DropDownItem(library))
+                self.plex_library_dropdown.append(gui.DropDownItem(library))
+            print(f"Updated library dropdowns with {len(library_list)} libraries")
+            
+            # Reset libraries_selected counter since we're repopulating the dropdown
+            self.libraries_selected = 0
 
     def on_continue_button_click(self, widget):
         selected_anime_library = self.plex_anime_library_dropdown.get_value()
@@ -1112,17 +1099,72 @@ class Page1(BasePage, RedisListenerMixin):
         self.app.visited_page2 = False
         self.app.set_current_page('Page3')
 
-    def handle_redis_message(self, channel, data):
-        if channel == 'plex_auth_url':
-            # Use the JavaScript function to open the Plex auth URL directly
-            auth_url = data  # The data contains the full URL
-            print(f"Received Plex auth URL: {auth_url}")
-            self.app.execute_javascript(f"window.open('{auth_url}', '_blank')")
-            print(f"Opening Plex auth URL: {auth_url}")
-        elif channel == 'new_server_choices':
-            self.update_dropdown()
-        elif channel == 'new_library_choices':
-            self.update_library_dropdowns()
+    def handle_plex_auth_url(self, auth_url):
+        """Handle Plex authentication URL - open in browser"""
+        print(f"Received Plex auth URL: {auth_url}")
+        self.app.execute_javascript(f"window.open('{auth_url}', '_blank')")
+        print(f"Opening Plex auth URL: {auth_url}")
+        
+    def handle_new_server_choices(self, _):
+        """Handle notification about new server choices available"""
+        print("Received notification about new server choices")
+        # This is a notification that new servers are available
+        # The actual server data comes via handle_plex_servers_update
+        
+    def handle_new_library_choices(self, _):
+        """Handle notification about new library choices available"""
+        print("Received notification about new library choices")
+        # This is a notification that new libraries are available
+        # The actual library data comes via handle_plex_libraries_update
+        
+    def handle_plex_servers_update(self, server_list_json):
+        """Handle Plex servers list update"""
+        try:
+            # Deserialize the JSON string to a Python list
+            server_list = json.loads(server_list_json)
+            print(f"Received server list with {len(server_list)} items")
+            
+            # Store server list for reference
+            self.plex_servers = server_list
+            
+            # Update server dropdown
+            self.update_server_dropdown(server_list)
+        except Exception as e:
+            print(f"Error processing server list: {e}")
+            
+    def handle_plex_libraries_update(self, library_list_json):
+        """Handle Plex libraries list update"""
+        try:
+            # Deserialize the JSON string to a Python list
+            library_list = json.loads(library_list_json)
+            print(f"Received library list with {len(library_list)} items")
+            
+            # Store library list for reference
+            self.plex_libraries = library_list
+            
+            # Update library dropdowns
+            self.update_library_dropdowns(library_list)
+            
+            # Update status
+            self.update_status_display(f"Loaded {len(library_list)} libraries")
+        except Exception as e:
+            print(f"Error processing library list: {e}")
+            
+                
+    def update_dropdown(self, server_list):
+        """Update the server dropdown with the provided list of servers"""
+        if hasattr(self, 'plex_server_dropdown'):
+            # Clear existing items except for the first instruction item
+            first_item = self.plex_server_dropdown.children.get('0')
+            self.plex_server_dropdown.empty()
+            if first_item:
+                self.plex_server_dropdown.append(first_item)
+            
+            # Add all servers from the provided list
+            if server_list:
+                for server in server_list:
+                    self.plex_server_dropdown.append(gui.DropDownItem(server))
+                print(f"Updated server dropdown with {len(server_list)} servers")
 
     def on_skip_button_click(self, widget):
         # Skip button should take us to Manual Setup (Page2)
@@ -1198,14 +1240,17 @@ class Page2(BasePage):
         self.app.visited_page2 = True
         self.app.set_current_page('Page3')
 
-class Page3(BasePage, RedisListenerMixin):
+class Page3(BasePage):
     def __init__(self, app, *args, **kwargs):
         super(Page3, self).__init__(app, 'Page3', *args, **kwargs)
         self.logic = LogicController()
         self.ToonamiChecker = ToonamiTools.ToonamiChecker
-        self.redis_queue = Queue()
-        self.start_redis_listener_thread(self.redis_queue)
-        self.after(100, self.process_redis_messages)
+        
+        # Subscribe to updates using simplified interface
+        self.logic.subscribe_to_status_updates(self.update_status_display)
+        self.logic.subscribe_to_filtered_files(self.handle_filtered_files_update)
+        self.logic.subscribe_to_plex_servers(self.handle_plex_servers_update)
+        self.logic.subscribe_to_plex_libraries(self.handle_plex_libraries_update)
         
         # Track filter mode selection
         self.filter_mode = "move_files"  # Default to legacy mode
@@ -1478,14 +1523,65 @@ class Page3(BasePage, RedisListenerMixin):
                 time.sleep(2)
         self.prepare_content_continue()
 
-    def handle_redis_message(self, channel, data):
-        pass
+    def handle_filtered_files_update(self, filtered_files):
+        """Handle filtered files list update"""
+        try:
+            if filtered_files:
+                file_count = len(filtered_files)
+                self.update_status_display(f"Received {file_count} filtered files")
+        except Exception as e:
+            print(f"Error processing filtered files: {e}")
+            
+    def handle_plex_servers_update(self, server_list):
+        """Handle Plex servers list update"""
+        try:
+            print(f"Received server list with {len(server_list)} items")
+            
+            # Store server list for reference
+            self.plex_servers = server_list
+            
+            # Update server dropdown
+            self.update_server_dropdown(server_list)
+        except Exception as e:
+            print(f"Error processing server list: {e}")
+            
+    def handle_plex_libraries_update(self, library_list):
+        """Handle Plex libraries list update"""
+        try:
+            print(f"Received library list with {len(library_list)} items")
+            
+            # Store library list for reference
+            self.plex_libraries = library_list
+            
+            # Update library dropdowns
+            self.update_library_dropdowns(library_list)
+            
+            # Update status
+            self.update_status_display(f"Loaded {len(library_list)} libraries")
+        except Exception as e:
+            print(f"Error processing library list: {e}")
+
+    def update_server_dropdown(self, server_list):
+        """Update the server dropdown with the provided list of servers"""
+        # Check if dropdown exists to avoid attribute errors
+        if hasattr(self, 'plex_server_dropdown'):
+            # Clear existing items except for the first instruction item
+            first_item = self.plex_server_dropdown.children.get('0')
+            self.plex_server_dropdown.empty()
+            if first_item:
+                self.plex_server_dropdown.append(first_item)
+            
+            # Add all servers from the provided list
+            if server_list:
+                for server in server_list:
+                    self.plex_server_dropdown.append(gui.DropDownItem(server))
+                print(f"Updated server dropdown with {len(server_list)} servers")
 
     def toggle_all_checkboxes(self, state):
         for checkbox in self.checkboxes.values():
             checkbox.set_value(state)
 
-class Page4(BasePage, RedisListenerMixin):
+class Page4(BasePage):
     def __init__(self, app, *args, **kwargs):
         super(Page4, self).__init__(app, 'Page4', *args, **kwargs)
         self.cblogic = CommercialBreakerLogic()
@@ -1496,9 +1592,10 @@ class Page4(BasePage, RedisListenerMixin):
         else:
             self.cutless = False
             
-        self.redis_queue = Queue()
-        self.start_redis_listener_thread(self.redis_queue)
-        self.after(100, self.process_redis_messages)
+        # Subscribe to updates using simplified interface
+        self.logic.subscribe_to_status_updates(self.update_status_display)
+        self.logic.subscribe_to_filtered_files(self.handle_filtered_files_update)
+        self.logic.subscribe_to_cutless_state(self.handle_cutless_state_update)
 
         # Initialize the working folder and default directories
         self.working_folder = self.logic._get_data("working_folder")
@@ -1781,6 +1878,7 @@ class Page4(BasePage, RedisListenerMixin):
                 self.done_detect_commercials,
                 "Detect Black Frames",
                 False,
+                False,
                 self.low_power_mode,
                 self.fast_mode,
                 self.reset_progress_bar
@@ -1858,7 +1956,7 @@ class Page4(BasePage, RedisListenerMixin):
         print("Progress reset")
 
     def update_status(self, text):
-        # Forward status update to Redis if applicable
+        # Forward status update to message broker if applicable
         if hasattr(self.logic, '_broadcast_status_update'):
             self.logic._broadcast_status_update(text)
         
@@ -1972,43 +2070,73 @@ class Page4(BasePage, RedisListenerMixin):
     def on_cutless_state_change(self, enabled: bool):
         self.update_cutless_checkbox(enabled)
 
-    def handle_redis_message(self, channel, data):
-        """Handle incoming Redis messages"""
-        if channel == 'filtered_files':
-            try:
-                # The data will be a JSON string containing the list of filtered files
-                filtered_files = json.loads(data)
-                if filtered_files:
-                    # Automatically switch to file mode
-                    self.set_input_mode('file')
-                    
-                    # Add the files to the input handler
-                    self.cblogic.input_handler.add_files(filtered_files)
-                    
-                    # Sort and update the file list
-                    self.update_file_list()
-                    
-                    # Update status
-                    file_count = len(filtered_files)
-                    self.update_status(f"Received {file_count} filtered files from filter operation")
-            except json.JSONDecodeError:
-                self.update_status("Error: Received invalid filtered files data")
-            except Exception as e:
-                self.update_status(f"Error processing filtered files: {str(e)}")
-        elif channel == 'cutless_state':
-            # Redis sends "true"/"false"
-            self.update_cutless_checkbox(data.lower() == 'true')
 
-class Page5(BasePage, RedisListenerMixin):
+    def handle_filtered_files_update(self, filtered_files_json):
+        """Handle filtered files list update"""
+        try:
+            filtered_files = json.loads(filtered_files_json)
+            if filtered_files:
+                # Add files to the input handler
+                self.cblogic.input_handler.add_files(filtered_files)
+                
+                # Switch to file mode and update the list
+                self.set_input_mode('file')
+                self.update_file_list()
+                
+                file_count = len(filtered_files)
+                self.update_status_display(f"Received and pre-populated {file_count} filtered files. Switched to file mode.")
+            else:
+                self.update_status_display("Received empty list of filtered files. Staying in folder mode.")
+        except json.JSONDecodeError as e:
+            print(f"Error decoding filtered files JSON: {e}")
+            self.update_status_display("Error processing filtered files data.")
+        except Exception as e:
+            print(f"Error processing filtered files: {e}")
+            self.update_status_display("An unexpected error occurred while processing filtered files.")
+            
+    def handle_plex_servers_update(self, server_list):
+        """Handle Plex servers list update"""
+        try:
+            print(f"Received server list with {len(server_list)} items")
+            
+            # Store server list for reference
+            self.plex_servers = server_list
+            
+            # Update server dropdown
+            self.update_server_dropdown(server_list)
+        except Exception as e:
+            print(f"Error processing server list: {e}")
+            
+    def handle_plex_libraries_update(self, library_list):
+        """Handle Plex libraries list update"""
+        try:
+            print(f"Received library list with {len(library_list)} items")
+            
+            # Store library list for reference
+            self.plex_libraries = library_list
+            
+            # Update library dropdowns
+            self.update_library_dropdowns(library_list)
+            
+            # Update status
+            self.update_status_display(f"Loaded {len(library_list)} libraries")
+        except Exception as e:
+            print(f"Error processing library list: {e}")
+
+    def handle_cutless_state_update(self, enabled):
+        """Handle cutless state updates from LogicController."""
+        if hasattr(self, 'on_cutless_state_change'):
+            self.on_cutless_state_change(enabled)
+        # If you want to add more UI logic for cutless mode, do it here.
+
+class Page5(BasePage):
     def __init__(self, app, *args, **kwargs):
         super(Page5, self).__init__(app, 'Page5', *args, **kwargs)
         self.logic = LogicController()
-        self.redis_queue = Queue()
-        self.start_redis_listener_thread(self.redis_queue)
-        self.after(100, self.process_redis_messages)
+        # Subscribe to status updates
+        self.logic.subscribe_to_status_updates(self.update_status_display)
+        # Directly call check_platform_type instead of self.after (Remi does not support self.after)
         
-        # After initialization, check platform type to update UI
-        self.after(100, self.check_platform_type)
 
         # Toonami version selection
         self.add_label(self.main_container, "What Toonami Version are you making today?")
@@ -2045,6 +2173,9 @@ class Page5(BasePage, RedisListenerMixin):
 
         # Continue button
         self.continue_button = self.add_button_with_style(self.main_container, "Continue", self.on_continue_button_click, 'secondary')
+        # Now that all widgets are created, check platform type
+        self.check_platform_type()
+    # ...existing code...
 
     def check_platform_type(self):
         """Check the platform type and update button display accordingly"""
@@ -2104,20 +2235,23 @@ class Page5(BasePage, RedisListenerMixin):
         flex_duration = self.flex_duration_entry.get_value()
         self.logic.add_flex(channel_number, flex_duration)
 
-    def handle_redis_message(self, channel, data):
-        pass
+    def handle_message(self, channel, data):
+        """Handle messages from the message broker"""
+        if channel == 'cutless_state':
+            try:
+                is_enabled = data if isinstance(data, bool) else str(data).lower() == 'true'
+                print(f"Cutless state changed: {is_enabled}")
+            except Exception as e:
+                print(f"Error processing cutless state: {e}")
 
-class Page6(BasePage, RedisListenerMixin):
+class Page6(BasePage):
     def __init__(self, app, *args, **kwargs):
         super(Page6, self).__init__(app, 'Page6', *args, **kwargs)
         self.logic = LogicController()
-        self.redis_queue = Queue()
-        self.start_redis_listener_thread(self.redis_queue)
-        self.after(100, self.process_redis_messages)
         self.logic._broadcast_status_update("Idle")
-        
-        # After initialization, check platform type to update UI
-        self.after(100, self.check_platform_type)
+
+        # Subscribe to status updates
+        self.logic.subscribe_to_status_updates(self.update_status_display)
 
         # Toonami version selection
         self.add_label(self.main_container, "What Toonami Version are you making today?")
@@ -2146,6 +2280,9 @@ class Page6(BasePage, RedisListenerMixin):
         self.add_flex_button = self.add_button_with_style(self.main_container, "Add Flex", self.add_flex, 'primary')
 
         # Remove individual status label since we now use the global one in BasePage
+        
+        # Now that all widgets are created, check platform type
+        self.check_platform_type()
 
     def check_platform_type(self):
         """Check the platform type and update button display accordingly"""
@@ -2194,8 +2331,15 @@ class Page6(BasePage, RedisListenerMixin):
         flex_duration = self.flex_duration_entry.get_value()
         self.logic.add_flex(channel_number, flex_duration)
 
-    def handle_redis_message(self, channel, data):
-        pass
+    def handle_message(self, channel, data):
+        """Handle messages from the message broker"""
+        if channel == 'cutless_state':
+            # Handle cutless mode state changes
+            try:
+                is_enabled = data if isinstance(data, bool) else str(data).lower() == 'true'
+                print(f"Cutless state changed: {is_enabled}")
+            except Exception as e:
+                print(f"Error processing cutless state: {e}")
 
 class MainApp(App):
     def __init__(self, *args, **kwargs):

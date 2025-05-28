@@ -4,7 +4,7 @@ This document provides detailed information about the internal APIs used through
 
 ## FrontEndLogic Orchestrator API
 
-The `LogicController` class in `GUI/FrontEndLogic.py` serves as the central orchestrator API for all user interfaces. It provides a unified interface for workflow management, state persistence, and real-time communication.
+The `LogicController` class in `GUI/FrontEndLogic.py` serves as the central orchestrator API for all user interfaces. It provides a unified interface for workflow management, state persistence, and real-time communication via an in-memory message broker.
 
 ### Core Architecture
 
@@ -28,9 +28,9 @@ def __init__(self):
     """
     Initializes the LogicController with:
     - SQLite database connection for state persistence
-    - Redis/PubSub communication setup
+    - In-memory message broker for real-time communication
     - Platform compatibility evaluation
-    - Subscriber lists for real-time updates
+    - Channel-based subscriber lists for UI updates
     """
 ```
 
@@ -58,41 +58,74 @@ def _get_data(self, key: str) -> str | None:
 - `working_folder` - Processing workspace directory
 - `cutless_mode_used` - Flag indicating if cutless mode was used for processing
 - `docker` - Docker mode flag (from FlagManager)
-- `use_redis` - Redis mode flag (from FlagManager)
 
 #### Communication API
 
 **Broadcasting Status Updates**
 ```python
 def _publish_status_update(self, channel: str, message: str) -> None:
-    """Low-level Redis publish helper (Redis mode only)"""
+    """Publish a message to a channel using the message broker"""
 
 def _broadcast_status_update(self, message: str) -> None:
     """
     Sends real-time status updates to all subscribed UIs
-    Uses Redis or PubSub depending on configuration
+    via the message broker
     """
 ```
 
 **Subscription Management**
 ```python
 def subscribe_to_status_updates(self, callback: callable) -> None:
-    """Register callback for status updates (PubSub mode)"""
+    """Register callback for status updates (message broker)"""
 
-def subscribe_to_new_server_choices(self, callback: callable) -> None:
-    """Register callback for Plex server updates"""
+def subscribe_to_progress_updates(self, callback: callable) -> None:
+    """Register callback for progress updates"""
 
-def subscribe_to_new_library_choices(self, callback: callable) -> None:
-    """Register callback for Plex library updates"""
+def subscribe_to_plex_servers(self, callback: callable) -> None:
+    """Register callback for Plex server list updates"""
+
+def subscribe_to_plex_libraries(self, callback: callable) -> None:
+    """Register callback for Plex library list updates"""
 
 def subscribe_to_filtered_files(self, callback: callable) -> None:
-    """Register callback for filtered files updates (PubSub mode)"""
+    """Register callback for filtered files updates"""
 
-def subscribe_to_auth_url(self, callback: callable) -> None:
-    """Register callback for authentication URL updates (PubSub mode)"""
+def subscribe_to_plex_auth_url(self, callback: callable) -> None:
+    """Register callback for authentication URL updates"""
 
 def subscribe_to_cutless_state(self, callback: callable) -> None:
-    """Register callback for cutless mode state changes (PubSub mode)"""
+    """Register callback for cutless mode state changes"""
+
+def subscribe_to_server_choices(self, callback: callable) -> None:
+    """Register callback for Plex server choice notifications"""
+
+def subscribe_to_library_choices(self, callback: callable) -> None:
+    """Register callback for Plex library choice notifications"""
+
+def subscribe_to_updates(self, channel: str, callback: callable) -> None:
+    """Generic channel-based subscription method for UIs"""
+
+def unsubscribe_from_updates(self, channel: str, callback: callable) -> None:
+    """Unsubscribe a callback from a channel"""
+
+**Message Broker Integration**
+```python
+# In-memory message broker for multi-interface support
+def publish_plex_servers(self) -> None:
+    """Publishes server list via message broker"""
+
+def publish_plex_auth_url(self, auth_url: str) -> None:
+    """Publishes authentication URL via message broker"""
+
+def publish_plex_libraries(self) -> None: 
+    """Publishes Plex library list via message broker"""
+
+def publish_filtered_files(self, filtered_files: list) -> None:
+    """Publishes the list of filtered files via message broker"""
+
+def publish_cutless_state(self, enabled: bool) -> None:
+    """Publishes the cutless mode state ('true' or 'false') via message broker"""
+    
 ```
 
 #### Workflow API
@@ -274,25 +307,6 @@ def add_flex(self, channel_number: str, duration: str) -> None:
     """
 ```
 
-#### Advanced Features
-
-**Redis Integration**
-```python
-# Redis-based communication for multi-user support
-def publish_plex_servers(self) -> None:
-    """Publishes server list via Redis"""
-
-def publish_plex_auth_url(self, auth_url: str) -> None:
-    """Publishes authentication URL via Redis"""
-
-def publish_plex_libraries(self) -> None: 
-    """Publishes Plex library list via Redis (fixed spelling)"""
-
-def publish_filtered_files(self, filtered_files: list) -> None:
-    """Publishes the list of filtered files via Redis"""
-
-def publish_cutless_state(self, enabled: bool) -> None:
-    """Publishes the cutless mode state ('true' or 'false') via Redis"""
 ```
 
 **Cutless Mode Management**
@@ -510,26 +524,39 @@ All major operations provide real-time status updates:
 class Page1(ttk.Frame):
     def __init__(self, parent, controller, logic):
         self.logic = logic  # LogicController instance
-        
-        # Subscribe to updates
-        self.logic.subscribe_to_status_updates(self.update_status_label)
-        self.logic.subscribe_to_new_server_choices(self.update_dropdown)
-        
-        # UI event handlers
-        login_button = ttk.Button(self, command=self.logic.login_to_plex)
+        # Subscribe to updates via message broker
+        self.logic.subscribe_to_updates('status_updates', self.update_status_label)
+        self.logic.subscribe_to_updates('plex_servers', self.handle_plex_servers_update)
+        self.logic.subscribe_to_updates('plex_libraries', self.handle_plex_libraries_update)
+        self.logic.subscribe_to_updates('plex_auth_url', self.handle_plex_auth_url_update)
+        self.logic.subscribe_to_updates('new_server_choices', self.handle_new_server_choices_update)
+        self.logic.subscribe_to_updates('new_library_choices', self.handle_new_library_choices_update)
+        # ...
 ```
 
 ### Absolution Web Interface Integration
 ```python
-class Page1(BasePage, RedisListenerMixin):
+class Page1(BasePage):
     def __init__(self, app, *args, **kwargs):
         self.logic = LogicController()
-        
-        # Redis-based communication for web interface
-        self.start_redis_listener_thread(self.redis_queue)
-        
-        # Same API calls as TOM
-        login_button.onclick.connect(self.logic.login_to_plex)
+        # Subscribe to updates via message broker
+        self.logic.subscribe_to_status_updates(self.update_status_display)
+        self.logic.subscribe_to_plex_servers(self.handle_plex_servers_update)
+        self.logic.subscribe_to_plex_libraries(self.handle_plex_libraries_update)
+        self.logic.subscribe_to_plex_auth_url(self.handle_plex_auth_url)
+        self.logic.subscribe_to_server_choices(self.handle_new_server_choices)
+        self.logic.subscribe_to_library_choices(self.handle_new_library_choices)
+        # ...
+```
+
+### Clydes CLI Integration
+```python
+class ClydesApp:
+    def __init__(self):
+        self.logic = LogicController()
+        self.logic.subscribe_to_updates('status_updates', self.handle_status_updates)
+        self.logic.subscribe_to_updates('cutless_state', self.handle_cutless_state_update)
+        # ...
 ```
 
 This unified API design allows multiple user interfaces to provide identical functionality while maintaining consistent state and providing real-time feedback to users.

@@ -1,9 +1,10 @@
 import threading
 import queue
 import time
-import redis
 from GUI import LogicController
 from CLI.CommercialBreakerCLI import main as CommercialBreakerCLI
+from queue import Queue, Empty
+import json
 
 class PlexManager:
     def __init__(self, logic, app):
@@ -364,28 +365,22 @@ class ToonamiManager:
 
 class ClydesApp:
     def __init__(self):
-        self.logic = LogicController()
-        
-        # A simple lock for user input
-        # We won't let any code read input unless it acquires this lock
         self.input_lock = threading.Lock()
-        
+        self.logic = LogicController()
+        self.status_queue = Queue()
         self.plex_manager = PlexManager(self.logic, self)
         self.folder_manager = FolderManager(self.logic, self)
         self.content_preparer = ContentPreparer(self.logic, self)
         self.toonami_manager = ToonamiManager(self.logic, self)
-        
-        self.status_queue = queue.Queue()
-        self.redis_queue = queue.Queue()
-        
-        # Start Redis listener for status updates
-        self.start_redis_listener_thread(self.redis_queue)
-        self.redis_listener_thread = threading.Thread(target=self.process_redis_messages, daemon=True)
-        self.redis_listener_thread.start()
-        
-        # Start the status printer
-        self.printer_thread = threading.Thread(target=self.status_printer, daemon=True)
-        self.printer_thread.start()
+        self.config = {}
+
+        # Subscribe to updates via LogicController
+        self.logic.subscribe_to_updates('status_updates', self.handle_status_updates)
+        self.logic.subscribe_to_updates('cutless_state', self.handle_cutless_state_update)
+
+        # Start the status printer thread
+        self.status_thread = threading.Thread(target=self.status_printer, daemon=True)
+        self.status_thread.start()
 
     def safe_input(self, prompt=""):
         """
@@ -422,30 +417,13 @@ class ClydesApp:
                 return True
         return False
 
-    def listen_for_redis_updates(self, redis_queue):
-        redis_client = self.logic.redis_client
-        pubsub = redis_client.pubsub()
-        pubsub.subscribe('status_updates', 'new_server_choices', 
-                         'new_library_choices', 'plex_servers', 
-                         'plex_libraries', 'plex_auth_url',
-                         'cutless_state')
+    # Define handler methods
+    def handle_status_updates(self, data):
+        self.status_queue.put(f"Status: {data}")
 
-        for message in pubsub.listen():
-            if message['type'] == 'message':
-                redis_queue.put(message)
-
-    def start_redis_listener_thread(self, redis_queue):
-        threading.Thread(target=self.listen_for_redis_updates, args=(redis_queue,), daemon=True).start()
-
-    def process_redis_messages(self):
-        while True:
-            message = self.redis_queue.get()
-            channel = message['channel'].decode('utf-8')
-            if channel == 'status_updates':
-                self.status_queue.put(f"Status: {message['data'].decode('utf-8')}")
-            elif channel == 'cutless_state':
-                new_value = message['data'].decode('utf-8').lower() == 'true'
-                self.logic.cutless = new_value
+    def handle_cutless_state_update(self, data):
+        is_enabled = data.lower() == 'true' if isinstance(data, str) else bool(data)
+        print(f"ClydesApp: Received cutless_state update from LogicController: {is_enabled}")
 
     def run(self):
         if not self.load_existing_configurations():

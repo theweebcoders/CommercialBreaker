@@ -19,9 +19,9 @@ The codebase uses a central orchestrator pattern where `GUI/FrontEndLogic.py` se
 ┌─────────────────────────────────────────────────────────────┐
 │               FrontEndLogic.py (Orchestrator)               │
 │  • LogicController class                                    │
-│  • State management via SQLite                             │
-│  • Real-time communication (Redis/PubSub)                  │
-│  • Threading for background operations                     │
+│  • State management via SQLite                              │
+│  • Real-time communication (in-memory message broker)       │
+│  • Threading for background operations                      │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
@@ -34,7 +34,7 @@ The codebase uses a central orchestrator pattern where `GUI/FrontEndLogic.py` se
 
 1. **Single Source of Truth**: FrontEndLogic.LogicController manages all application state
 2. **Interface Agnostic**: Same API works for GUI, web, and CLI interfaces
-3. **Real-time Updates**: Status broadcasting keeps all UIs synchronized
+3. **Real-time Updates**: Status broadcasting keeps all UIs synchronized via the message broker
 4. **Background Processing**: Long operations run in threads with progress updates
 5. **Platform Compatibility**: Automatic evaluation of features like cutless mode
 
@@ -107,7 +107,7 @@ class LogicController:
 
 ### 2. UI Implementation
 
-All UIs should use the same LogicController API:
+All UIs should use the same LogicController API and subscribe to updates via the message broker:
 
 ```python
 # For TOM (Tkinter)
@@ -115,19 +115,19 @@ class NewPage(ttk.Frame):
     def __init__(self, parent, controller, logic):
         self.logic = logic  # LogicController instance
         
-        # Subscribe to updates
-        self.logic.subscribe_to_status_updates(self.update_status)
+        # Subscribe to updates via message broker
+        self.logic.subscribe_to_updates('status_updates', self.update_status)
         
         # Button handler
         button = ttk.Button(self, command=self.logic.new_feature)
 
 # For Absolution (Web)
-class NewPage(BasePage, RedisListenerMixin):
+class NewPage(BasePage):
     def __init__(self, app, *args, **kwargs):
         self.logic = LogicController()
         
-        # Redis listener for real-time updates
-        self.start_redis_listener_thread(self.redis_queue)
+        # Subscribe to updates via message broker
+        self.logic.subscribe_to_status_updates(self.update_status_display)
         
         # Same API call
         button.onclick.connect(self.logic.new_feature)
@@ -135,7 +135,7 @@ class NewPage(BasePage, RedisListenerMixin):
 
 ### 3. Status Broadcasting
 
-Provide user feedback for all operations:
+Provide user feedback for all operations using the message broker:
 
 ```python
 def long_running_operation(self):
@@ -359,7 +359,7 @@ def debug_operation(self):
 
 ### Common Debugging Scenarios
 
-1. **Status Updates Not Appearing**: Check Redis vs PubSub configuration
+1. **Status Updates Not Appearing**: Check message broker configuration
 2. **Threading Issues**: Ensure UI updates only via broadcasts
 3. **Database Locks**: Use shorter connection contexts
 4. **Platform Compatibility**: Verify FlagManager.cutless evaluation
