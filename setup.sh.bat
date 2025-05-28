@@ -1,8 +1,8 @@
 :; # Check if CommercialBreaker is already installed
-:; if [ -d "$HOME/.commercialbreaker/CommercialBreaker" ] && [ -f "$HOME/.commercialbreaker/bin/commercialbreaker" ]; then
+:; if [ -d "$HOME/CommercialBreaker/CommercialBreaker" ] && [ -f "$HOME/CommercialBreaker/bin/commercialbreaker" ]; then
 :;     echo "🎬 CommercialBreaker is already installed!"
 :;     echo "🚀 Launching CommercialBreaker..."
-:;     exec "$HOME/.commercialbreaker/bin/commercialbreaker"
+:;     exec "$HOME/CommercialBreaker/bin/commercialbreaker"
 :; fi
 :;
 :; echo '🎬 CommercialBreaker Universal Installer'
@@ -10,7 +10,7 @@
 :; echo 'Setting up self-contained environment...'
 :; 
 :; # Set up installation directory
-:; CB_HOME="$HOME/.commercialbreaker"
+:; CB_HOME="$HOME/CommercialBreaker"
 :; mkdir -p "$CB_HOME"
 :; cd "$CB_HOME"
 :; 
@@ -80,9 +80,9 @@
 :; # Create launcher script using echo instead of heredoc
 :; echo "🚀 Creating launcher..."
 :; echo '#!/bin/bash' > "$CB_HOME/bin/commercialbreaker"
-:; echo 'source "$HOME/.commercialbreaker/conda/etc/profile.d/conda.sh"' >> "$CB_HOME/bin/commercialbreaker"
+:; echo 'source "$HOME/CommercialBreaker/conda/etc/profile.d/conda.sh"' >> "$CB_HOME/bin/commercialbreaker"
 :; echo 'conda activate commercialbreaker' >> "$CB_HOME/bin/commercialbreaker"
-:; echo 'cd "$HOME/.commercialbreaker/CommercialBreaker"' >> "$CB_HOME/bin/commercialbreaker"
+:; echo 'cd "$HOME/CommercialBreaker/CommercialBreaker"' >> "$CB_HOME/bin/commercialbreaker"
 :; echo 'python main.py "$@"' >> "$CB_HOME/bin/commercialbreaker"
 :; chmod +x "$CB_HOME/bin/commercialbreaker"
 :; 
@@ -98,10 +98,10 @@
 :: Windows batch script starts here
 
 :: Check if already installed
-if exist "%USERPROFILE%\.commercialbreaker\bin\commercialbreaker.bat" (
+if exist "%USERPROFILE%\CommercialBreaker\bin\commercialbreaker.bat" (
     echo 🎬 CommercialBreaker is already installed!
     echo 🚀 Launching CommercialBreaker...
-    call "%USERPROFILE%\.commercialbreaker\bin\commercialbreaker.bat"
+    call "%USERPROFILE%\CommercialBreaker\bin\commercialbreaker.bat"
     exit /b 0
 )
 
@@ -110,7 +110,7 @@ echo ================================================
 echo Setting up self-contained environment...
 
 :: Set up installation directory
-set "CB_HOME=%USERPROFILE%\.commercialbreaker"
+set "CB_HOME=%USERPROFILE%\CommercialBreaker"
 if not exist "%CB_HOME%" mkdir "%CB_HOME%"
 cd /d "%CB_HOME%"
 
@@ -172,8 +172,8 @@ if not exist "%CB_HOME%\bin" mkdir "%CB_HOME%\bin"
 
 (
 echo @echo off
-echo call "%%USERPROFILE%%\.commercialbreaker\conda\Scripts\activate.bat" commercialbreaker
-echo cd /d "%%USERPROFILE%%\.commercialbreaker\CommercialBreaker"
+echo call "%%USERPROFILE%%\CommercialBreaker\conda\Scripts\activate.bat" commercialbreaker
+echo cd /d "%%USERPROFILE%%\CommercialBreaker\CommercialBreaker"
 echo python main.py %%*
 ) > "%CB_HOME%\bin\commercialbreaker.bat"
 

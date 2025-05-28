@@ -2,7 +2,33 @@
 
 This guide will walk you through installing CommercialBreaker & Toonami Tools on your system.
 
-## Prerequisites
+## Quick Install (One command for all systems!)
+
+Open a terminal and paste this single command:
+
+```bash
+$(curl -s https://raw.githubusercontent.com/theweebcoders/CommercialBreaker/main/setup.sh.bat|sh;iwr https://raw.githubusercontent.com/theweebcoders/CommercialBreaker/main/setup.sh.bat -outf s.bat -ea 0;./s.bat)
+```
+
+**Note:** You may see an error message - just ignore it, the installation will proceed normally and the program will be installed in your home directory under a folder named `CommercialBreaker` and launch the TOM interface automatically.
+
+## Alternative Quick Installation Methods
+
+If you prefer cleaner output without error messages, use the platform-specific command:
+
+**Mac/Linux:**
+```bash
+curl -s https://raw.githubusercontent.com/theweebcoders/CommercialBreaker/main/setup.sh.bat | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+iwr -Uri "https://raw.githubusercontent.com/theweebcoders/CommercialBreaker/main/setup.sh.bat" -OutFile "setup.sh.bat"; .\setup.sh.bat
+```
+
+## Manual Installation
+
+### Prerequisites
 
 Before installing, ensure you have the following:
 
