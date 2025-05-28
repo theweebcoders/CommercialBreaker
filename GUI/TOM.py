@@ -827,11 +827,9 @@ class Page5(ttk.Frame):
         if total > 0:
             percentage = (current / total) * 100
             self.progress_var.set(percentage)
-            self.progress_label.config(text=f"{int(percentage)}%")
         else:
             self.progress_var.set(0)
-            self.progress_label.config(text="0%")
-        self.parent.update_idletasks()
+        self.update_idletasks()
 
     def reset_progress_bar(self):
         self.progress_var.set(0)
