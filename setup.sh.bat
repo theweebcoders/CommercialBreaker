@@ -156,6 +156,10 @@ echo 📦 Installing dependencies...
 pip install -r requirements\pre_deps.txt || goto :error
 pip install -r requirements.txt || goto :error
 
+:: Install Windows-specific dependencies
+echo 📦 Installing Windows-specific dependencies...
+pip install windows-curses || goto :error
+
 :: Copy example-config.py to config.py if needed
 if exist "example-config.py" if not exist "config.py" (
     echo 📋 Creating config.py from example...
@@ -168,8 +172,8 @@ if not exist "%CB_HOME%\bin" mkdir "%CB_HOME%\bin"
 
 (
 echo @echo off
-echo call "%CB_HOME%\conda\Scripts\activate.bat" commercialbreaker
-echo cd /d "%CB_HOME%\CommercialBreaker"
+echo call "%%USERPROFILE%%\.commercialbreaker\conda\Scripts\activate.bat" commercialbreaker
+echo cd /d "%%USERPROFILE%%\.commercialbreaker\CommercialBreaker"
 echo python main.py %%*
 ) > "%CB_HOME%\bin\commercialbreaker.bat"
 
