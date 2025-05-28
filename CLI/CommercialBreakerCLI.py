@@ -8,7 +8,7 @@ import config
 import curses
 from pathlib import Path
 try:
-    from GUI.FrontEndLogic import LogicController
+    from API.FrontEndLogic import LogicController
     has_logic_controller = True
 except ImportError:
     has_logic_controller = False

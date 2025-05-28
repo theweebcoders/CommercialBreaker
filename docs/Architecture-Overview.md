@@ -36,17 +36,16 @@ CommercialBreaker & Toonami Tools is a modular Python application designed to au
           │                 │                 │
           └─────────────────┼─────────────────┘
                             ▼
-┌─────────────────────────────────────────────────────────────┐
-│               FrontEndLogic.py (Orchestrator API)           │
-├─────────────────────────────────────────────────────────────┤
-│ • LogicController class - Central API for all UIs           │
-│ • State management via SQLite database                      │
-│ • In-memory message broker for real-time updates            │
-│ • Threading for background operations                       │
-│ • Platform compatibility evaluation                         │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐           ┌────────────────────────────────────────────────────────────┐
+│               FrontEndLogic.py (Orchestrator API)           │           │              Supporting API Modules                        │
+├─────────────────────────────────────────────────────────────┤===========├──────────────────────────┬─────────────────────────────────┤
+│ • LogicController class - Central API for all UIs           │           │   FlagManager.py         │  messagebroker.py               │
+│ • State management via SQLite database                      │           │ • Platform compatibility │ • Real-time communication       │
+│ • Threading for background operations                       │           │ • Global Flags           │ • In-memory pub/sub             │
+└─────────────────────────────────────────────────────────────┘           └──────────────────────────┴─────────────────────────────────┘
                                │
                                ▼
+
 ┌─────────────────────────────────────────────────────────────┐
 │                   Core Processing Layer                     │
 ├─────────────────┬─────────────────┬─────────────────────────┤

@@ -4,12 +4,12 @@ This document provides detailed information about the internal APIs used through
 
 ## FrontEndLogic Orchestrator API
 
-The `LogicController` class in `GUI/FrontEndLogic.py` serves as the central orchestrator API for all user interfaces. It provides a unified interface for workflow management, state persistence, and real-time communication via an in-memory message broker.
+The `LogicController` class in `API/FrontEndLogic.py` serves as the central orchestrator API for all user interfaces. It provides a unified interface for workflow management, state persistence, and real-time communication via an in-memory message broker.
 
 ### Core Architecture
 
 ```python
-from GUI import LogicController
+from API import LogicController
 
 # Initialize the orchestrator
 logic = LogicController()
