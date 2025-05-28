@@ -217,8 +217,8 @@ class LogicController():
         print("Please open the following URL in your browser to authenticate with Plex: \n" + auth_url)
 
     def publish_cutless_state(self, enabled):
-        """Publish cutless state to 'cutless_state' channel as 'true' or 'false'"""
-        self._publish_status_update('cutless_state', 'true' if enabled else 'false')
+        """Publish cutless state to 'cutless_state' channel as a boolean"""
+        self._publish_status_update('cutless_state', enabled)
 
     def _on_cutless_change(self, enabled):
         """
