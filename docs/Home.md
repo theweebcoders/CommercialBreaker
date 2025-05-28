@@ -43,19 +43,17 @@ CommercialBreaker & Toonami Tools automate a continuous Toonami marathon by inte
 
 ## Project Structure
 
+The project is organized into several key directories, each serving a specific purpose:
+
 ```
 CommercialBreaker/
-├── main.py                 # Main entry point with interface selection
-├── GUI/                    # Graphical user interfaces
-│   ├── TOM.py             # Primary GUI interface
-│   ├── Absolution.py      # Web interface
-│   └── CommercialBreaker.py
-├── CLI/                    # Command-line interfaces
-│   ├── clydes.py          # Interactive CLI
-│   └── CommercialBreakerCLI.py
-├── ComBreak/              # Core commercial breaking functionality
-├── ToonamiTools/          # Toonami-specific automation tools
-└── ExtraTools/            # Additional utilities
+├── main.py                 # Entry point - selects which interface to run
+├── API/                    # Core application logic and orchestration
+├── GUI/                    # Graphical User Interfaces (TOM, Absolution)
+├── CLI/                    # Command-Line Interfaces (clydes)
+├── ComBreak/               # Commercial detection and processing tools
+├── ToonamiTools/           # All the tools for Toonami channel creation: Plex integration, media/bump handling, lineup scheduling, and platform deployment
+└── ExtraTools/             # Case Use tools and utilities
 ```
 
 ## Getting Help

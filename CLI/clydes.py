@@ -1,7 +1,7 @@
 import threading
 import queue
 import time
-from GUI import LogicController
+from API import LogicController
 from CLI.CommercialBreakerCLI import main as CommercialBreakerCLI
 from queue import Queue, Empty
 import json

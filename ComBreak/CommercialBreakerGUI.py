@@ -6,7 +6,7 @@ import tkinter as tk
 from ComBreak.CommercialBreakerLogic import CommercialBreakerLogic
 from tkinter import filedialog, messagebox, ttk
 try:
-    from GUI.FrontEndLogic import LogicController
+    from API.FrontEndLogic import LogicController
     has_logic_controller = True
 except ImportError:
     has_logic_controller = False

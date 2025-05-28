@@ -48,6 +48,7 @@ COPY CLI/ CLI/
 COPY GUI/ GUI/
 COPY ToonamiTools/ ToonamiTools/
 COPY Tools/ Tools/
+COPY API/ API/
 COPY *.py ./
 
 # Create the config file

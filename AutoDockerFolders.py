@@ -1,5 +1,5 @@
 import os
-from GUI.FrontEndLogic import LogicController
+from API.FrontEndLogic import LogicController
 
 def auto_docker_folder():
     # Fetch data from environment variables or use the Docker container paths

@@ -6,8 +6,9 @@ This guide provides information for developers who want to contribute to Commerc
 
 ### Orchestrator Pattern
 
-The codebase uses a central orchestrator pattern where `GUI/FrontEndLogic.py` serves as the API layer for all user interfaces:
+The codebase uses a central orchestrator pattern where `API/FrontEndLogic.py` serves as the API layer for all user interfaces:
 
+```
 ```
 ┌─────────────────┬─────────────────┬─────────────────┐
 │   TOM.py        │ Absolution.py   │   clydes.py     │
@@ -16,19 +17,21 @@ The codebase uses a central orchestrator pattern where `GUI/FrontEndLogic.py` se
           │                 │                 │
           └─────────────────┼─────────────────┘
                             ▼
-┌─────────────────────────────────────────────────────────────┐
-│               FrontEndLogic.py (Orchestrator)               │
-│  • LogicController class                                    │
-│  • State management via SQLite                              │
-│  • Real-time communication (in-memory message broker)       │
-│  • Threading for background operations                      │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│               ToonamiTools & ComBreak Modules               │
+┌─────────────────────────────────────────────────────────────┐      ┌──────────────────────────────┐
+│        FrontEndLogic.py (Orchestrator/API)                  │      │   Supporting API Modules     │
+│  • LogicController class                                    │======│ ───────────────────────────  │
+│  • State management via SQLite                              │      │  FlagManager.py              │
+│  • Threading for background operations                      │      │   • Platform compatibility   │
+└─────────────────────────────────────────────────────────────┘      │   • Global flags             │
+                         │                                           │  message_broker.py           │
+                         ▼                                           │   • In-memory pub/sub        │
+┌─────────────────────────────────────────────────────────────┐      │   • Real-time communication  │
+│        ToonamiTools & ComBreak Modules (Core Logic)         │      └──────────────────────────────┘
 └─────────────────────────────────────────────────────────────┘
 ```
+*Supporting modules are used by FrontEndLogic for platform checks and real-time updates, but are not intermediary layers between the orchestrator and the core processing modules.*
+```
+*Supporting modules are used by FrontEndLogic for platform checks and real-time updates, but are not intermediary layers between the orchestrator and the core processing modules.*
 
 ### Key Design Principles
 
@@ -58,28 +61,31 @@ pip install -r requirements/graphics.txt
 ```
 CommercialBreaker/
 ├── main.py                 # Entry point - interface selection
+├── API/                    # Orchestration and API modules
+│   ├── FrontEndLogic.py    # Central orchestrator API (LogicController)
+│   └── components/         # Supporting components
+│       ├── FlagManager.py      # Global flag management
+│       └── MessageBroker.py    # In-memory pub/sub for real-time updates
 ├── GUI/                    # User interfaces
-│   ├── FrontEndLogic.py   # Central orchestrator API
-│   ├── TOM.py             # Primary Tkinter GUI
-│   ├── Absolution.py      # Web interface (REMI)
-│   ├── CommercialBreaker.py # Standalone GUI for ComBreak
-│   └── FlagManager.py     # Global flag management
+│   ├── TOM.py              # Primary Tkinter GUI
+│   ├── Absolution.py       # Web interface (REMI)
+│   └── CommercialBreaker.py # Standalone GUI for ComBreak
 ├── CLI/                    # Command-line interfaces
-│   ├── clydes.py          # Interactive CLI
+│   ├── clydes.py           # Interactive CLI
 │   └── CommercialBreakerCLI.py
-├── ComBreak/              # Commercial detection system
+├── ComBreak/               # Commercial detection system
 │   ├── CommercialBreakerLogic.py   # Main orchestrator
 │   ├── ChapterExtractor.py         # Chapter-based detection
 │   ├── SilentBlackFrameDetector.py # Audio/video detection
 │   ├── VideoCutter.py              # File cutting operations
 │   ├── VirtualCut.py               # Cutless mode operations
 │   └── ...
-├── ToonamiTools/          # Toonami-specific automation
-│   ├── LoginToPlex.py     # Plex authentication
-│   ├── toonamichecker.py  # Show validation
+├── ToonamiTools/           # Toonami-specific automation
+│   ├── LoginToPlex.py      # Plex authentication
+│   ├── toonamichecker.py   # Show validation
 │   ├── commercialinjector.py # Bump insertion
 │   └── ...
-└── ExtraTools/            # Case use utilities
+└── ExtraTools/             # Case use utilities
 ```
 
 ## Core Development Patterns
@@ -89,7 +95,7 @@ CommercialBreaker/
 When adding new functionality, integrate with the orchestrator:
 
 ```python
-# GUI/FrontEndLogic.py
+# API/FrontEndLogic.py
 class LogicController:
     def new_feature(self):
         def feature_thread():
@@ -204,7 +210,7 @@ from .YourNewTool import YourNewTool
 3. Integrate with FrontEndLogic:
 
 ```python
-# GUI/FrontEndLogic.py
+# API/FrontEndLogic.py
 def use_your_new_tool(self):
     def tool_thread():
         self._broadcast_status_update("Running your new tool...")

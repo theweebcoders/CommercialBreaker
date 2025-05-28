@@ -1,6 +1,5 @@
 from ComBreak import CommercialBreakerLogic
-from GUI import LogicController
-from CLI import PlexManager
+from API import LogicController
 import config
 import threading
 import os

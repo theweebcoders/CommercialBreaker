@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import sv_ttk
 from ComBreak import CommercialBreakerLogic
-from GUI import LogicController
+from API import LogicController
 import config
 import threading
 import os
@@ -567,7 +567,7 @@ class Page5(ttk.Frame):
 
         self.cutless_mode = tk.BooleanVar()
         self.cutless_mode.trace("w", self.toggle_cutless_mode)
-        self.cutless_checkbox = ttk.Checkbutton(self.checkbox_frame, text='Cutless Mode')
+        self.cutless_checkbox = ttk.Checkbutton(self.checkbox_frame, text='Cutless Mode', variable=self.cutless_mode)
         self.update_cutless_checkbox(LogicController.cutless)
 
         self.directory_frame = ttk.Frame(self.master)
