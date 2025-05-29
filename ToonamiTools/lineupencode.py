@@ -19,32 +19,48 @@ class BlockIDCreator:
 
     @staticmethod
     def create_block_id(path):
-        # Split path into parts
-        parts = os.path.normpath(path).split(os.sep)
-        # Extract series name, season, and episode from path
-        series_name = parts[-3]
-        if season_episode := re.search(r'S\d{2}E\d{2}', parts[-1]):
-            block_id = f'{series_name}-{season_episode[0]}'
-            # Replace spaces and special characters with underscore and make all letters uppercase
-            return re.sub(r'\W+', '_', block_id).upper()
-        else:
+        # Extract filename from path
+        filename = os.path.basename(path)
+        
+        # Search for season and episode pattern in filename
+        season_episode_match = re.search(r'S\d{2}E\d{2}', filename)
+        if not season_episode_match:
             return None
+            
+        season_episode = season_episode_match.group(0)
+        
+        # Extract series name by taking everything before the season/episode pattern
+        series_part = filename[:season_episode_match.start()].strip()
+        
+        # Remove trailing separators like " - "
+        series_name = re.sub(r'\s*-\s*$', '', series_part).strip()
+        
+        # Create block ID
+        block_id = f'{series_name}-{season_episode}'
+        
+        # Replace spaces and special characters with underscore and make all letters uppercase
+        return re.sub(r'\W+', '_', block_id).upper()
 
     def assign_block_ids(self):
         # Create a new column 'BLOCK_ID'
         self.df['BLOCK_ID'] = self.df['FULL_FILE_PATH'].apply(self.create_block_id)
         print("Block IDs have been assigned.")
 
-        # Iterate over rows
+        # Iterate over rows to fill in None values
         for i in range(len(self.df)):
-            # If block ID is None, use block ID from the next row
+            # If block ID is None, try to use the last valid block ID or look ahead for the next valid one
             if pd.isnull(self.df.at[i, 'BLOCK_ID']):
-                if (i == 0 and i + 1 < len(self.df) and not pd.isnull(self.df.at[i + 1, 'BLOCK_ID'])) or (i + 1 < len(self.df) and not pd.isnull(self.df.at[i + 1, 'BLOCK_ID'])):
-                    self.df.at[i, 'BLOCK_ID'] = self.df.at[i + 1, 'BLOCK_ID']
-                else:
+                # First, try to use the last valid block ID
+                if self.last_block_id is not None:
                     self.df.at[i, 'BLOCK_ID'] = self.last_block_id
+                # If no last block ID, look ahead for the next valid one
+                else:
+                    for j in range(i + 1, len(self.df)):
+                        if not pd.isnull(self.df.at[j, 'BLOCK_ID']):
+                            self.df.at[i, 'BLOCK_ID'] = self.df.at[j, 'BLOCK_ID']
+                            break
             else:
-                # Update last block ID
+                # Update last valid block ID
                 self.last_block_id = self.df.at[i, 'BLOCK_ID']
 
     def save_data(self):
