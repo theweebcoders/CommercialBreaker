@@ -48,17 +48,16 @@ class BlockIDCreator:
 
         # Iterate over rows to fill in None values
         for i in range(len(self.df)):
-            # If block ID is None, try to use the last valid block ID or look ahead for the next valid one
+            # If block ID is None, look ahead for the next valid block ID
             if pd.isnull(self.df.at[i, 'BLOCK_ID']):
-                # First, try to use the last valid block ID
-                if self.last_block_id is not None:
+                # Look ahead for the next valid block ID
+                for j in range(i + 1, len(self.df)):
+                    if not pd.isnull(self.df.at[j, 'BLOCK_ID']):
+                        self.df.at[i, 'BLOCK_ID'] = self.df.at[j, 'BLOCK_ID']
+                        break
+                # If no next block ID found, use the last valid one as fallback
+                if pd.isnull(self.df.at[i, 'BLOCK_ID']) and self.last_block_id is not None:
                     self.df.at[i, 'BLOCK_ID'] = self.last_block_id
-                # If no last block ID, look ahead for the next valid one
-                else:
-                    for j in range(i + 1, len(self.df)):
-                        if not pd.isnull(self.df.at[j, 'BLOCK_ID']):
-                            self.df.at[i, 'BLOCK_ID'] = self.df.at[j, 'BLOCK_ID']
-                            break
             else:
                 # Update last valid block ID
                 self.last_block_id = self.df.at[i, 'BLOCK_ID']
