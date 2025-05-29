@@ -8,6 +8,7 @@ import json
 from queue import Queue
 import sys
 import webbrowser
+import traceback
 from .components.MessageBroker import get_message_broker
 
 class LogicController():
@@ -272,7 +273,11 @@ class LogicController():
                 self.publish_plex_servers()
 
             except Exception as e:
-                print(f"An error occurred while logging in to Plex: {e}")
+                error_msg = f"ERROR: Plex login failed: {str(e)}"
+                self._broadcast_status_update(error_msg)
+                print(f"Thread error in login_to_plex: {e}")
+                
+                traceback.print_exc()
 
         thread = threading.Thread(target=login_thread)
         thread.start()
@@ -326,7 +331,11 @@ class LogicController():
                 self.publish_plex_libraries()
 
             except Exception as e:
-                print(f"An error occurred while fetching libraries: {e}")
+                error_msg = f"ERROR: Library fetching failed: {str(e)}"
+                self._broadcast_status_update(error_msg)
+                print(f"Thread error in fetch_libraries: {e}")
+                
+                traceback.print_exc()
 
         thread = threading.Thread(target=fetch_libraries_thread)
         thread.start()
@@ -435,42 +444,50 @@ class LogicController():
 
     def prepare_content(self, display_show_selection):
         def prepare_content_thread():
-            # Update the values based on the current state of the checkboxes
-            self._broadcast_status_update("Preparing bumps...")
-            working_folder = self._get_data("working_folder")
-            anime_folder = self._get_data("anime_folder")
-            bump_folder = self._get_data("bump_folder")
-            merger_bumps_list_1 = 'multibumps_v2_data_reordered'
-            merger_bumps_list_2 = 'multibumps_v3_data_reordered'
-            merger_bumps_list_3 = 'multibumps_v9_data_reordered'
-            merger_bumps_list_4 = 'multibumps_v8_data_reordered'
-            merger_out_1 = 'lineup_v2_uncut'
-            merger_out_2 = 'lineup_v3_uncut'
-            merger_out_3 = 'lineup_v9_uncut'
-            merger_out_4 = 'lineup_v8_uncut'
-            uncut_encoder_out = 'uncut_encoded_data'
-            fmaker = ToonamiTools.FolderMaker(working_folder)
-            easy_checker = ToonamiTools.ToonamiChecker(anime_folder)
-            lineup_prep = ToonamiTools.MediaProcessor(bump_folder)
-            easy_encoder = ToonamiTools.ToonamiEncoder()
-            uncutencoder = ToonamiTools.UncutEncoder()
-            ml = ToonamiTools.Multilineup()
-            merger = ToonamiTools.ShowScheduler(uncut=True)
-            fmaker.run()
-            unique_show_names, toonami_episodes = easy_checker.prepare_episode_data()
-            self._broadcast_status_update("Waiting for selection...")
-            selected_shows = display_show_selection(unique_show_names)
-            easy_checker.process_selected_shows(selected_shows, toonami_episodes)
-            self._broadcast_status_update("Preparing uncut lineup...")
-            lineup_prep.run()
-            easy_encoder.encode_and_save()
-            ml.reorder_all_tables()
-            uncutencoder.run()
-            merger.run(merger_bumps_list_1, uncut_encoder_out, merger_out_1)
-            merger.run(merger_bumps_list_2, uncut_encoder_out, merger_out_2)
-            merger.run(merger_bumps_list_3, uncut_encoder_out, merger_out_3)
-            merger.run(merger_bumps_list_4, uncut_encoder_out, merger_out_4)
-            self._broadcast_status_update("Content preparation complete!")
+            try:
+                # Update the values based on the current state of the checkboxes
+                self._broadcast_status_update("Preparing bumps...")
+                working_folder = self._get_data("working_folder")
+                anime_folder = self._get_data("anime_folder")
+                bump_folder = self._get_data("bump_folder")
+                merger_bumps_list_1 = 'multibumps_v2_data_reordered'
+                merger_bumps_list_2 = 'multibumps_v3_data_reordered'
+                merger_bumps_list_3 = 'multibumps_v9_data_reordered'
+                merger_bumps_list_4 = 'multibumps_v8_data_reordered'
+                merger_out_1 = 'lineup_v2_uncut'
+                merger_out_2 = 'lineup_v3_uncut'
+                merger_out_3 = 'lineup_v9_uncut'
+                merger_out_4 = 'lineup_v8_uncut'
+                uncut_encoder_out = 'uncut_encoded_data'
+                fmaker = ToonamiTools.FolderMaker(working_folder)
+                easy_checker = ToonamiTools.ToonamiChecker(anime_folder)
+                lineup_prep = ToonamiTools.MediaProcessor(bump_folder)
+                easy_encoder = ToonamiTools.ToonamiEncoder()
+                uncutencoder = ToonamiTools.UncutEncoder()
+                ml = ToonamiTools.Multilineup()
+                merger = ToonamiTools.ShowScheduler(uncut=True)
+                fmaker.run()
+                unique_show_names, toonami_episodes = easy_checker.prepare_episode_data()
+                self._broadcast_status_update("Waiting for selection...")
+                selected_shows = display_show_selection(unique_show_names)
+                easy_checker.process_selected_shows(selected_shows, toonami_episodes)
+                self._broadcast_status_update("Preparing uncut lineup...")
+                lineup_prep.run()
+                easy_encoder.encode_and_save()
+                ml.reorder_all_tables()
+                uncutencoder.run()
+                merger.run(merger_bumps_list_1, uncut_encoder_out, merger_out_1)
+                merger.run(merger_bumps_list_2, uncut_encoder_out, merger_out_2)
+                merger.run(merger_bumps_list_3, uncut_encoder_out, merger_out_3)
+                merger.run(merger_bumps_list_4, uncut_encoder_out, merger_out_4)
+                self._broadcast_status_update("Content preparation complete!")
+                
+            except Exception as e:
+                error_msg = f"ERROR: Content preparation failed: {str(e)}"
+                self._broadcast_status_update(error_msg)
+                print(f"Thread error in prepare_content: {e}")
+                traceback.print_exc()
+                
         thread = threading.Thread(target=prepare_content_thread)
         thread.start()
 
@@ -483,108 +500,141 @@ class LogicController():
                                           If False (default), move files as before
         """
         def move_filtered_thread():
-            import ToonamiTools
-            fmove = ToonamiTools.FilterAndMove()
-            
-            if prepopulate:
-                self._broadcast_status_update("Preparing filtered shows for selection...")
-                # Call run with prepopulate=True to get filtered paths without moving
-                filtered_files = fmove.run(prepopulate=True)
+            try:
+                import ToonamiTools
+                fmove = ToonamiTools.FilterAndMove()
                 
-                # Publish filtered files via broker
-                self.publish_filtered_files(filtered_files)
-                print(f"Published {len(filtered_files)} filtered files")
+                if prepopulate:
+                    self._broadcast_status_update("Preparing filtered shows for selection...")
+                    # Call run with prepopulate=True to get filtered paths without moving
+                    filtered_files = fmove.run(prepopulate=True)
+                    
+                    # Publish filtered files via broker
+                    self.publish_filtered_files(filtered_files)
+                    print(f"Published {len(filtered_files)} filtered files")
+                    
+                    self._broadcast_status_update(f"Found {len(filtered_files)} files for selection")
+                else:
+                    self._broadcast_status_update("Moving filtered shows...")
+                    working_folder = self._get_data("working_folder")
+                    filter_output_folder = working_folder + "/toonami_filtered/"
+                    # Call run with prepopulate=False to move files (original behavior)
+                    fmove.run(filter_output_folder, prepopulate=False)
+                    self._broadcast_status_update("Filtered shows moved!")
                 
-                self._broadcast_status_update(f"Found {len(filtered_files)} files for selection")
-            else:
-                self._broadcast_status_update("Moving filtered shows...")
-                working_folder = self._get_data("working_folder")
-                filter_output_folder = working_folder + "/toonami_filtered/"
-                # Call run with prepopulate=False to move files (original behavior)
-                fmove.run(filter_output_folder, prepopulate=False)
-                self._broadcast_status_update("Filtered shows moved!")
-            
-            self.filter_complete_event.set()
+                self.filter_complete_event.set()
+                
+            except Exception as e:
+                error_msg = f"ERROR: Filter and move operation failed: {str(e)}"
+                self._broadcast_status_update(error_msg)
+                print(f"Thread error in move_filtered: {e}")
+                traceback.print_exc()
+                self.filter_complete_event.set()  # Still set event so callers don't hang
             
         thread = threading.Thread(target=move_filtered_thread)
         thread.start()
 
     def get_plex_timestamps(self):
         def get_plex_timestamps_thread():
-            self._broadcast_status_update("Getting Timestamps from Plex...")
-            working_folder = self._get_data("working_folder")
-            toonami_filtered_folder = working_folder + "/toonami"
-            plex_ts_url = self._get_data("plex_url")
-            plex_ts_token = self._get_data("plex_token")
-            plex_ts_anime_library_name = self._get_data("selected_anime_library")
-            GetTimestamps = ToonamiTools.GetPlexTimestamps(plex_ts_url, plex_ts_token, plex_ts_anime_library_name, toonami_filtered_folder)
-            GetTimestamps.run()  # Calling the run method on the instance
-            self._broadcast_status_update("Plex timestamps fetched!")
+            try:
+                self._broadcast_status_update("Getting Timestamps from Plex...")
+                working_folder = self._get_data("working_folder")
+                toonami_filtered_folder = working_folder + "/toonami"
+                plex_ts_url = self._get_data("plex_url")
+                plex_ts_token = self._get_data("plex_token")
+                plex_ts_anime_library_name = self._get_data("selected_anime_library")
+                GetTimestamps = ToonamiTools.GetPlexTimestamps(plex_ts_url, plex_ts_token, plex_ts_anime_library_name, toonami_filtered_folder)
+                GetTimestamps.run()  # Calling the run method on the instance
+                self._broadcast_status_update("Plex timestamps fetched!")
+                
+            except Exception as e:
+                error_msg = f"ERROR: Getting Plex timestamps failed: {str(e)}"
+                self._broadcast_status_update(error_msg)
+                print(f"Thread error in get_plex_timestamps: {e}")
+                
+                traceback.print_exc()
 
         thread = threading.Thread(target=get_plex_timestamps_thread)
         thread.start()
 
     def prepare_cut_anime(self):
         def prepare_cut_anime_thread():
-            working_folder = self._get_data("working_folder")
-            cutless_mode_used = self._get_data("cutless_mode_used")
-            cutless_enabled = cutless_mode_used == 'True'
-            self._broadcast_status_update("Preparing cut anime...")
-            merger_bumps_list_1 = 'multibumps_v2_data_reordered'
-            merger_bumps_list_2 = 'multibumps_v3_data_reordered'
-            merger_bumps_list_3 = 'multibumps_v9_data_reordered'
-            merger_bumps_list_4 = 'multibumps_v8_data_reordered'
-            merger_out_1 = 'lineup_v2'
-            merger_out_2 = 'lineup_v3'
-            merger_out_3 = 'lineup_v9'
-            merger_out_4 = 'lineup_v8'
-            commercial_injector_out = 'commercial_injector_final'
-            cut_folder = working_folder + "/cut"
-            commercial_injector_prep = ToonamiTools.AnimeFileOrganizer(cut_folder)
-            commercial_injector = ToonamiTools.LineupLogic()
-            BIC = ToonamiTools.BlockIDCreator()
-            merger = ToonamiTools.ShowScheduler(apply_ns3_logic=True)
-            if not cutless_enabled:
-                commercial_injector_prep.organize_files()
-            else:
-                self._broadcast_status_update("Cutless Mode: Skipping cut file preparation")
-            commercial_injector.generate_lineup()
-            BIC.run()
-            self._broadcast_status_update("Creating your lineup...")
-            merger.run(merger_bumps_list_1, commercial_injector_out, merger_out_1)
-            merger.run(merger_bumps_list_2, commercial_injector_out, merger_out_2)
-            merger.run(merger_bumps_list_3, commercial_injector_out, merger_out_3)
-            merger.run(merger_bumps_list_4, commercial_injector_out, merger_out_4)
-            if cutless_enabled:
-                self._broadcast_status_update("Cutless Mode: Finalizing lineup tables...")
-                finalizer = ToonamiTools.CutlessFinalizer()
-                finalizer.run()
-                self._broadcast_status_update("Cutless lineup finalization complete!")
+            try:
+                working_folder = self._get_data("working_folder")
+                cutless_mode_used = self._get_data("cutless_mode_used")
+                cutless_enabled = cutless_mode_used == 'True'
+                self._broadcast_status_update("Preparing cut anime...")
+                merger_bumps_list_1 = 'multibumps_v2_data_reordered'
+                merger_bumps_list_2 = 'multibumps_v3_data_reordered'
+                merger_bumps_list_3 = 'multibumps_v9_data_reordered'
+                merger_bumps_list_4 = 'multibumps_v8_data_reordered'
+                merger_out_1 = 'lineup_v2'
+                merger_out_2 = 'lineup_v3'
+                merger_out_3 = 'lineup_v9'
+                merger_out_4 = 'lineup_v8'
+                commercial_injector_out = 'commercial_injector_final'
+                cut_folder = working_folder + "/cut"
+                commercial_injector_prep = ToonamiTools.AnimeFileOrganizer(cut_folder)
+                commercial_injector = ToonamiTools.LineupLogic()
+                BIC = ToonamiTools.BlockIDCreator()
+                merger = ToonamiTools.ShowScheduler(apply_ns3_logic=True)
+                if not cutless_enabled:
+                    commercial_injector_prep.organize_files()
+                else:
+                    self._broadcast_status_update("Cutless Mode: Skipping cut file preparation")
+                commercial_injector.generate_lineup()
+                BIC.run()
+                self._broadcast_status_update("Creating your lineup...")
+                merger.run(merger_bumps_list_1, commercial_injector_out, merger_out_1)
+                merger.run(merger_bumps_list_2, commercial_injector_out, merger_out_2)
+                merger.run(merger_bumps_list_3, commercial_injector_out, merger_out_3)
+                merger.run(merger_bumps_list_4, commercial_injector_out, merger_out_4)
+                if cutless_enabled:
+                    self._broadcast_status_update("Cutless Mode: Finalizing lineup tables...")
+                    finalizer = ToonamiTools.CutlessFinalizer()
+                    finalizer.run()
+                    self._broadcast_status_update("Cutless lineup finalization complete!")
+
+                self._broadcast_status_update("Cut anime preparation complete!")
                 
-            self._broadcast_status_update("Cut anime preparation complete!")
+            except Exception as e:
+                error_msg = f"ERROR: Cut anime preparation failed: {str(e)}"
+                self._broadcast_status_update(error_msg)
+                print(f"Thread error in prepare_cut_anime: {e}")
+                traceback.print_exc()
 
         thread = threading.Thread(target=prepare_cut_anime_thread)
         thread.start()
 
     def add_special_bumps(self):
         special_bump_folder = self._get_data("special_bump_folder")
-        sepcial_bump_processor = ToonamiTools.FileProcessor(special_bump_folder)
-        sepcial_bump_processor.process_files()
+        special_bump_processor = ToonamiTools.FileProcessor(special_bump_folder)
+        special_bump_processor.process_files()
 
     def create_prepare_plex(self):
         def prepare_plex_thread():
-            self._broadcast_status_update("Preparing Plex...")
-            plex_url_plex_splitter = self._get_data("plex_url")
-            plex_token_plex_splitter = self._get_data("plex_token")
-            plex_library_name_plex_splitter = self._get_data("selected_toonami_library")
-            self._broadcast_status_update("Splitting merged Plex shows...")
-            plex_splitter = ToonamiTools.PlexAutoSplitter(plex_url_plex_splitter, plex_token_plex_splitter, plex_library_name_plex_splitter)
-            plex_splitter.split_merged_items()
-            self._broadcast_status_update("Renaming Plex shows...")
-            plex_rename_split = ToonamiTools.PlexLibraryUpdater(plex_url_plex_splitter, plex_token_plex_splitter, plex_library_name_plex_splitter)
-            plex_rename_split.update_titles()
-            self._broadcast_status_update("Plex preparation complete!")
-            self.filter_complete_event.set()
+            try:
+                self._broadcast_status_update("Preparing Plex...")
+                plex_url_plex_splitter = self._get_data("plex_url")
+                plex_token_plex_splitter = self._get_data("plex_token")
+                plex_library_name_plex_splitter = self._get_data("selected_toonami_library")
+                self._broadcast_status_update("Splitting merged Plex shows...")
+                plex_splitter = ToonamiTools.PlexAutoSplitter(plex_url_plex_splitter, plex_token_plex_splitter, plex_library_name_plex_splitter)
+                plex_splitter.split_merged_items()
+                self._broadcast_status_update("Renaming Plex shows...")
+                plex_rename_split = ToonamiTools.PlexLibraryUpdater(plex_url_plex_splitter, plex_token_plex_splitter, plex_library_name_plex_splitter)
+                plex_rename_split.update_titles()
+                self._broadcast_status_update("Plex preparation complete!")
+                self.filter_complete_event.set()
+                
+            except Exception as e:
+                error_msg = f"ERROR: Plex preparation failed: {str(e)}"
+                self._broadcast_status_update(error_msg)
+                print(f"Thread error in prepare_plex: {e}")
+                
+                traceback.print_exc()
+                self.filter_complete_event.set()  # Still set event so callers don't hang
+                
         thread = threading.Thread(target=prepare_plex_thread)
         thread.start()
 
@@ -593,44 +643,52 @@ class LogicController():
         Create a Toonami channel using the stored platform settings
         """
         def create_toonami_channel_thread():
-            self._broadcast_status_update("Creating Toonami channel...")
-            plex_url = self._get_data("plex_url")
-            plex_token = self._get_data("plex_token")
-            anime_library = self._get_data("selected_anime_library")
-            toonami_library = self._get_data("selected_toonami_library")
-            platform_url = self._get_data("platform_url")
-            platform_type = self._get_data("platform_type")
-            cutless_mode_used = self._get_data("cutless_mode_used")
-            cutless_enabled = cutless_mode_used == 'True'
-            toon_config = config.TOONAMI_CONFIG.get(toonami_version, {})
-            table = toon_config["table"]
-            
-            # If cutless mode is enabled, use the cutless table instead
-            if (cutless_enabled):
-                table = f"{table}_cutless"
-                self._broadcast_status_update(f"Cutless Mode: Using {table} table")
+            try:
+                self._broadcast_status_update("Creating Toonami channel...")
+                plex_url = self._get_data("plex_url")
+                plex_token = self._get_data("plex_token")
+                anime_library = self._get_data("selected_anime_library")
+                toonami_library = self._get_data("selected_toonami_library")
+                platform_url = self._get_data("platform_url")
+                platform_type = self._get_data("platform_type")
+                cutless_mode_used = self._get_data("cutless_mode_used")
+                cutless_enabled = cutless_mode_used == 'True'
+                toon_config = config.TOONAMI_CONFIG.get(toonami_version, {})
+                table = toon_config["table"]
+                
+                # If cutless mode is enabled, use the cutless table instead
+                if (cutless_enabled):
+                    table = f"{table}_cutless"
+                    self._broadcast_status_update(f"Cutless Mode: Using {table} table")
 
-            if platform_type == 'dizquetv':
-                ptod = ToonamiTools.PlexToDizqueTVSimplified(
-                    plex_url=plex_url, 
-                    plex_token=plex_token, 
-                    anime_library=anime_library,
-                    toonami_library=toonami_library, 
-                    table=table, 
-                    dizquetv_url=platform_url, 
-                    channel_number=int(channel_number),
-                    cutless_mode=cutless_enabled
-                )
-                ptod.run()
-            else:  # tunarr
-                ptot = ToonamiTools.PlexToTunarr(
-                    plex_url, plex_token, toonami_library, table,
-                    platform_url, int(channel_number), flex_duration
-                )
-                ptot.run()
+                if platform_type == 'dizquetv':
+                    ptod = ToonamiTools.PlexToDizqueTVSimplified(
+                        plex_url=plex_url, 
+                        plex_token=plex_token, 
+                        anime_library=anime_library,
+                        toonami_library=toonami_library, 
+                        table=table, 
+                        dizquetv_url=platform_url, 
+                        channel_number=int(channel_number),
+                        cutless_mode=cutless_enabled
+                    )
+                    ptod.run()
+                else:  # tunarr
+                    ptot = ToonamiTools.PlexToTunarr(
+                        plex_url, plex_token, toonami_library, table,
+                        platform_url, int(channel_number), flex_duration
+                    )
+                    ptot.run()
 
-            self._broadcast_status_update("Toonami channel created!")
-            self.filter_complete_event.set()
+                self._broadcast_status_update("Toonami channel created!")
+                self.filter_complete_event.set()
+                
+            except Exception as e:
+                error_msg = f"ERROR: Toonami channel creation failed: {str(e)}"
+                self._broadcast_status_update(error_msg)
+                print(f"Thread error in create_toonami_channel: {e}")
+                traceback.print_exc()
+                self.filter_complete_event.set()  # Still set event so callers don't hang
 
         thread = threading.Thread(target=create_toonami_channel_thread)
         thread.start()
@@ -638,22 +696,31 @@ class LogicController():
     def prepare_toonami_channel(self, start_from_last_episode, toonami_version):
 
         def prepare_toonami_channel_thread():
-            self._broadcast_status_update("Preparing Toonami channel...")
-            cont_config = config.TOONAMI_CONFIG_CONT.get(toonami_version, {})
-            cutless_mode_used = self._get_data("cutless_mode_used")
-            cutless_enabled = cutless_mode_used == 'True'
-            merger_bump_list = cont_config["merger_bump_list"]
-            merger_out = cont_config["merger_out"]
-            encoder_in = cont_config["encoder_in"]
-            uncut = cont_config["uncut"]
+            try:
+                self._broadcast_status_update("Preparing Toonami channel...")
+                cont_config = config.TOONAMI_CONFIG_CONT.get(toonami_version, {})
+                cutless_mode_used = self._get_data("cutless_mode_used")
+                cutless_enabled = cutless_mode_used == 'True'
+                merger_bump_list = cont_config["merger_bump_list"]
+                merger_out = cont_config["merger_out"]
+                encoder_in = cont_config["encoder_in"]
+                uncut = cont_config["uncut"]
 
-            merger = ToonamiTools.ShowScheduler(reuse_episode_blocks=True, continue_from_last_used_episode_block=start_from_last_episode, uncut=uncut)
-            merger.run(merger_bump_list, encoder_in, merger_out)
-            if cutless_enabled:
-                finalizer = ToonamiTools.CutlessFinalizer()
-                finalizer.run()
-            self._broadcast_status_update("Toonami channel prepared!")
-            self.filter_complete_event.set()
+                merger = ToonamiTools.ShowScheduler(reuse_episode_blocks=True, continue_from_last_used_episode_block=start_from_last_episode, uncut=uncut)
+                merger.run(merger_bump_list, encoder_in, merger_out)
+                if cutless_enabled:
+                    finalizer = ToonamiTools.CutlessFinalizer()
+                    finalizer.run()
+                self._broadcast_status_update("Toonami channel prepared!")
+                self.filter_complete_event.set()
+                
+            except Exception as e:
+                error_msg = f"ERROR: Toonami channel preparation failed: {str(e)}"
+                self._broadcast_status_update(error_msg)
+                print(f"Thread error in prepare_toonami_channel: {e}")
+                traceback.print_exc()
+                self.filter_complete_event.set()  # Still set event so callers don't hang
+                
         thread = threading.Thread(target=prepare_toonami_channel_thread)
         thread.start()
 
