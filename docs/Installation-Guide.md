@@ -25,6 +25,41 @@ curl -s https://raw.githubusercontent.com/theweebcoders/CommercialBreaker/main/s
 ```powershell
 iwr -Uri "https://raw.githubusercontent.com/theweebcoders/CommercialBreaker/main/setup.sh.bat" -OutFile "setup.sh.bat"; .\setup.sh.bat
 ```
+## Docker Installation
+
+For users who prefer containerized deployment:
+
+### Option 1: Pre-built Image
+
+```bash
+docker run -p 8081:8081 \
+  -v "/path/to/your/Anime:/app/anime" \
+  -v "/path/to/your/Bumps:/app/bump" \
+  -v "/path/to/your/SpecialBumps:/app/special_bump" \
+  -v "/path/to/your/Working:/app/working" \
+  --name commercialbreaker \
+  tim000x3/commercial-breaker:latest
+```
+
+### Option 2: Unraid Community App Store
+
+1. Open Unraid Web UI
+2. Go to the "Apps" tab
+3. Search for "CommercialBreaker"
+4. Click "Install" and follow the prompts
+5. Configure the paths to your media directories
+6. Start the container
+7. Access the web interface at `http://<your-unraid-ip>:8081`
+
+### Option 3: Build Locally
+
+1. Set up environment variables in `.env` file (see `example.env`)
+2. Run:
+```bash
+docker compose up -d
+```
+
+Access the web interface at `http://localhost:8081`
 
 ## Manual Installation
 
@@ -90,31 +125,6 @@ python3 main.py --tom
 
 This should open the TOM interface. If you see the GUI, installation was successful!
 
-## Docker Installation
-
-For users who prefer containerized deployment:
-
-### Option 1: Pre-built Image
-
-```bash
-docker run -p 8081:8081 \
-  -v "/path/to/your/Anime:/app/anime" \
-  -v "/path/to/your/Bumps:/app/bump" \
-  -v "/path/to/your/SpecialBumps:/app/special_bump" \
-  -v "/path/to/your/Working:/app/working" \
-  --name commercialbreaker \
-  tim000x3/commercial-breaker:latest
-```
-
-### Option 2: Build Locally
-
-1. Set up environment variables in `.env` file (see `example.env`)
-2. Run:
-```bash
-docker compose up -d
-```
-
-Access the web interface at `http://localhost:8081`
 
 ## Post-Installation Setup
 

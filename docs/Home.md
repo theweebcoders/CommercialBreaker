@@ -26,6 +26,7 @@ CommercialBreaker & Toonami Tools automate a continuous Toonami marathon by inte
 ### User Documentation
 - **[Installation Guide](Installation-Guide.md)** - Step-by-step setup instructions
 - **[User Guides](User-Guides.md)** - Interface-specific guides
+- **[Cutless Mode](Cutless.md)** - How to use virtual cuts instead of physical files
 - **[File Naming Conventions](File-Naming-Conventions.md)** - Proper naming schemes
 - **[Troubleshooting](Troubleshooting.md)** - Common issues and solutions
 - **[FAQ](FAQ.md)** - Frequently asked questions
