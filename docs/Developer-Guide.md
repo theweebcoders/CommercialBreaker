@@ -9,7 +9,6 @@ This guide provides information for developers who want to contribute to Commerc
 The codebase uses a central orchestrator pattern where `API/FrontEndLogic.py` serves as the API layer for all user interfaces:
 
 ```
-```
 ┌─────────────────┬─────────────────┬─────────────────┐
 │   TOM.py        │ Absolution.py   │   clydes.py     │
 │   (Tkinter)     │ (Web/REMI)      │   (CLI)         │
