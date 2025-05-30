@@ -15,7 +15,7 @@ class ToonamiEncoder:
         Creates a dictionary to store the codes and connects to the SQLite database.
         """
         print("Initializing ToonamiEncoder...")
-        db_path = f'{config.network}.db'
+        db_path = config.DATABASE_PATH
         self.codes: Dict[str, str] = {}
         self.conn = sqlite3.connect(db_path)
 

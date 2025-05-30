@@ -1,3 +1,4 @@
+import os
 # Rename this file to config.py and fill in the values below
 # cp example-config.py config.py
 # put the name of your network here e.g "Toonami" or "Disney"
@@ -11,6 +12,11 @@ ffplay_path = tools_dir + "ffplay.exe"
 fpcalc_path = tools_dir + "fpcalc.exe"
 mkvmerge_path = tools_dir + "mkvmerge.exe"
 ENGLISH_VARIATIONS = ['eng', 'english', 'english dub', 'inglês', 'en', 'en-us', '英語', 'anglais']
+
+DATABASE_DIR = os.environ.get("DB_DIR") or os.path.dirname(__file__)
+DATABASE_PATH = os.environ.get("DB_PATH") or os.path.join(DATABASE_DIR, f'{network}.db')
+if not os.path.exists(DATABASE_DIR):
+    os.makedirs(DATABASE_DIR)
 
 username="username"
 password="password"
@@ -31,6 +37,19 @@ BATCH_SIZE = 5
 SILENCE_DURATION = 0.3
 DECIBEL_THRESHOLD = -60
 API_KEY = "PUT YOUR OPEN AI KEY HERE"
+
+AUTO_RUN_DEFAULT_CONFIG = {
+    "anime_library_name": "Anime",
+    "bumps_library_name": "Bumps",
+    "low_power_mode": True,
+    "fast_mode": False,
+    "destructive_mode": False,
+    "cutless_mode": True,
+    "toonami_version": "Mixed",
+    "channel_number": "69",
+    "flex_duration": "3:00",
+    "platform_type": "dizquetv"
+}
 
 TOONAMI_CONFIG = {
     "OG": {"table": "lineup_v9", "merger_bump_list": "multibumps_v9_data_reordered", "merger_out": "lineup_v9", "encoder_in": "commercial_injector_final", "uncut": False},

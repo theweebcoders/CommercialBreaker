@@ -80,7 +80,7 @@ class PlexToTunarr:
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             os.path.dirname(os.path.abspath(__file__))
         ):
-            db_path = os.path.join(base, f"{config.network}.db")
+            db_path = config.DATABASE_PATH
             try:
                 logger.debug("Attempting to connect to SQLite database at: %s", db_path)
                 con = sqlite3.connect(db_path)

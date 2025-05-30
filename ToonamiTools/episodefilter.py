@@ -8,7 +8,7 @@ import config
 class FilterAndMove:
     class DataFrameFilter:
         def __init__(self):
-            db_path = f'{config.network}.db'
+            db_path = config.DATABASE_PATH
             self.conn = sqlite3.connect(db_path)
 
         def filter_and_write(self):
@@ -27,7 +27,7 @@ class FilterAndMove:
 
     class EpisodeMover:
         def __init__(self, target_directory):
-            db_path = f'{config.network}.db'
+            db_path = config.DATABASE_PATH
             self.conn = sqlite3.connect(db_path)
             self.target_directory = target_directory
 
@@ -75,7 +75,7 @@ class FilterAndMove:
 
     class FilteredFileCollector:
         def __init__(self):
-            db_path = f'{config.network}.db'
+            db_path = config.DATABASE_PATH
             self.conn = sqlite3.connect(db_path)
 
         def collect_file_paths(self):
@@ -141,7 +141,7 @@ class FilterAndMove:
             list: If prepopulate=True, returns a list of filtered file paths. Otherwise returns None.
         """
         # Connect to the SQLite database
-        self.conn = sqlite3.connect(f'{config.network}.db')
+        self.conn = sqlite3.connect(config.DATABASE_PATH)
         
         # Validate parameters based on mode
         if not prepopulate and not target_directory:

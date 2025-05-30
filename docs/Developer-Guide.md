@@ -425,3 +425,135 @@ def main():
 ```
 
 This architecture enables flexible extension while maintaining consistency across the codebase.
+
+## Testing Guide
+
+## Testing with S.A.R.A.
+
+S.A.R.A. is a comprehensive testing framework that validates the entire ToonamiTools workflow using simulated data.
+
+### What S.A.R.A. Does
+
+S.A.R.A. executes a complete workflow test that includes:
+- Content preparation and filtering
+- Simulated commercial detection using fake timestamps
+- Cutless mode processing
+- Database operations
+- Complete Lineup creation logic
+
+The test suite uses zero-byte files to simulate your media library structure, making it fast and resource-efficient while still testing all critical code paths.
+
+### Running S.A.R.A.
+
+To run the S.A.R.A. test suite, ensure you have `pytest` installed and execute the following command in your terminal from the root of the project:
+
+```bash
+pytest tests/test_sara_automatic.py -v
+```
+
+For more detailed output with S.A.R.A.'s transmission logs:
+
+```bash
+pytest tests/test_sara_automatic.py -v -s
+```
+
+### Setting Up Test Data
+
+S.A.R.A. requires a `sample.txt` file that defines your simulated media library structure. This file should be placed at `tests/fixtures/sample.txt`.
+
+#### Generating sample.txt
+
+The `sample.txt` file contains a hierarchical listing of your media library structure. You can generate this from an existing media library:
+
+**On macOS/Linux:**
+```bash
+# Navigate to your media library root
+cd /path/to/your/media/library
+# Generate the file listing
+tree -fi > sample.txt
+# Or if tree is not installed, use find:
+find . -type f -name "*.mkv" | sort > sample.txt
+```
+
+**On Windows:**
+```powershell
+# PowerShell command
+Get-ChildItem -Path "C:\path\to\your\media\library" -Recurse -File -Filter "*.mkv" | 
+    ForEach-Object { $_.FullName.Replace("C:\path\to\your\media\library\", ".\") } | 
+    Sort-Object | Out-File sample.txt
+```
+
+#### Sample Format
+
+Your `sample.txt` should follow this format:
+
+```
+.
+./Anime
+./Anime/Death Note
+./Anime/Death Note/Season 1
+./Anime/Death Note/Season 1/Death Note - S01E01 - Rebirth.mkv
+./Anime/Death Note/Season 1/Death Note - S01E02 - Confrontation.mkv
+./Anime/Death Note/Season 1/Death Note - S01E03 - Dealings.mkv
+./Anime/Attack on Titan/Season 1
+./Anime/Attack on Titan/Season 1/Attack on Titan - S01E01 - To You, in 2000 Years - The Fall of Shiganshina (1).mkv
+./Anime/Attack on Titan/Season 1/Attack on Titan - S01E02 - That Day - The Fall of Shiganshina (2).mkv
+```
+
+The fixture system (`conftest.py`) will automatically create zero-byte files matching this structure in a temporary directory during test execution.
+
+### How S.A.R.A. Works
+
+1. **Setup**: Creates a temporary file structure based on `sample.txt`
+2. **Content Preparation**: Simulates content filtering and selection
+3. **Commercial Detection**: Uses `FakeCommercialDetector` to generate realistic timestamp files
+4. **Cut List Processing**: Tests the cutless mode workflow and verifies the final database entries
+5. **Timing Information**: Records and reports the duration of each major step
+6. **Cleanup**: Removes temporary files and resets state
+
+### Test Coverage
+
+S.A.R.A. validates:
+- ✅ File system operations
+- ✅ Database creation and queries
+- ✅ Content filtering logic
+- ✅ Commercial detection integration
+- ✅ Cut list processing
+- ✅ Error handling
+- ✅ Final database state
+- ✅ Status update propagation
+- ✅ Multi-threaded operations
+
+### Extending S.A.R.A.
+
+To add new test scenarios:
+
+1. Create additional test methods in `TestSaraAutomatic`
+2. Use the `self._log_progress()` method for S.A.R.A.-themed logging
+3. Leverage the existing fixtures and helper methods
+4. Follow the pattern of checking status updates with `wait_for_status()`
+
+Example:
+```python
+def test_specific_feature(self):
+    self._log_progress("Testing specific feature...")
+    # Your test logic here
+    assert self.wait_for_status("Expected Status", "Feature Name", timeout=30)
+```
+
+### Troubleshooting
+
+If S.A.R.A. tests fail:
+
+1. Check that `sample.txt` exists and is properly formatted
+2. Ensure you have write permissions in the test directory
+3. Verify no leftover test databases exist though they should be cleaned up automatically
+4. Run with `-s` flag to see detailed S.A.R.A. transmissions
+5. Check for filename length limitations on your OS though S.A.R.A. should skip excessively long paths by default
+
+### CI/CD Integration
+
+S.A.R.A. is designed to run in CI/CD pipelines. The test suite:
+- Requires no external dependencies beyond Python packages
+- Creates and cleans up its own test data
+- Provides clear pass/fail results clearly marked where the point of failure occurred

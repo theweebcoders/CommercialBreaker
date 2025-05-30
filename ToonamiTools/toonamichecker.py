@@ -171,7 +171,7 @@ class ToonamiChecker:
         print(f"Found matches for {len(toonami_episodes)} episodes.")
         return toonami_episodes
 
-    def save_episodes_to_spreadsheet(self, toonami_episodes, db_path=f"{config.network}.db"):
+    def save_episodes_to_spreadsheet(self, toonami_episodes, db_path = config.DATABASE_PATH):
         print(f"Writing episode data to SQLite database: {db_path}")
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
@@ -195,7 +195,7 @@ class ToonamiChecker:
         conn.close()
         print(f'Successfully wrote rows to {db_path}')
 
-    def save_show_names_to_spreadsheet(self, toonami_episodes, db_path=f"{config.network}.db"):
+    def save_show_names_to_spreadsheet(self, toonami_episodes, db_path = config.DATABASE_PATH):
         print(f"Writing show names to SQLite database: {db_path}")
         unique_show_names = {k[0] for k in toonami_episodes.keys()}
         conn = sqlite3.connect(db_path)

@@ -33,7 +33,7 @@ class ShowScheduler:
         :param uncut: If True, the schedule is for uncut anime; otherwise,
                       it's for cut anime.
         """
-        self.conn = sqlite3.connect(f"{config.network}.db")
+        self.conn = sqlite3.connect(config.DATABASE_PATH)
         self.last_used_episode_block = {}
         self.last_spreadsheet = None
         self.encoder_df = None
@@ -70,7 +70,7 @@ class ShowScheduler:
     def set_paths(self, encoder_table, commercial_table):
         """
         Set the DB table paths and load relevant data frames.
-
+    
         :param encoder_table: Name of the table containing encoded data
                               (with show codes).
         :param commercial_table: Name of the table containing commercial
@@ -80,23 +80,103 @@ class ShowScheduler:
         print(f"Loading encoder data from {encoder_table}")
         print(f"Loading commercial injector data from {commercial_table}")
         print("Loading codes from codes")
-
+    
         self.encoder_df = pd.read_sql(f"SELECT * FROM {encoder_table}", self.conn)
-        self.commercial_injector_df = pd.read_sql(f"SELECT * FROM {commercial_table}", self.conn)
-
-        # Extract show_name from BLOCK_ID by splitting at "_S", then normalize
-        self.commercial_injector_df["show_name"] = (
-            self.commercial_injector_df["BLOCK_ID"]
-            .str.rsplit(pat="_S", n=1)
-            .str[0]
-            .str.replace("_", " ")
-            .str.lower()
-        )
-
         self._load_codes()
         self.decoded_df = self._decode_shows()
-        self._normalize_show_names()
-        self.show_episode_blocks = self._group_shows()
+    
+        # Get unique shows from the encoder table
+        used_shows = set()
+        for shows_list in self.decoded_df["shows"]:
+            used_shows.update(shows_list)
+    
+        # For each show, we'll try multiple variations
+        block_id_prefixes = set()
+        
+        for show in used_shows:
+            # First, add the show itself (normalized)
+            normalized_show = self._normalize_show_name(show)
+            block_format = re.sub(r'\W+', '_', normalized_show).upper()
+            block_id_prefixes.add(block_format)
+            
+            # Also try the original show name (before normalization)
+            original_format = re.sub(r'\W+', '_', show).upper()
+            if original_format != block_format:
+                block_id_prefixes.add(original_format)
+            
+            # Find all keys in the mapping that normalize to this show
+            for mapping_key, mapping_value in config.show_name_mapping.items():
+                if mapping_value == normalized_show and mapping_key != normalized_show:
+                    # This key maps to our normalized show
+                    key_format = re.sub(r'\W+', '_', mapping_key).upper()
+                    block_id_prefixes.add(key_format)
+        
+        # Convert set to list for SQL query
+        block_id_prefixes = list(block_id_prefixes)
+        
+        # The BLOCK_ID format is SHOW_NAME_S##E## (note the _S pattern)
+        where_conditions = " OR ".join([f"BLOCK_ID LIKE '{prefix}_S%'" for prefix in block_id_prefixes])
+    
+        # Load only relevant rows from commercial_injector table
+        if where_conditions:
+            query = f"SELECT * FROM {commercial_table} WHERE {where_conditions}"
+            self.commercial_injector_df = pd.read_sql(query, self.conn)
+            print(f"Loaded {len(self.commercial_injector_df)} rows for {len(used_shows)} shows")
+            
+            # Extract show_name from BLOCK_ID by splitting at "_S", then normalize
+            self.commercial_injector_df["show_name"] = (
+                self.commercial_injector_df["BLOCK_ID"]
+                .str.rsplit(pat="_S", n=1)
+                .str[0]
+                .str.replace("_", " ")
+                .str.lower()
+            )
+            
+            self._normalize_show_names()
+            self.show_episode_blocks = self._group_shows()
+            
+            # Verify we found episodes for all shows
+            missing_shows = []
+            normalized_used_shows = [self._normalize_show_name(show) for show in used_shows]
+            for show in normalized_used_shows:
+                if show not in self.show_episode_blocks or not self.show_episode_blocks[show]:
+                    missing_shows.append(show)
+            
+            if missing_shows:
+                print(f"WARNING: Failed to find episodes for shows: {missing_shows}")
+                print("Falling back to loading full commercial_injector table...")
+                
+                # JUST LOAD THE WHOLE TABLE - NO OPTIMIZATION
+                self.commercial_injector_df = pd.read_sql(f"SELECT * FROM {commercial_table}", self.conn)
+                print(f"Loaded all {len(self.commercial_injector_df)} rows (fallback mode)")
+                
+                # Re-extract and normalize
+                self.commercial_injector_df["show_name"] = (
+                    self.commercial_injector_df["BLOCK_ID"]
+                    .str.rsplit(pat="_S", n=1)
+                    .str[0]
+                    .str.replace("_", " ")
+                    .str.lower()
+                )
+                
+                self._normalize_show_names()
+                self.show_episode_blocks = self._group_shows()
+        else:
+            # NO OPTIMIZATION - JUST LOAD EVERYTHING
+            self.commercial_injector_df = pd.read_sql(f"SELECT * FROM {commercial_table}", self.conn)
+            print(f"Loaded all {len(self.commercial_injector_df)} rows (no show filtering)")
+            
+            # Extract show_name from BLOCK_ID by splitting at "_S", then normalize
+            self.commercial_injector_df["show_name"] = (
+                self.commercial_injector_df["BLOCK_ID"]
+                .str.rsplit(pat="_S", n=1)
+                .str[0]
+                .str.replace("_", " ")
+                .str.lower()
+            )
+            
+            self._normalize_show_names()
+            self.show_episode_blocks = self._group_shows()
 
     def _load_codes(self):
         """

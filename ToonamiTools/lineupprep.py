@@ -195,7 +195,7 @@ class MediaProcessor:
 
     def run(self):
         print("Initiating database connection...")
-        conn = sqlite3.connect(f'{config.network}.db')
+        conn = sqlite3.connect(config.DATABASE_PATH)
         print("Database connection established.")
 
         # Initialize the show name mappings to lowercase

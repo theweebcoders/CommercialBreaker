@@ -318,7 +318,6 @@ class Page4(ttk.Frame):
         self.filtered_files_action = tk.StringVar(value="move")
 
         self.logic.subscribe_to_updates('status_updates', self.update_status_label)
-        self.logic.subscribe_to_updates('filtered_files', self.load_filtered_files_handler)
 
         label = ttk.Label(self, text="Prepare Your Content:", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)

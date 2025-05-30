@@ -15,7 +15,7 @@ class VirtualCut:
     def generate_virtual_prep_data(self, video_files_data, total_videos, progress_callback=None, status_callback=None):
             """Generates data for commercial_injector_prep table without physical cutting."""
             prep_data = []
-            db_path = f'{config.network}.db'
+            db_path = config.DATABASE_PATH
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             

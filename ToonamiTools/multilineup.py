@@ -6,7 +6,7 @@ import config
 
 class Multilineup:
     def __init__(self):
-        db_path = f'{config.network}.db'
+        db_path = config.DATABASE_PATH
         self.conn = sqlite3.connect(db_path)
         self.next_show_name = None
         self.used_rows = set()

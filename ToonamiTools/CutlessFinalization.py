@@ -6,7 +6,7 @@ import re
 
 class CutlessFinalizer:
     def __init__(self):
-        self.db_path = f'{config.network}.db'
+        self.db_path = config.DATABASE_PATH
         self.conn = None
         self.cursor = None
         print(f"CutlessFinalizer initialized with DB path: {self.db_path}")

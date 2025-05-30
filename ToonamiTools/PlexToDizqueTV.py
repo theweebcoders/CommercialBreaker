@@ -44,7 +44,7 @@ class PlexToDizqueTVSimplified:
         else:
             # The caller should provide the dataframe, but this provides backward compatibility
             print(f"Loading data from table '{self.table}' in database.")
-            db = sqlite3.connect(f'{config.network}.db')
+            db = sqlite3.connect(config.DATABASE_PATH)
             self.df = pd.read_sql_query(f"SELECT * FROM {self.table}", db)
             db.close()
         

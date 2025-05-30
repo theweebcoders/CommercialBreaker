@@ -6,6 +6,8 @@ import sqlite3
 from functools import cmp_to_key
 import tkinter as tk
 from tkinter import filedialog
+import config
+
 
 
 class AnimeShowCompilerGUI:
@@ -70,7 +72,7 @@ class AnimeShowProcessor:
         to_ads = [path.strip("'") for path in to_ads[2:-2].split("', '")]
         backs = [path.strip("'") for path in backs[2:-2].split("', '")]
         generics = [path.strip("'") for path in generics[2:-2].split("', '")] if generics else []
-        db = sqlite3.connect("toonami.db")
+        db = sqlite3.connect(config.DATABASE_PATH)
         print(f"Intros: {intros}")
         print(f"To Ads: {to_ads}")
         print(f"Backs: {backs}")
@@ -130,7 +132,7 @@ class AnimeShowProcessor:
         self.add_to_commercial_injector_final(result_df)
 
     def add_to_commercial_injector_final(self, result_df):
-        db = sqlite3.connect("toonami.db")
+        db = sqlite3.connect(config.DATABASE_PATH)
         c = db.cursor()
 
         # Add a 'Priority' column to the DataFrame and set it to 'High'

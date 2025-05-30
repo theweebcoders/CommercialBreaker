@@ -17,7 +17,7 @@ class LogicController():
     cutless = FlagManager.cutless
 
     def __init__(self):
-        self.db_path = f'{config.network}.db'
+        self.db_path = config.DATABASE_PATH
         self._setup_database()
         self.docker = FlagManager.docker
         self.cutless = FlagManager.cutless

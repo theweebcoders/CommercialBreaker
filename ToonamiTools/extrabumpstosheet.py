@@ -7,7 +7,7 @@ import config
 class FileProcessor:
     def __init__(self, input_dir):
         self.input_dir = input_dir
-        db_path = f'{config.network}.db'
+        db_path = config.DATABASE_PATH
         self.conn = sqlite3.connect(db_path)
         self.lineup_dataframes = [name[0] for name in self.conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'lineup_v%'")]
         print(f"Initialized FileProcessor with DataFrames: {self.lineup_dataframes}")

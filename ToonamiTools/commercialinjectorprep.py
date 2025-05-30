@@ -8,7 +8,7 @@ import config
 class AnimeFileOrganizer:
     def __init__(self, anime_dir):
         self.anime_dir = anime_dir
-        db_path = f'{config.network}.db'
+        db_path = config.DATABASE_PATH
         self.conn = sqlite3.connect(db_path)
         self.cursor = self.conn.cursor()
 

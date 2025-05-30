@@ -14,7 +14,7 @@ class UncutEncoder:
         self.intro_bump_cycle = {}
         self.generic_bump_cycle = {}
         self.default_bump_cycle = None  # Cycling default bumps
-        db_path = f'{config.network}.db'
+        db_path = config.DATABASE_PATH
         self.conn = sqlite3.connect(db_path)
 
     def apply_show_name_mappings(self, show_name):

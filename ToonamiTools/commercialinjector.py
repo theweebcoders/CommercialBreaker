@@ -8,7 +8,7 @@ import config
 class LineupLogic:
     def __init__(self):
         print("Initializing database connection...")
-        db_path = f'{config.network}.db'
+        db_path = config.DATABASE_PATH
         self.conn = sqlite3.connect(db_path)
         print("Database connection established.")
 

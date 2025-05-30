@@ -7,7 +7,7 @@ import config
 
 class BlockIDCreator:
     def __init__(self):
-        db_path = f'{config.network}.db'
+        db_path = config.DATABASE_PATH
         self.conn = sqlite3.connect(db_path)
         self.last_block_id = None
         print("Initialized database connection.")
@@ -45,22 +45,18 @@ class BlockIDCreator:
         # Create a new column 'BLOCK_ID'
         self.df['BLOCK_ID'] = self.df['FULL_FILE_PATH'].apply(self.create_block_id)
         print("Block IDs have been assigned.")
-
-        # Iterate over rows to fill in None values
-        for i in range(len(self.df)):
-            # If block ID is None, look ahead for the next valid block ID
-            if pd.isnull(self.df.at[i, 'BLOCK_ID']):
-                # Look ahead for the next valid block ID
-                for j in range(i + 1, len(self.df)):
-                    if not pd.isnull(self.df.at[j, 'BLOCK_ID']):
-                        self.df.at[i, 'BLOCK_ID'] = self.df.at[j, 'BLOCK_ID']
-                        break
-                # If no next block ID found, use the last valid one as fallback
-                if pd.isnull(self.df.at[i, 'BLOCK_ID']) and self.last_block_id is not None:
-                    self.df.at[i, 'BLOCK_ID'] = self.last_block_id
-            else:
-                # Update last valid block ID
-                self.last_block_id = self.df.at[i, 'BLOCK_ID']
+    
+        # Use backward fill to propagate block IDs from the next valid value
+        self.df['BLOCK_ID'] = self.df['BLOCK_ID'].bfill()
+        
+        # If there are still None values at the end, use the last valid block ID
+        if self.df['BLOCK_ID'].isnull().any() and self.last_block_id is not None:
+            self.df['BLOCK_ID'].fillna(self.last_block_id, inplace=True)
+        
+        # Update last_block_id
+        last_non_null = self.df[self.df['BLOCK_ID'].notna()].tail(1)
+        if not last_non_null.empty:
+            self.last_block_id = last_non_null.iloc[0]['BLOCK_ID']
 
     def save_data(self):
         # Drop 'SHOW_NAME_1', 'Season and Episode', and 'Part Number' columns
