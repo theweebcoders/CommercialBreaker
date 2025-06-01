@@ -3,6 +3,8 @@ name: Build & Push Docker Image with GitHub Cache
 on:
   push:
     branches: [ "main" ]
+    paths-ignore:
+      - '.github/**'
 
 jobs:
   build-and-push:
