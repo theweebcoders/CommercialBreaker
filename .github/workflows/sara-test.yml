@@ -5,10 +5,12 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
-  copilot-setup-steps:
+  sara-validation:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      issues: write
+      pull-requests: write
 
     steps:
       - name: Checkout code
