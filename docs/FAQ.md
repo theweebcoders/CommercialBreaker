@@ -101,12 +101,18 @@ Chapter markers skip all this computational work.
 
 ### Q: Can I use this with Jellyfin or Emby?
 
-**A**: Not directly. The software currently supports:
+**A**: **Jellyfin is now supported!** 🎉 The software supports:
 - **Plex** (for content management and timestamp extraction)
-- **DizqueTV** (for channel creation and playback)
-- **Tunarr** (for channel creation, traditional cutting only)
+- **Jellyfin** (for content management - NEW! Works with Tunarr only)
+- **DizqueTV** (for channel creation and playback - Plex only)
+- **Tunarr** (for channel creation, works with both Plex and Jellyfin)
 
-Community contributions for other platforms are welcome!
+**Important Notes for Jellyfin users:**
+- Jellyfin only works with Tunarr (not DizqueTV)
+- Uses Jellyfin's Quick Connect for seamless authentication
+- All three UIs (Absolution, TOM, CLI) support Jellyfin login
+
+**Emby**: Not currently supported, but community contributions are welcome!
 
 ### Q: What's this about a "DizqueTV fork"?
 

@@ -72,6 +72,63 @@ The tools work together in a specific sequence to create your Toonami channel:
 4.  `PlexLibraryFetcher` uses the server URL and token to get the list of libraries on that server.
 5.  The selected libraries (e.g., for anime, Toonami content) and Plex credentials (URL, token) are then stored (typically in `config.py` or a local database by `FrontEndLogic.py`) for use by other tools.
 
+### LoginToJellyfin
+**File**: `ToonamiTools/LoginToJellyfin.py`
+**Classes**: `JellyfinServerList`, `JellyfinLibraryManager`, `JellyfinLibraryFetcher`
+**Purpose**: Authenticates with Jellyfin, retrieves a list of available Jellyfin servers, and fetches libraries from a selected server. This provides Jellyfin support equivalent to the Plex authentication system.
+
+**Key Features & Process**:
+
+**`JellyfinServerList` Class**:
+-   **Purpose**: Handles the initial Jellyfin authentication and retrieves server information.
+-   **Authentication (`GetJellyfinToken` method)**:
+    -   Uses Jellyfin's Quick Connect system for seamless authentication (similar to Plex PIN flow).
+    -   Prompts for or receives a Jellyfin server URL as input.
+    -   Initiates Quick Connect with the server and obtains a 6-digit code.
+    -   Displays an authentication URL or code for the user to approve in their Jellyfin dashboard.
+    -   Polls the server until authentication is completed and retrieves the access token.
+    -   Stores the token (`self.jellyfin_token`) and user ID (`self.jellyfin_user_id`).
+-   **Server Listing (`GetJellyfinServerList` method)**:
+    -   Calls `GetJellyfinToken` to ensure authentication.
+    -   Retrieves server information from the authentication credentials.
+    -   Populates `self.jellyfin_servers` with server names (typically one server per Jellyfin instance).
+-   **Inputs**: User interaction for Quick Connect authentication, Jellyfin server URL.
+-   **Outputs**: 
+    -   `self.jellyfin_token`: Jellyfin access token.
+    -   `self.jellyfin_servers`: List of available Jellyfin server names.
+    -   `self.jellyfin_user_id`: Authenticated user's ID.
+
+**`JellyfinLibraryManager` Class**:
+-   **Purpose**: Manages connection details for a selected Jellyfin server.
+-   **Server Connection (`GetJellyfinDetails` method)**:
+    -   Takes the selected server name, token, and user ID.
+    -   Retrieves the server URL from stored credentials.
+    -   Validates the connection and stores the server URL for future use.
+-   **Inputs**: Selected server name, Jellyfin token, user ID.
+-   **Outputs**: Jellyfin server base URL (e.g., `http://localhost:8096`).
+
+**`JellyfinLibraryFetcher` Class**:
+-   **Purpose**: Fetches a list of library names from a specific Jellyfin server.
+-   **Library Fetching (`GetJellyfinLibraries` method)**:
+    -   Takes the Jellyfin server URL, token, and user ID.
+    -   Uses Jellyfin's REST API to fetch user-accessible libraries (`/Users/{userId}/Views`).
+    -   Filters for media libraries (TV shows, movies, mixed content) that might contain anime.
+    -   Populates `self.libraries` with the library names.
+-   **Inputs**: Jellyfin server base URL, Jellyfin authentication token, user ID.
+-   **Outputs**: List of library names available on the server.
+
+**Workflow Integration**:
+1.  `JellyfinServerList` is used first to authenticate and get server information.
+2.  The user selects a server (typically only one available).
+3.  `JellyfinLibraryManager` uses the server selection and credentials to get the server's URL.
+4.  `JellyfinLibraryFetcher` uses the server URL and credentials to get the list of libraries.
+5.  The selected libraries and Jellyfin credentials are stored for use by other tools like `JellyfinToTunarr`.
+
+**Important Notes**:
+-   Jellyfin integration only works with Tunarr (not DizqueTV).
+-   Uses Quick Connect for authentication, providing a user experience similar to Plex PIN authentication.
+-   Requires a Jellyfin server URL as input (unlike Plex which can discover servers).
+
 ---
 
 ## Content Discovery Components
@@ -754,6 +811,52 @@ Plex's automatic matching can sometimes incorrectly merge multiple video files (
     -   Logs extensively using Python's `logging` module.
 
 **Significance**: This component bridges the gap between the generated Toonami lineup and the Tunarr platform. Its key differentiator from the DizqueTV version is the built-in flex injection logic during lineup construction, tailored for Tunarr's programming model.
+
+### JellyfinToTunarr
+**File**: `ToonamiTools/JellyfinToTunarr.py`
+**Class**: `JellyfinToTunarr`
+**Purpose**: Transfers a curated lineup of Jellyfin media items (defined in a database table) to a specified Tunarr channel. Functionally equivalent to `PlexToTunarr` but designed to work with Jellyfin servers. It fetches media from Jellyfin, converts them into Tunarr program format, and updates the channel programming with automatic flex insertion.
+
+**Key Features & Process**:
+-   **Initialization**:
+    -   Takes Jellyfin URL/token/user ID, Jellyfin `library_name`, database `table` name for the lineup, Tunarr URL, target `channel_number`, `flex_duration`, and an optional `channel_name`.
+    -   Loads the database table containing the ordered lineup (typically populated by prior components like `ToonamiChecker` or `ShowScheduler`).
+    -   Calls `get_jellyfin_source_info` to establish or locate a Jellyfin media source in Tunarr.
+-   **Media Source Management**:
+    -   `get_jellyfin_source_info`: Checks if a Jellyfin media source exists in Tunarr, creates one if missing.
+    -   `create_jellyfin_media_source`: Creates a new Jellyfin media source in Tunarr with the provided server URL and access token.
+-   **Media Fetching and Filtering**:
+    -   `get_jellyfin_library_id`: Resolves the Jellyfin library name to a library ID using Jellyfin's API.
+    -   `get_all_jellyfin_media`: Fetches all episodes and movies from the specified Jellyfin library.
+    -   `filter_media_by_database`: Filters Jellyfin media items to match entries in the database table (typically by file path or show name).
+-   **Format Conversion**:
+    -   `convert_jellyfin_to_tunarr_format`: Converts Jellyfin media items to Tunarr program format, including duration, metadata, and external source references.
+    -   Handles Jellyfin-specific metadata extraction like series names, season/episode numbers.
+-   **Channel Management**:
+    -   `get_channel_by_number`, `create_channel`: Manages Tunarr channel creation and lookup.
+    -   `delete_all_programs`: Clears existing programming from the target channel.
+    -   `post_manual_lineup`: Uploads the converted program lineup to Tunarr, automatically inserting flex content between consecutive programs.
+-   **Main Execution (`run` method)**:
+    1.  Fetches all media from the Jellyfin library.
+    2.  Filters media based on database entries (if database is populated).
+    3.  Gets or creates the Tunarr channel.
+    4.  Deletes all old programs from the channel.
+    5.  Converts Jellyfin items to Tunarr format and posts the new programming.
+-   **Inputs**:
+    -   Jellyfin server URL/token/user ID, Jellyfin library name.
+    -   Tunarr server URL, target channel number, flex duration.
+    -   Name of the SQLite database table containing the ordered lineup.
+-   **Outputs/Actions**:
+    -   Modifies a Tunarr channel by replacing its programming with Jellyfin-sourced content.
+    -   May create a new Jellyfin media source or channel in Tunarr if they don't exist.
+    -   Logs extensively using Python's `logging` module.
+
+**Significance**: This component enables Jellyfin users to create Toonami-style channels in Tunarr, providing an alternative to Plex for users who prefer open-source media server solutions. It maintains feature parity with `PlexToTunarr` while adapting to Jellyfin's API structure and authentication system.
+
+**Important Notes**:
+-   Only works with Tunarr (DizqueTV does not support Jellyfin).
+-   Requires Jellyfin server URL to be provided during authentication (unlike Plex which can auto-discover servers).
+-   Uses Jellyfin's REST API for all media operations.
 
 ### FlexInjector
 **File**: `ToonamiTools/FlexInjector.py`

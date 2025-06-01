@@ -866,7 +866,7 @@ Q: My shows have commercials already; can I use this to remove them?
 Q: Can you make this work with Jellyfin?
 
 
-  No, we don't use Jellyfin so we have no idea how it works. If you want to make it work with Jellyfin you can fork the repo and make it work with Jellyfin. We will gladly accept a pull request.
+  Yes! Jellyfin support has been added! 🎉 You can now use CommercialBreaker with Jellyfin servers. Note that Jellyfin only works with Tunarr (not DizqueTV). All UIs support Jellyfin login with Quick Connect authentication.
 
 
 Q: Can I request a new feature for the apps?
