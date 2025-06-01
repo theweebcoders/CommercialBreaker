@@ -11,7 +11,8 @@ import webbrowser
 import traceback
 from .components.MessageBroker import get_message_broker
 
-class LogicController():
+
+class LogicController:
     docker = FlagManager.docker
     cutless_in_args = FlagManager.cutless_in_args
     cutless = FlagManager.cutless
@@ -21,7 +22,7 @@ class LogicController():
         self._setup_database()
         self.docker = FlagManager.docker
         self.cutless = FlagManager.cutless
-        
+
         # Check platform compatibility if needed - let FlagManager handle this
         if self.cutless:
             platform_type = self._get_data("platform_type")
@@ -31,74 +32,105 @@ class LogicController():
 
         # Get the message broker singleton
         self.message_broker = get_message_broker()
-        
+
         # UI callback management
         self._ui_callbacks = {
-            'status_updates': [],
-            'progress_updates': [],
-            'plex_servers': [],
-            'plex_libraries': [],
-            'filtered_files': [],
-            'plex_auth_url': [],
-            'cutless_state': [],
-            'new_server_choices': [],
-            'new_library_choices': []
+            "status_updates": [],
+            "progress_updates": [],
+            "plex_servers": [],
+            "plex_libraries": [],
+            "jellyfin_servers": [],
+            "jellyfin_libraries": [],
+            "filtered_files": [],
+            "plex_auth_url": [],
+            "jellyfin_auth_url": [],
+            "cutless_state": [],
+            "new_server_choices": [],
+            "new_library_choices": [],
+            "media_server_type": [],
         }
-        
+
         self._start_message_handler_thread()
-        
+
         self.plex_servers = []
         self.plex_libraries = []
+        self.jellyfin_servers = []
+        self.jellyfin_libraries = []
         self.filter_complete_event = threading.Event()
-        self.filtered_files_for_selection = []  # List to store filtered files for prepopulation
+        self.filtered_files_for_selection = (
+            []
+        )  # List to store filtered files for prepopulation
+
+        # Track which media server type is selected
+        self.media_server_type = None  # 'plex' or 'jellyfin'
 
         # Register callback for cutless state changes
         FlagManager.register_cutless_callback(self._on_cutless_change)
 
     def subscribe_to_status_updates(self, callback: callable):
         """Subscribe to status updates. Callback receives (status_message)"""
-        self.subscribe_to_updates('status_updates', callback)
+        self.subscribe_to_updates("status_updates", callback)
 
     def subscribe_to_progress_updates(self, callback: callable):
         """Subscribe to progress updates. Callback receives (progress_data)"""
-        self.subscribe_to_updates('progress_updates', callback)
+        self.subscribe_to_updates("progress_updates", callback)
 
     def subscribe_to_plex_servers(self, callback: callable):
         """Subscribe to Plex server updates. Callback receives (server_list_json)"""
-        self.subscribe_to_updates('plex_servers', callback)
+        self.subscribe_to_updates("plex_servers", callback)
 
     def subscribe_to_plex_libraries(self, callback: callable):
         """Subscribe to Plex library updates. Callback receives (library_list_json)"""
-        self.subscribe_to_updates('plex_libraries', callback)
+        self.subscribe_to_updates("plex_libraries", callback)
+
+    def subscribe_to_jellyfin_servers(self, callback: callable):
+        """Subscribe to Jellyfin server updates. Callback receives (server_list_json)"""
+        self.subscribe_to_updates("jellyfin_servers", callback)
+
+    def subscribe_to_jellyfin_libraries(self, callback: callable):
+        """Subscribe to Jellyfin library updates. Callback receives (library_list_json)"""
+        self.subscribe_to_updates("jellyfin_libraries", callback)
 
     def subscribe_to_filtered_files(self, callback: callable):
         """Subscribe to filtered files updates. Callback receives (filtered_files_json)"""
-        self.subscribe_to_updates('filtered_files', callback)
+        self.subscribe_to_updates("filtered_files", callback)
 
     def subscribe_to_plex_auth_url(self, callback: callable):
         """Subscribe to Plex auth URL. Callback receives (auth_url)"""
-        self.subscribe_to_updates('plex_auth_url', callback)
+        self.subscribe_to_updates("plex_auth_url", callback)
+
+    def subscribe_to_jellyfin_auth_url(self, callback: callable):
+        """Subscribe to Jellyfin auth URL. Callback receives (auth_url)"""
+        self.subscribe_to_updates("jellyfin_auth_url", callback)
+
+    def subscribe_to_media_server_type(self, callback: callable):
+        """Subscribe to media server type changes. Callback receives ('plex' or 'jellyfin')"""
+        self.subscribe_to_updates("media_server_type", callback)
 
     def subscribe_to_cutless_state(self, callback: callable):
         """Subscribe to cutless state changes. Callback receives ('true' or 'false')"""
-        self.subscribe_to_updates('cutless_state', callback)
+        self.subscribe_to_updates("cutless_state", callback)
 
     def subscribe_to_server_choices(self, callback: callable):
         """Subscribe to new server choices. Callback receives (signal)"""
-        self.subscribe_to_updates('new_server_choices', callback)
+        self.subscribe_to_updates("new_server_choices", callback)
 
     def subscribe_to_library_choices(self, callback: callable):
         """Subscribe to new library choices. Callback receives (signal)"""
-        self.subscribe_to_updates('new_library_choices', callback)
+        self.subscribe_to_updates("new_library_choices", callback)
 
     def subscribe_to_updates(self, channel: str, callback: callable):
         """Simple subscription method for UIs"""
         if channel not in self._ui_callbacks:
-            self._ui_callbacks[channel] = [] # Initialize if new channel (should be pre-defined though)
-            print(f"Warning: Subscribing to a new, previously unknown channel: {channel}")
-        if callback not in self._ui_callbacks[channel]: # Avoid duplicate subscriptions
+            self._ui_callbacks[channel] = (
+                []
+            )  # Initialize if new channel (should be pre-defined though)
+            print(
+                f"Warning: Subscribing to a new, previously unknown channel: {channel}"
+            )
+        if callback not in self._ui_callbacks[channel]:  # Avoid duplicate subscriptions
             self._ui_callbacks[channel].append(callback)
-    
+
     def unsubscribe_from_updates(self, channel: str, callback: callable):
         """Simple unsubscription method"""
         if channel in self._ui_callbacks and callback in self._ui_callbacks[channel]:
@@ -106,10 +138,12 @@ class LogicController():
             # Optionally, clean up empty channel list if desired, though not strictly necessary
             # if not self._ui_callbacks[channel]:
             #     del self._ui_callbacks[channel]
-    
+
     def _start_message_handler_thread(self):
         """Internal method to start the thread that routes broker messages to UI callbacks"""
-        handler_thread = threading.Thread(target=self._message_handler_loop, daemon=True)
+        handler_thread = threading.Thread(
+            target=self._message_handler_loop, daemon=True
+        )
         handler_thread.start()
 
     def _message_handler_loop(self):
@@ -117,14 +151,14 @@ class LogicController():
         # Subscribe to all channels that LogicController manages for UI callbacks
         known_channels = list(self._ui_callbacks.keys())
         queue = self.message_broker.subscribe(known_channels)
-        
+
         while True:
             try:
-                channel, data = queue.get() # Blocks until a message is available
-                
+                channel, data = queue.get()  # Blocks until a message is available
+
                 # Iterate over a copy of the callbacks list for thread safety
                 callbacks_to_run = list(self._ui_callbacks.get(channel, []))
-                
+
                 for callback in callbacks_to_run:
                     try:
                         # Ensure UI updates are scheduled on the main thread if necessary
@@ -132,7 +166,9 @@ class LogicController():
                         # For now, direct call. UIs must handle thread safety if needed.
                         callback(data)
                     except Exception as e:
-                        print(f"Error in UI callback for channel {channel} with data '{data}': {e}")
+                        print(
+                            f"Error in UI callback for channel {channel} with data '{data}': {e}"
+                        )
                 queue.task_done()
             except Exception as e:
                 print(f"Error in message handler loop: {e}")
@@ -142,21 +178,26 @@ class LogicController():
     def _setup_database(self):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS app_data (
                     key TEXT PRIMARY KEY,
                     value TEXT
                 )
-            """)
+            """
+            )
             conn.commit()
 
     def _set_data(self, key, value):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT OR REPLACE INTO app_data (key, value)
                 VALUES (?, ?)
-            """, (key, value))
+            """,
+                (key, value),
+            )
             conn.commit()
 
     def _get_data(self, key):
@@ -169,13 +210,15 @@ class LogicController():
     def _check_table_exists(self, table_name):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+            cursor.execute(
+                f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'"
+            )
             return cursor.fetchone() is not None
 
     def _publish_status_update(self, channel, message):
         """
         Publish a message to the specified channel using the message broker.
-        
+
         Args:
             channel: Channel name
             message: Message to publish
@@ -185,54 +228,86 @@ class LogicController():
     def _broadcast_status_update(self, message):
         """
         Publish a status update to the 'status_updates' channel.
-        
+
         Args:
             message: Status message
         """
         # Publish to the broker
-        self.message_broker.publish('status_updates', message)
+        self.message_broker.publish("status_updates", message)
 
     def publish_plex_servers(self):
         """Publish server list via message broker"""
         plex_servers_json = json.dumps(self.plex_servers)
-        self._publish_status_update('plex_servers', plex_servers_json)
+        self._publish_status_update("plex_servers", plex_servers_json)
 
     def publish_plex_libraries(self):
         """Publish libraries list via message broker"""
         plex_libraries_json = json.dumps(self.plex_libraries)
-        self._publish_status_update('plex_libraries', plex_libraries_json)
+        self._publish_status_update("plex_libraries", plex_libraries_json)
+
+    def publish_jellyfin_servers(self):
+        """Publish Jellyfin server list via message broker"""
+        jellyfin_servers_json = json.dumps(self.jellyfin_servers)
+        self._publish_status_update("jellyfin_servers", jellyfin_servers_json)
+
+    def publish_jellyfin_libraries(self):
+        """Publish Jellyfin libraries list via message broker"""
+        jellyfin_libraries_json = json.dumps(self.jellyfin_libraries)
+        self._publish_status_update("jellyfin_libraries", jellyfin_libraries_json)
 
     def publish_filtered_files(self, filtered_files):
         """Publish filtered files to channel"""
         filtered_files_json = json.dumps(filtered_files)
-        self._publish_status_update('filtered_files', filtered_files_json)
+        self._publish_status_update("filtered_files", filtered_files_json)
 
     def get_token(self):
         """Get Plex token from database"""
         plex_token = self._get_data("plex_token")
         return plex_token
 
+    def get_jellyfin_token(self):
+        """Get Jellyfin token from database"""
+        jellyfin_token = self._get_data("jellyfin_token")
+        return jellyfin_token
+
     def publish_plex_auth_url(self, auth_url):
         """Publish Plex authentication URL to channel"""
-        self.message_broker.publish('plex_auth_url', auth_url)
-        print("Please open the following URL in your browser to authenticate with Plex: \n" + auth_url)
+        self.message_broker.publish("plex_auth_url", auth_url)
+        print(
+            "Please open the following URL in your browser to authenticate with Plex: \n"
+            + auth_url
+        )
+
+    def publish_jellyfin_auth_url(self, auth_url):
+        """Publish Jellyfin authentication URL to channel"""
+        self.message_broker.publish("jellyfin_auth_url", auth_url)
+        print(
+            "Please open the following URL in your browser to authenticate with Jellyfin: \n"
+            + auth_url
+        )
+
+    def publish_media_server_type(self, server_type):
+        """Publish selected media server type ('plex' or 'jellyfin')"""
+        self._publish_status_update("media_server_type", server_type)
 
     def publish_cutless_state(self, enabled):
         """Publish cutless state to 'cutless_state' channel as a boolean"""
-        self._publish_status_update('cutless_state', enabled)
+        self._publish_status_update("cutless_state", enabled)
 
     def _on_cutless_change(self, enabled):
         """
         Callback for FlagManager cutless state changes. Broadcasts the new state.
         """
         LogicController.cutless = enabled  # Keep class variable in sync
-        self.cutless = enabled             # Keep instance variable in sync
-        
+        self.cutless = enabled  # Keep instance variable in sync
+
         # Publish to the message broker
         self.publish_cutless_state(enabled)
-        
+
         # Broadcast status update
-        self._broadcast_status_update(f"Cutless mode {'enabled' if enabled else 'disabled'}")
+        self._broadcast_status_update(
+            f"Cutless mode {'enabled' if enabled else 'disabled'}"
+        )
 
     def is_filtered_complete(self):
         return self.filter_complete_event.is_set()
@@ -243,12 +318,26 @@ class LogicController():
     def set_filter_event(self):
         self.filter_complete_event.set()
 
-    def check_dizquetv_compatibility(self):
+    def check_platform_compatibility(self):
+        """Check platform compatibility based on selected media server and platform"""
         platform_url = self._get_data("platform_url")
         platform_type = self._get_data("platform_type")
-        
-        # Delegate to FlagManager's evaluation
+        media_server_type = (
+            self.media_server_type or self._get_data("media_server_type") or "plex"
+        )
+
+        # Check if DizqueTV is selected with Jellyfin
+        if media_server_type == "jellyfin" and platform_type == "dizquetv":
+            raise ValueError(
+                "DizqueTV is not compatible with Jellyfin. Please select Tunarr when using Jellyfin."
+            )
+
+        # Delegate to FlagManager's evaluation for other compatibility checks
         return FlagManager.evaluate_platform_compatibility(platform_type, platform_url)
+
+    def check_dizquetv_compatibility(self):
+        """Legacy method for DizqueTV compatibility - now delegates to general platform compatibility"""
+        return self.check_platform_compatibility()
 
     def login_to_plex(self):
         def login_thread():
@@ -257,14 +346,19 @@ class LogicController():
                 # Create PlexServerList instance, fetch token and populate dropdown
                 self._broadcast_status_update("Logging in to Plex...")
                 self.server_list = ToonamiTools.PlexServerList()
-                
+
                 # Set up the callback to handle auth URL
                 self.server_list.set_auth_url_callback(self.publish_plex_auth_url)
-                
+
                 self.server_list.run()
-                self._broadcast_status_update("Plex login successful. Fetching servers...")
+                self._broadcast_status_update(
+                    "Plex login successful. Fetching servers..."
+                )
                 # Update the list of servers
-                self.plex_servers, plex_token = self.server_list.plex_servers, self.server_list.plex_token
+                self.plex_servers, plex_token = (
+                    self.server_list.plex_servers,
+                    self.server_list.plex_token,
+                )
                 self._set_data("plex_token", plex_token)
                 self._broadcast_status_update("Plex servers fetched!")
 
@@ -276,7 +370,57 @@ class LogicController():
                 error_msg = f"ERROR: Plex login failed: {str(e)}"
                 self._broadcast_status_update(error_msg)
                 print(f"Thread error in login_to_plex: {e}")
-                
+
+                traceback.print_exc()
+
+        thread = threading.Thread(target=login_thread)
+        thread.start()
+
+    def login_to_jellyfin(self, server_url=None):
+        def login_thread():
+            try:
+                print("Logging in to Jellyfin...")
+                # Create JellyfinServerList instance, fetch token and populate dropdown
+                self._broadcast_status_update("Logging in to Jellyfin...")
+                self.jellyfin_server_list = ToonamiTools.JellyfinServerList()
+
+                # Set server URL if provided
+                if server_url:
+                    self.jellyfin_server_list.set_server_url(server_url)
+
+                # Set up the callback to handle auth URL
+                self.jellyfin_server_list.set_auth_url_callback(
+                    self.publish_jellyfin_auth_url
+                )
+
+                self.jellyfin_server_list.run()
+                self._broadcast_status_update(
+                    "Jellyfin login successful. Fetching servers..."
+                )
+                # Update the list of servers
+                self.jellyfin_servers = self.jellyfin_server_list.jellyfin_servers
+                jellyfin_token = self.jellyfin_server_list.jellyfin_token
+                jellyfin_user_id = self.jellyfin_server_list.jellyfin_user_id
+
+                self._set_data("jellyfin_token", jellyfin_token)
+                self._set_data("jellyfin_user_id", jellyfin_user_id)
+
+                # Set media server type to jellyfin
+                self.media_server_type = "jellyfin"
+                self._set_data("media_server_type", "jellyfin")
+                self.publish_media_server_type("jellyfin")
+
+                self._broadcast_status_update("Jellyfin servers fetched!")
+
+                # Announce that new server choices are available
+                self.message_broker.publish("new_server_choices", "new_server_choices")
+                self.publish_jellyfin_servers()
+
+            except Exception as e:
+                error_msg = f"ERROR: Jellyfin login failed: {str(e)}"
+                self._broadcast_status_update(error_msg)
+                print(f"Thread error in login_to_jellyfin: {e}")
+
                 traceback.print_exc()
 
         thread = threading.Thread(target=login_thread)
@@ -292,55 +436,115 @@ class LogicController():
 
     def fetch_libraries(self, selected_server):
         """Unified fetch libraries method that uses the message broker"""
+
         def fetch_libraries_thread():
             try:
-                # Create PlexLibraryManager and PlexLibraryFetcher instances
-                self._broadcast_status_update(f"Fetching libraries for {selected_server}...")
-                
-                # Get token either from get_token or from server_list
-                plex_token = self.get_token()
-                if plex_token is None and hasattr(self, 'server_list'):
-                    plex_token = self.server_list.plex_token
-                
-                if plex_token is None:
-                    raise Exception("Could not fetch Plex Token")
-                    
-                # Create library manager
-                self.library_manager = ToonamiTools.PlexLibraryManager(selected_server, plex_token)
-                plex_url = self.library_manager.run()
-                self._set_data("plex_url", plex_url)
-                
-                if plex_url is None:
-                    raise Exception("Could not fetch Plex URL")
-                
-                # Use either direct URL or one from library manager
-                url_to_use = plex_url
-                if hasattr(self.library_manager, 'plex_url'):
-                    url_to_use = self.library_manager.plex_url
-                
-                # Create library fetcher
-                self.library_fetcher = ToonamiTools.PlexLibraryFetcher(url_to_use, plex_token)
-                self.library_fetcher.run()
+                self._broadcast_status_update(
+                    f"Fetching libraries for {selected_server}..."
+                )
 
-                # Update the list of libraries
-                self.plex_libraries = self.library_fetcher.libraries
-                self._broadcast_status_update("Libraries fetched successfully!")
+                # Determine which media server type to use
+                media_server_type = (
+                    self.media_server_type
+                    or self._get_data("media_server_type")
+                    or "plex"
+                )
 
-                # Announce that new library choices are available
-                self.message_broker.publish("new_library_choices", "new_library_choices")
-                self.publish_plex_libraries()
+                if media_server_type == "jellyfin":
+                    # Jellyfin library fetching
+                    jellyfin_token = self.get_jellyfin_token()
+                    jellyfin_user_id = self._get_data("jellyfin_user_id")
+
+                    if jellyfin_token is None and hasattr(self, "jellyfin_server_list"):
+                        jellyfin_token = self.jellyfin_server_list.jellyfin_token
+                        jellyfin_user_id = self.jellyfin_server_list.jellyfin_user_id
+
+                    if jellyfin_token is None:
+                        raise Exception("Could not fetch Jellyfin Token")
+
+                    # Create Jellyfin library manager
+                    self.jellyfin_library_manager = ToonamiTools.JellyfinLibraryManager(
+                        selected_server, jellyfin_token, jellyfin_user_id
+                    )
+                    jellyfin_url = self.jellyfin_library_manager.run()
+                    self._set_data("jellyfin_url", jellyfin_url)
+
+                    if jellyfin_url is None:
+                        raise Exception("Could not fetch Jellyfin URL")
+
+                    # Create Jellyfin library fetcher
+                    self.jellyfin_library_fetcher = ToonamiTools.JellyfinLibraryFetcher(
+                        jellyfin_url, jellyfin_token, jellyfin_user_id
+                    )
+                    self.jellyfin_library_fetcher.run()
+
+                    # Update the list of libraries
+                    self.jellyfin_libraries = self.jellyfin_library_fetcher.libraries
+                    self._broadcast_status_update("Jellyfin libraries fetched!")
+
+                    # Announce that new library choices are available
+                    self.message_broker.publish(
+                        "new_library_choices", "new_library_choices"
+                    )
+                    self.publish_jellyfin_libraries()
+
+                else:
+                    # Plex library fetching (existing code)
+                    plex_token = self.get_token()
+                    if plex_token is None and hasattr(self, "server_list"):
+                        plex_token = self.server_list.plex_token
+
+                    if plex_token is None:
+                        raise Exception("Could not fetch Plex Token")
+
+                    # Create library manager
+                    self.library_manager = ToonamiTools.PlexLibraryManager(
+                        selected_server, plex_token
+                    )
+                    plex_url = self.library_manager.run()
+                    self._set_data("plex_url", plex_url)
+
+                    if plex_url is None:
+                        raise Exception("Could not fetch Plex URL")
+
+                    # Use either direct URL or one from library manager
+                    url_to_use = plex_url
+                    if hasattr(self.library_manager, "plex_url"):
+                        url_to_use = self.library_manager.plex_url
+
+                    # Create library fetcher
+                    self.library_fetcher = ToonamiTools.PlexLibraryFetcher(
+                        url_to_use, plex_token
+                    )
+                    self.library_fetcher.run()
+
+                    # Update the list of libraries
+                    self.plex_libraries = self.library_fetcher.libraries
+                    self._broadcast_status_update("Plex libraries fetched!")
+
+                    # Announce that new library choices are available
+                    self.message_broker.publish(
+                        "new_library_choices", "new_library_choices"
+                    )
+                    self.publish_plex_libraries()
 
             except Exception as e:
                 error_msg = f"ERROR: Library fetching failed: {str(e)}"
                 self._broadcast_status_update(error_msg)
                 print(f"Thread error in fetch_libraries: {e}")
-                
+
                 traceback.print_exc()
 
         thread = threading.Thread(target=fetch_libraries_thread)
         thread.start()
 
-    def on_continue_first(self, selected_anime_library, selected_toonami_library, platform_url, platform_type='dizquetv'):
+    def on_continue_first(
+        self,
+        selected_anime_library,
+        selected_toonami_library,
+        platform_url,
+        platform_type="dizquetv",
+    ):
         """
         Updated to handle a single platform URL and its type
         """
@@ -352,16 +556,16 @@ class LogicController():
 
         if platform_url.startswith("eg. ") or not platform_url:
             platform_url = self._get_data("platform_url")
-        
+
         # Save the fetched data to the database
         self._set_data("selected_anime_library", selected_anime_library)
         self._set_data("selected_toonami_library", selected_toonami_library)
         self._set_data("platform_url", platform_url)
         self._set_data("platform_type", platform_type)
-        
-        # Re-evaluate cutless mode using FlagManager
-        FlagManager.evaluate_platform_compatibility(platform_type, platform_url)
-        
+
+        # Check platform compatibility (includes Jellyfin + DizqueTV check)
+        self.check_platform_compatibility()
+
         # Sync our instance and class variable with FlagManager
         self.cutless = FlagManager.cutless
         LogicController.cutless = FlagManager.cutless
@@ -371,10 +575,18 @@ class LogicController():
         print(f"Toonami Library: {selected_toonami_library}")
         print(f"Plex URL: {self._get_data('plex_url')}")
         print(f"Platform URL: {platform_url} ({platform_type})")
-        
+
         self._broadcast_status_update("Idle")
 
-    def on_continue_second(self, selected_anime_library, selected_toonami_library, plex_url, plex_token, platform_url, platform_type='dizquetv'):
+    def on_continue_second(
+        self,
+        selected_anime_library,
+        selected_toonami_library,
+        plex_url,
+        plex_token,
+        platform_url,
+        platform_type="dizquetv",
+    ):
         # Check each widget value, if it starts with "eg. ", fetch the value from the database
         if selected_anime_library.startswith("eg. ") or not selected_anime_library:
             selected_anime_library = self._get_data("selected_anime_library")
@@ -394,19 +606,28 @@ class LogicController():
         self._set_data("plex_token", plex_token)
         self._set_data("platform_url", platform_url)
         self._set_data("platform_type", platform_type)
-        
-        # Re-evaluate cutless mode using FlagManager
-        FlagManager.evaluate_platform_compatibility(platform_type, platform_url)
-        
+
+        # Check platform compatibility (includes Jellyfin + DizqueTV check)
+        self.check_platform_compatibility()
+
         # Sync our instance and class variable with FlagManager
         self.cutless = FlagManager.cutless
         LogicController.cutless = FlagManager.cutless
 
         # Optional: Print values for verification
-        print(selected_anime_library, selected_toonami_library, plex_url, plex_token, platform_url, platform_type)
+        print(
+            selected_anime_library,
+            selected_toonami_library,
+            plex_url,
+            plex_token,
+            platform_url,
+            platform_type,
+        )
         self._broadcast_status_update("Idle")
 
-    def on_continue_third(self, anime_folder, bump_folder, special_bump_folder, working_folder):
+    def on_continue_third(
+        self, anime_folder, bump_folder, special_bump_folder, working_folder
+    ):
         # Check each widget value, if it's blank, fetch the value from the database
         if not anime_folder:
             anime_folder = self._get_data("anime_folder")
@@ -450,15 +671,15 @@ class LogicController():
                 working_folder = self._get_data("working_folder")
                 anime_folder = self._get_data("anime_folder")
                 bump_folder = self._get_data("bump_folder")
-                merger_bumps_list_1 = 'multibumps_v2_data_reordered'
-                merger_bumps_list_2 = 'multibumps_v3_data_reordered'
-                merger_bumps_list_3 = 'multibumps_v9_data_reordered'
-                merger_bumps_list_4 = 'multibumps_v8_data_reordered'
-                merger_out_1 = 'lineup_v2_uncut'
-                merger_out_2 = 'lineup_v3_uncut'
-                merger_out_3 = 'lineup_v9_uncut'
-                merger_out_4 = 'lineup_v8_uncut'
-                uncut_encoder_out = 'uncut_encoded_data'
+                merger_bumps_list_1 = "multibumps_v2_data_reordered"
+                merger_bumps_list_2 = "multibumps_v3_data_reordered"
+                merger_bumps_list_3 = "multibumps_v9_data_reordered"
+                merger_bumps_list_4 = "multibumps_v8_data_reordered"
+                merger_out_1 = "lineup_v2_uncut"
+                merger_out_2 = "lineup_v3_uncut"
+                merger_out_3 = "lineup_v9_uncut"
+                merger_out_4 = "lineup_v8_uncut"
+                uncut_encoder_out = "uncut_encoded_data"
                 fmaker = ToonamiTools.FolderMaker(working_folder)
                 easy_checker = ToonamiTools.ToonamiChecker(anime_folder)
                 lineup_prep = ToonamiTools.MediaProcessor(bump_folder)
@@ -467,7 +688,9 @@ class LogicController():
                 ml = ToonamiTools.Multilineup()
                 merger = ToonamiTools.ShowScheduler(uncut=True)
                 fmaker.run()
-                unique_show_names, toonami_episodes = easy_checker.prepare_episode_data()
+                unique_show_names, toonami_episodes = (
+                    easy_checker.prepare_episode_data()
+                )
                 self._broadcast_status_update("Waiting for selection...")
                 selected_shows = display_show_selection(unique_show_names)
                 easy_checker.process_selected_shows(selected_shows, toonami_episodes)
@@ -481,39 +704,45 @@ class LogicController():
                 merger.run(merger_bumps_list_3, uncut_encoder_out, merger_out_3)
                 merger.run(merger_bumps_list_4, uncut_encoder_out, merger_out_4)
                 self._broadcast_status_update("Content preparation complete!")
-                
+
             except Exception as e:
                 error_msg = f"ERROR: Content preparation failed: {str(e)}"
                 self._broadcast_status_update(error_msg)
                 print(f"Thread error in prepare_content: {e}")
                 traceback.print_exc()
-                
+
         thread = threading.Thread(target=prepare_content_thread)
         thread.start()
 
     def move_filtered(self, prepopulate=False):
         """
         Moves filtered episodes to the toonami_filtered folder or prepares them for selection.
-        
+
         Args:
             prepopulate (bool, optional): If True, don't move files but collect paths for selection
                                           If False (default), move files as before
         """
+
         def move_filtered_thread():
             try:
                 import ToonamiTools
+
                 fmove = ToonamiTools.FilterAndMove()
-                
+
                 if prepopulate:
-                    self._broadcast_status_update("Preparing filtered shows for selection...")
+                    self._broadcast_status_update(
+                        "Preparing filtered shows for selection..."
+                    )
                     # Call run with prepopulate=True to get filtered paths without moving
                     filtered_files = fmove.run(prepopulate=True)
-                    
+
                     # Publish filtered files via broker
                     self.publish_filtered_files(filtered_files)
                     print(f"Published {len(filtered_files)} filtered files")
-                    
-                    self._broadcast_status_update(f"Found {len(filtered_files)} files for selection")
+
+                    self._broadcast_status_update(
+                        f"Found {len(filtered_files)} files for selection"
+                    )
                 else:
                     self._broadcast_status_update("Moving filtered shows...")
                     working_folder = self._get_data("working_folder")
@@ -521,16 +750,16 @@ class LogicController():
                     # Call run with prepopulate=False to move files (original behavior)
                     fmove.run(filter_output_folder, prepopulate=False)
                     self._broadcast_status_update("Filtered shows moved!")
-                
+
                 self.filter_complete_event.set()
-                
+
             except Exception as e:
                 error_msg = f"ERROR: Filter and move operation failed: {str(e)}"
                 self._broadcast_status_update(error_msg)
                 print(f"Thread error in move_filtered: {e}")
                 traceback.print_exc()
                 self.filter_complete_event.set()  # Still set event so callers don't hang
-            
+
         thread = threading.Thread(target=move_filtered_thread)
         thread.start()
 
@@ -543,15 +772,20 @@ class LogicController():
                 plex_ts_url = self._get_data("plex_url")
                 plex_ts_token = self._get_data("plex_token")
                 plex_ts_anime_library_name = self._get_data("selected_anime_library")
-                GetTimestamps = ToonamiTools.GetPlexTimestamps(plex_ts_url, plex_ts_token, plex_ts_anime_library_name, toonami_filtered_folder)
+                GetTimestamps = ToonamiTools.GetPlexTimestamps(
+                    plex_ts_url,
+                    plex_ts_token,
+                    plex_ts_anime_library_name,
+                    toonami_filtered_folder,
+                )
                 GetTimestamps.run()  # Calling the run method on the instance
                 self._broadcast_status_update("Plex timestamps fetched!")
-                
+
             except Exception as e:
                 error_msg = f"ERROR: Getting Plex timestamps failed: {str(e)}"
                 self._broadcast_status_update(error_msg)
                 print(f"Thread error in get_plex_timestamps: {e}")
-                
+
                 traceback.print_exc()
 
         thread = threading.Thread(target=get_plex_timestamps_thread)
@@ -562,17 +796,17 @@ class LogicController():
             try:
                 working_folder = self._get_data("working_folder")
                 cutless_mode_used = self._get_data("cutless_mode_used")
-                cutless_enabled = cutless_mode_used == 'True'
+                cutless_enabled = cutless_mode_used == "True"
                 self._broadcast_status_update("Preparing cut anime...")
-                merger_bumps_list_1 = 'multibumps_v2_data_reordered'
-                merger_bumps_list_2 = 'multibumps_v3_data_reordered'
-                merger_bumps_list_3 = 'multibumps_v9_data_reordered'
-                merger_bumps_list_4 = 'multibumps_v8_data_reordered'
-                merger_out_1 = 'lineup_v2'
-                merger_out_2 = 'lineup_v3'
-                merger_out_3 = 'lineup_v9'
-                merger_out_4 = 'lineup_v8'
-                commercial_injector_out = 'commercial_injector_final'
+                merger_bumps_list_1 = "multibumps_v2_data_reordered"
+                merger_bumps_list_2 = "multibumps_v3_data_reordered"
+                merger_bumps_list_3 = "multibumps_v9_data_reordered"
+                merger_bumps_list_4 = "multibumps_v8_data_reordered"
+                merger_out_1 = "lineup_v2"
+                merger_out_2 = "lineup_v3"
+                merger_out_3 = "lineup_v9"
+                merger_out_4 = "lineup_v8"
+                commercial_injector_out = "commercial_injector_final"
                 cut_folder = working_folder + "/cut"
                 commercial_injector_prep = ToonamiTools.AnimeFileOrganizer(cut_folder)
                 commercial_injector = ToonamiTools.LineupLogic()
@@ -581,7 +815,9 @@ class LogicController():
                 if not cutless_enabled:
                     commercial_injector_prep.organize_files()
                 else:
-                    self._broadcast_status_update("Cutless Mode: Skipping cut file preparation")
+                    self._broadcast_status_update(
+                        "Cutless Mode: Skipping cut file preparation"
+                    )
                 commercial_injector.generate_lineup()
                 BIC.run()
                 self._broadcast_status_update("Creating your lineup...")
@@ -590,13 +826,17 @@ class LogicController():
                 merger.run(merger_bumps_list_3, commercial_injector_out, merger_out_3)
                 merger.run(merger_bumps_list_4, commercial_injector_out, merger_out_4)
                 if cutless_enabled:
-                    self._broadcast_status_update("Cutless Mode: Finalizing lineup tables...")
+                    self._broadcast_status_update(
+                        "Cutless Mode: Finalizing lineup tables..."
+                    )
                     finalizer = ToonamiTools.CutlessFinalizer()
                     finalizer.run()
-                    self._broadcast_status_update("Cutless lineup finalization complete!")
+                    self._broadcast_status_update(
+                        "Cutless lineup finalization complete!"
+                    )
 
                 self._broadcast_status_update("Cut anime preparation complete!")
-                
+
             except Exception as e:
                 error_msg = f"ERROR: Cut anime preparation failed: {str(e)}"
                 self._broadcast_status_update(error_msg)
@@ -617,24 +857,34 @@ class LogicController():
                 self._broadcast_status_update("Preparing Plex...")
                 plex_url_plex_splitter = self._get_data("plex_url")
                 plex_token_plex_splitter = self._get_data("plex_token")
-                plex_library_name_plex_splitter = self._get_data("selected_toonami_library")
+                plex_library_name_plex_splitter = self._get_data(
+                    "selected_toonami_library"
+                )
                 self._broadcast_status_update("Splitting merged Plex shows...")
-                plex_splitter = ToonamiTools.PlexAutoSplitter(plex_url_plex_splitter, plex_token_plex_splitter, plex_library_name_plex_splitter)
+                plex_splitter = ToonamiTools.PlexAutoSplitter(
+                    plex_url_plex_splitter,
+                    plex_token_plex_splitter,
+                    plex_library_name_plex_splitter,
+                )
                 plex_splitter.split_merged_items()
                 self._broadcast_status_update("Renaming Plex shows...")
-                plex_rename_split = ToonamiTools.PlexLibraryUpdater(plex_url_plex_splitter, plex_token_plex_splitter, plex_library_name_plex_splitter)
+                plex_rename_split = ToonamiTools.PlexLibraryUpdater(
+                    plex_url_plex_splitter,
+                    plex_token_plex_splitter,
+                    plex_library_name_plex_splitter,
+                )
                 plex_rename_split.update_titles()
                 self._broadcast_status_update("Plex preparation complete!")
                 self.filter_complete_event.set()
-                
+
             except Exception as e:
                 error_msg = f"ERROR: Plex preparation failed: {str(e)}"
                 self._broadcast_status_update(error_msg)
                 print(f"Thread error in prepare_plex: {e}")
-                
+
                 traceback.print_exc()
                 self.filter_complete_event.set()  # Still set event so callers don't hang
-                
+
         thread = threading.Thread(target=prepare_plex_thread)
         thread.start()
 
@@ -642,6 +892,7 @@ class LogicController():
         """
         Create a Toonami channel using the stored platform settings
         """
+
         def create_toonami_channel_thread():
             try:
                 self._broadcast_status_update("Creating Toonami channel...")
@@ -652,37 +903,42 @@ class LogicController():
                 platform_url = self._get_data("platform_url")
                 platform_type = self._get_data("platform_type")
                 cutless_mode_used = self._get_data("cutless_mode_used")
-                cutless_enabled = cutless_mode_used == 'True'
+                cutless_enabled = cutless_mode_used == "True"
                 toon_config = config.TOONAMI_CONFIG.get(toonami_version, {})
                 table = toon_config["table"]
-                
+
                 # If cutless mode is enabled, use the cutless table instead
-                if (cutless_enabled):
+                if cutless_enabled:
                     table = f"{table}_cutless"
                     self._broadcast_status_update(f"Cutless Mode: Using {table} table")
 
-                if platform_type == 'dizquetv':
+                if platform_type == "dizquetv":
                     ptod = ToonamiTools.PlexToDizqueTVSimplified(
-                        plex_url=plex_url, 
-                        plex_token=plex_token, 
+                        plex_url=plex_url,
+                        plex_token=plex_token,
                         anime_library=anime_library,
-                        toonami_library=toonami_library, 
-                        table=table, 
-                        dizquetv_url=platform_url, 
+                        toonami_library=toonami_library,
+                        table=table,
+                        dizquetv_url=platform_url,
                         channel_number=int(channel_number),
-                        cutless_mode=cutless_enabled
+                        cutless_mode=cutless_enabled,
                     )
                     ptod.run()
                 else:  # tunarr
                     ptot = ToonamiTools.PlexToTunarr(
-                        plex_url, plex_token, toonami_library, table,
-                        platform_url, int(channel_number), flex_duration
+                        plex_url,
+                        plex_token,
+                        toonami_library,
+                        table,
+                        platform_url,
+                        int(channel_number),
+                        flex_duration,
                     )
                     ptot.run()
 
                 self._broadcast_status_update("Toonami channel created!")
                 self.filter_complete_event.set()
-                
+
             except Exception as e:
                 error_msg = f"ERROR: Toonami channel creation failed: {str(e)}"
                 self._broadcast_status_update(error_msg)
@@ -700,31 +956,37 @@ class LogicController():
                 self._broadcast_status_update("Preparing Toonami channel...")
                 cont_config = config.TOONAMI_CONFIG_CONT.get(toonami_version, {})
                 cutless_mode_used = self._get_data("cutless_mode_used")
-                cutless_enabled = cutless_mode_used == 'True'
+                cutless_enabled = cutless_mode_used == "True"
                 merger_bump_list = cont_config["merger_bump_list"]
                 merger_out = cont_config["merger_out"]
                 encoder_in = cont_config["encoder_in"]
                 uncut = cont_config["uncut"]
 
-                merger = ToonamiTools.ShowScheduler(reuse_episode_blocks=True, continue_from_last_used_episode_block=start_from_last_episode, uncut=uncut)
+                merger = ToonamiTools.ShowScheduler(
+                    reuse_episode_blocks=True,
+                    continue_from_last_used_episode_block=start_from_last_episode,
+                    uncut=uncut,
+                )
                 merger.run(merger_bump_list, encoder_in, merger_out)
                 if cutless_enabled:
                     finalizer = ToonamiTools.CutlessFinalizer()
                     finalizer.run()
                 self._broadcast_status_update("Toonami channel prepared!")
                 self.filter_complete_event.set()
-                
+
             except Exception as e:
                 error_msg = f"ERROR: Toonami channel preparation failed: {str(e)}"
                 self._broadcast_status_update(error_msg)
                 print(f"Thread error in prepare_toonami_channel: {e}")
                 traceback.print_exc()
                 self.filter_complete_event.set()  # Still set event so callers don't hang
-                
+
         thread = threading.Thread(target=prepare_toonami_channel_thread)
         thread.start()
 
-    def create_toonami_channel_cont(self, toonami_version, channel_number, flex_duration):
+    def create_toonami_channel_cont(
+        self, toonami_version, channel_number, flex_duration
+    ):
         """
         Create a Toonami continuation channel using the stored platform settings
         """
@@ -738,32 +1000,37 @@ class LogicController():
         platform_url = self._get_data("platform_url")
         platform_type = self._get_data("platform_type")
         cutless_mode_used = self._get_data("cutless_mode_used")
-        cutless_enabled = cutless_mode_used == 'True'
-        
+        cutless_enabled = cutless_mode_used == "True"
+
         # If cutless mode is enabled, use the cutless table instead
         if cutless_enabled:
             table = f"{table}_cutless"
             self._broadcast_status_update(f"Cutless Mode: Using {table} table")
-        
-        if platform_type == 'dizquetv':
+
+        if platform_type == "dizquetv":
             ptod = ToonamiTools.PlexToDizqueTVSimplified(
-                plex_url=plex_url, 
-                plex_token=plex_token, 
+                plex_url=plex_url,
+                plex_token=plex_token,
                 anime_library=anime_library,
-                toonami_library=toonami_library, 
-                table=table, 
-                dizquetv_url=platform_url, 
+                toonami_library=toonami_library,
+                table=table,
+                dizquetv_url=platform_url,
                 channel_number=int(channel_number),
-                cutless_mode=cutless_enabled
+                cutless_mode=cutless_enabled,
             )
             ptod.run()
         else:  # tunarr
             ptot = ToonamiTools.PlexToTunarr(
-                plex_url, plex_token, toonami_library, table,
-                platform_url, int(channel_number), flex_duration
+                plex_url,
+                plex_token,
+                toonami_library,
+                table,
+                platform_url,
+                int(channel_number),
+                flex_duration,
             )
             ptot.run()
-            
+
         self._broadcast_status_update("New Toonami channel created!")
         self.filter_complete_event.set()
 
@@ -773,11 +1040,11 @@ class LogicController():
         self.channel_number = int(channel_number)
         self.duration = duration
         flex_injector = ToonamiTools.FlexInjector.DizqueTVManager(
-                platform_url=self.platform_url,
-                channel_number=self.channel_number,
-                duration=self.duration,
-                network=self.network,
-            )
+            platform_url=self.platform_url,
+            channel_number=self.channel_number,
+            duration=self.duration,
+            network=self.network,
+        )
         flex_injector.main()
         self.filter_complete_event.set()
         self._broadcast_status_update("Flex content added!")

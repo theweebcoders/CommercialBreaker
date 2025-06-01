@@ -15,6 +15,8 @@ from .plexautosplitter import PlexAutoSplitter
 from .RenameSplitPlex import PlexLibraryUpdater
 from .PlexToDizqueTV import PlexToDizqueTVSimplified
 from .LoginToPlex import PlexServerList, PlexLibraryManager, PlexLibraryFetcher
+from .LoginToJellyfin import JellyfinServerList, JellyfinLibraryManager, JellyfinLibraryFetcher
 from .FlexInjector import DizqueTVManager
 from .PlexToTunarr import PlexToTunarr
+from .JellyfinToTunarr import JellyfinToTunarr
 from .CutlessFinalization import CutlessFinalizer
