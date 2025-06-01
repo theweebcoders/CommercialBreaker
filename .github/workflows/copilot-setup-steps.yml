@@ -77,4 +77,4 @@ jobs:
 
       - name: Run SaraAutomatic tests
         run: |
-          pytest tests/test_sara_automatic.py
+          pytest tests/test_sara_automatic.py --maxfail=1 --disable-warnings -v -s
