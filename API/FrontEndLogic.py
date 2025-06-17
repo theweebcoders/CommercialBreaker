@@ -763,14 +763,15 @@ class LogicController():
                 working_folder = self._get_data("working_folder")
                 anime_folder = self._get_data("anime_folder")
                 bump_folder = self._get_data("bump_folder")
-                merger_bumps_list_1 = 'multibumps_v2_data_reordered'
-                merger_bumps_list_2 = 'multibumps_v3_data_reordered'
-                merger_bumps_list_3 = 'multibumps_v9_data_reordered'
-                merger_bumps_list_4 = 'multibumps_v8_data_reordered'
-                merger_out_1 = 'lineup_v2_uncut'
-                merger_out_2 = 'lineup_v3_uncut'
-                merger_out_3 = 'lineup_v9_uncut'
-                merger_out_4 = 'lineup_v8_uncut'
+                
+                # Define all possible merger configurations
+                merger_configs = [
+                    {'input': 'multibumps_v2_data_reordered', 'output': 'lineup_v2_uncut'},
+                    {'input': 'multibumps_v3_data_reordered', 'output': 'lineup_v3_uncut'},
+                    {'input': 'multibumps_v8_data_reordered', 'output': 'lineup_v8_uncut'},
+                    {'input': 'multibumps_v9_data_reordered', 'output': 'lineup_v9_uncut'},
+                ]
+                
                 uncut_encoder_out = 'uncut_encoded_data'
                 fmaker = ToonamiTools.FolderMaker(working_folder)
                 easy_checker = ToonamiTools.ToonamiChecker(anime_folder)
@@ -779,6 +780,7 @@ class LogicController():
                 uncutencoder = ToonamiTools.UncutEncoder()
                 ml = ToonamiTools.Multilineup()
                 merger = ToonamiTools.ShowScheduler(uncut=True)
+                
                 fmaker.run()
                 unique_show_names, toonami_episodes = easy_checker.prepare_episode_data()
                 self._broadcast_status_update("Waiting for selection...")
@@ -789,12 +791,35 @@ class LogicController():
                 easy_encoder.encode_and_save()
                 ml.reorder_all_tables()
                 uncutencoder.run()
-                merger.run(merger_bumps_list_1, uncut_encoder_out, merger_out_1)
-                merger.run(merger_bumps_list_2, uncut_encoder_out, merger_out_2)
-                merger.run(merger_bumps_list_3, uncut_encoder_out, merger_out_3)
-                merger.run(merger_bumps_list_4, uncut_encoder_out, merger_out_4)
-                self._broadcast_status_update("Content preparation complete!")
                 
+                # Check which reordered tables actually exist and run merger only for those
+                self._broadcast_status_update("Creating lineups for available versions...")
+                versions_processed = 0
+                
+                for config in merger_configs:
+                    if self._check_table_exists(config['input']):
+                        self._broadcast_status_update(f"Processing {config['input']}...")
+                        merger.run(config['input'], uncut_encoder_out, config['output'])
+                        versions_processed += 1
+                    else:
+                        print(f"Skipping {config['input']} - table does not exist")
+                
+                if versions_processed == 0:
+                    self.error_manager.send_critical(
+                        source="FrontEndLogic",
+                        operation="prepare_content",
+                        message="No multibump reordered tables found",
+                        details="Could not find any reordered multibump tables to create lineups",
+                        suggestion="This indicates no multi-show bumps were found in your bump collection. Please add multi-show bumps and try again."
+                    )
+                    raise RuntimeError("No multibump tables available for lineup creation")
+                
+                self._broadcast_status_update(f"Content preparation complete!")
+                
+            except RuntimeError as e:
+                # Handle expected errors (like no multibumps)
+                self._broadcast_status_update(f"ERROR: {str(e)}")
+                print(f"Expected error in prepare_content: {e}")
             except Exception as e:
                 error_msg = f"ERROR: Content preparation failed: {str(e)}"
                 self._broadcast_status_update(error_msg)
@@ -877,39 +902,64 @@ class LogicController():
                 cutless_mode_used = self._get_data("cutless_mode_used")
                 cutless_enabled = cutless_mode_used == 'True'
                 self._broadcast_status_update("Preparing cut anime...")
-                merger_bumps_list_1 = 'multibumps_v2_data_reordered'
-                merger_bumps_list_2 = 'multibumps_v3_data_reordered'
-                merger_bumps_list_3 = 'multibumps_v9_data_reordered'
-                merger_bumps_list_4 = 'multibumps_v8_data_reordered'
-                merger_out_1 = 'lineup_v2'
-                merger_out_2 = 'lineup_v3'
-                merger_out_3 = 'lineup_v9'
-                merger_out_4 = 'lineup_v8'
+                
+                # Define all possible merger configurations
+                merger_configs = [
+                    {'input': 'multibumps_v2_data_reordered', 'output': 'lineup_v2'},
+                    {'input': 'multibumps_v3_data_reordered', 'output': 'lineup_v3'},
+                    {'input': 'multibumps_v8_data_reordered', 'output': 'lineup_v8'},
+                    {'input': 'multibumps_v9_data_reordered', 'output': 'lineup_v9'},
+                ]
+                
                 commercial_injector_out = 'commercial_injector_final'
                 cut_folder = working_folder + "/cut"
                 commercial_injector_prep = ToonamiTools.AnimeFileOrganizer(cut_folder)
                 commercial_injector = ToonamiTools.LineupLogic()
                 BIC = ToonamiTools.BlockIDCreator()
                 merger = ToonamiTools.ShowScheduler(apply_ns3_logic=True)
+                
                 if not cutless_enabled:
                     commercial_injector_prep.organize_files()
                 else:
                     self._broadcast_status_update("Cutless Mode: Skipping cut file preparation")
+                    
                 commercial_injector.generate_lineup()
                 BIC.run()
                 self._broadcast_status_update("Creating your lineup...")
-                merger.run(merger_bumps_list_1, commercial_injector_out, merger_out_1)
-                merger.run(merger_bumps_list_2, commercial_injector_out, merger_out_2)
-                merger.run(merger_bumps_list_3, commercial_injector_out, merger_out_3)
-                merger.run(merger_bumps_list_4, commercial_injector_out, merger_out_4)
+                
+                # Check which reordered tables actually exist and run merger only for those
+                versions_processed = 0
+                
+                for config in merger_configs:
+                    if self._check_table_exists(config['input']):
+                        self._broadcast_status_update(f"Processing {config['input']}...")
+                        merger.run(config['input'], commercial_injector_out, config['output'])
+                        versions_processed += 1
+                    else:
+                        print(f"Skipping {config['input']} - table does not exist")
+                
+                if versions_processed == 0:
+                    self.error_manager.send_critical(
+                        source="FrontEndLogic",
+                        operation="prepare_cut_anime",
+                        message="No multibump reordered tables found",
+                        details="Could not find any reordered multibump tables to create lineups",
+                        suggestion="This indicates no multi-show bumps were found in your bump collection. Please add multi-show bumps and try again."
+                    )
+                    raise RuntimeError("No multibump tables available for lineup creation")
+                
                 if cutless_enabled:
                     self._broadcast_status_update("Cutless Mode: Finalizing lineup tables...")
                     finalizer = ToonamiTools.CutlessFinalizer()
                     finalizer.run()
                     self._broadcast_status_update("Cutless lineup finalization complete!")
 
-                self._broadcast_status_update("Cut anime preparation complete!")
+                self._broadcast_status_update(f"Cut anime preparation complete!")
                 
+            except RuntimeError as e:
+                # Handle expected errors (like no multibumps)
+                self._broadcast_status_update(f"ERROR: {str(e)}")
+                print(f"Expected error in prepare_cut_anime: {e}")
             except Exception as e:
                 error_msg = f"ERROR: Cut anime preparation failed: {str(e)}"
                 self._broadcast_status_update(error_msg)
@@ -950,7 +1000,7 @@ class LogicController():
                 
         thread = threading.Thread(target=prepare_plex_thread)
         thread.start()
-
+                
     def create_toonami_channel(self, toonami_version, channel_number, flex_duration):
         """
         Create a Toonami channel using the stored platform settings
@@ -987,6 +1037,46 @@ class LogicController():
                 message="Required fields are missing or invalid",
                 details=f"Please fill in: {', '.join(missing_fields)}",
                 suggestion="Complete all required fields with valid values before creating the channel"
+            )
+            return False
+        
+        # Check if the required lineup table exists
+        toon_config = config.TOONAMI_CONFIG.get(toonami_version, {})
+        table = toon_config.get("table")
+        
+        if not table:
+            self.error_manager.send_error_level(
+                source="FrontEndLogic",
+                operation="create_toonami_channel",
+                message="Invalid Toonami version selected",
+                details=f"Version '{toonami_version}' is not configured",
+                suggestion="Select a valid Toonami version from the dropdown"
+            )
+            return False
+        
+        # Check if cutless mode is enabled and adjust table name
+        cutless_mode_used = self._get_data("cutless_mode_used")
+        cutless_enabled = cutless_mode_used == 'True'
+        if cutless_enabled:
+            table = f"{table}_cutless"
+        
+        # Check if the table exists
+        if not self._check_table_exists(table):
+            # Get available versions by checking which tables exist
+            available_versions = []
+            for version, config_data in config.TOONAMI_CONFIG.items():
+                check_table = config_data["table"]
+                if cutless_enabled:
+                    check_table = f"{check_table}_cutless"
+                if self._check_table_exists(check_table):
+                    available_versions.append(version)
+            
+            self.error_manager.send_error_level(
+                source="FrontEndLogic",
+                operation="create_toonami_channel",
+                message=f"Lineup table for version '{toonami_version}' not found",
+                details=f"The required table '{table}' does not exist. This version was not created during lineup preparation.",
+                suggestion=f"Available versions: {', '.join(available_versions) if available_versions else 'None'}. Either select an available version or re-run lineup preparation with bumps and Anime for version '{toonami_version}'."
             )
             return False
         
@@ -1111,9 +1201,47 @@ class LogicController():
             )
             return False
             
-        self._broadcast_status_update("Creating new Toonami channel...")
+        # Check if the required lineup table exists
         cont_config = config.TOONAMI_CONFIG_CONT.get(toonami_version, {})
-        table = cont_config["merger_out"]
+        table = cont_config.get("merger_out")
+        
+        if not table:
+            self.error_manager.send_error_level(
+                source="FrontEndLogic",
+                operation="create_toonami_channel_cont",
+                message="Invalid Toonami version selected",
+                details=f"Version '{toonami_version}' is not configured for continuation",
+                suggestion="Select a valid Toonami version from the dropdown"
+            )
+            return False
+        
+        # Check if cutless mode is enabled and adjust table name
+        cutless_mode_used = self._get_data("cutless_mode_used")
+        cutless_enabled = cutless_mode_used == 'True'
+        if cutless_enabled:
+            table = f"{table}_cutless"
+        
+        # Check if the table exists
+        if not self._check_table_exists(table):
+            # Get available versions by checking which continuation tables exist
+            available_versions = []
+            for version, config_data in config.TOONAMI_CONFIG_CONT.items():
+                check_table = config_data["merger_out"]
+                if cutless_enabled:
+                    check_table = f"{check_table}_cutless"
+                if self._check_table_exists(check_table):
+                    available_versions.append(version)
+
+            self.error_manager.send_error_level(
+                source="FrontEndLogic",
+                operation="create_toonami_channel_cont",
+                message=f"Continuation lineup table for version '{toonami_version}' not found",
+                details=f"The required table '{table}' does not exist. This continuation version was not created.",
+                suggestion=f"Available continuation versions: {', '.join(available_versions) if available_versions else 'None'}. Either select an available version or run 'Prepare Toonami Channel' for version '{toonami_version}' first."
+            )
+            return False
+            
+        self._broadcast_status_update("Creating new Toonami channel...")
         plex_url = self._get_data("plex_url")
         plex_token = self._get_data("plex_token")
         anime_library = self._get_data("selected_anime_library")

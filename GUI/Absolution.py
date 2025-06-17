@@ -1943,14 +1943,14 @@ class Page3(BasePage):
     
     def _run_prepare_content_processing(self):
         """Runs the content preparation processing in a separate thread"""
-        merger_bumps_list_1 = 'multibumps_v2_data_reordered'
-        merger_bumps_list_2 = 'multibumps_v3_data_reordered'
-        merger_bumps_list_3 = 'multibumps_v9_data_reordered'
-        merger_bumps_list_4 = 'multibumps_v8_data_reordered'
-        merger_out_1 = 'lineup_v2_uncut'
-        merger_out_2 = 'lineup_v3_uncut'
-        merger_out_3 = 'lineup_v9_uncut'
-        merger_out_4 = 'lineup_v8_uncut'
+        # Define all possible merger configurations
+        merger_configs = [
+            {'input': 'multibumps_v2_data_reordered', 'output': 'lineup_v2_uncut'},
+            {'input': 'multibumps_v3_data_reordered', 'output': 'lineup_v3_uncut'},
+            {'input': 'multibumps_v8_data_reordered', 'output': 'lineup_v8_uncut'},
+            {'input': 'multibumps_v9_data_reordered', 'output': 'lineup_v9_uncut'},
+        ]
+        
         uncut_encoder_out = 'uncut_encoded_data'
         bump_folder = self.logic._get_data("bump_folder")
         lineup_prep = ToonamiTools.MediaProcessor(bump_folder)
@@ -1958,17 +1958,31 @@ class Page3(BasePage):
         uncutencoder = ToonamiTools.UncutEncoder()
         ml = ToonamiTools.Multilineup()
         merger = ToonamiTools.ShowScheduler(uncut=True)
+        
         lineup_prep.run()
         easy_encoder.encode_and_save()
         ml.reorder_all_tables()
         uncutencoder.run()
-        merger.run(merger_bumps_list_1, uncut_encoder_out, merger_out_1)
-        merger.run(merger_bumps_list_2, uncut_encoder_out, merger_out_2)
-        merger.run(merger_bumps_list_3, uncut_encoder_out, merger_out_3)
-        merger.run(merger_bumps_list_4, uncut_encoder_out, merger_out_4)
         
-        # Update status when complete
-        self.logic._broadcast_status_update("Content preparation complete")
+        # Check which reordered tables actually exist and run merger only for those
+        self.logic._broadcast_status_update("Creating lineups for available versions...")
+        versions_processed = 0
+        
+        for config in merger_configs:
+            if self.logic._check_table_exists(config['input']):
+                self.logic._broadcast_status_update(f"Processing {config['input']}...")
+                merger.run(config['input'], uncut_encoder_out, config['output'])
+                versions_processed += 1
+            else:
+                print(f"Skipping {config['input']} - table does not exist")
+        
+        if versions_processed == 0:
+            error_msg = "ERROR: No multibump reordered tables found. Please add multi-show bumps and try again."
+            self.logic._broadcast_status_update(error_msg)
+            print("No multibump tables available for lineup creation")
+        else:
+            # Update status when complete with version count
+            self.logic._broadcast_status_update(f"Content preparation complete! Created {versions_processed} lineup versions.")
 
     def display_show_selection(self, unique_show_names, easy_checker, toonami_episodes):
         # Sort the list alphabetically (case-insensitive)
