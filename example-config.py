@@ -100,7 +100,7 @@ keywords = [
 ]
 
 colors = [
-    "Blue", "Red", "Green", "Orange"
+    "Blue", "Red", "Green", "Orange", "blue", "red", "green", "orange"
 ]
 
 show_name_mapping = {

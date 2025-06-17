@@ -163,6 +163,97 @@ class MediaProcessor:
         cleaned_show = show_name_mapper.clean(show_name, mode='matching')
         return cleaned_show
 
+    def _deduplicate_missing_shows(self, missing_shows_set: set) -> set:
+        if not missing_shows_set:
+            return missing_shows_set
+
+        base_to_variants: dict[str, set[str]] = {}
+
+        for show_name_original_case in missing_shows_set:
+            # Process with lowercase for consistent key generation
+            show_lower = show_name_original_case.lower()
+            
+            # --- Key Generation (base_key) ---
+            # 1. Strip colors
+            current_processing_name = show_lower
+            if self.colors:
+                # Ensure colors are processed as whole words at the end, surrounded by optional spaces
+                color_pattern = r'\s*\b(?:' + '|'.join(re.escape(c) for c in self.colors) + r')\b\s*$'
+                current_processing_name = re.sub(color_pattern, '', current_processing_name, flags=re.I).strip()
+
+            # 2. Strip trailing number (more robustly)
+            #    Loop to remove multiple trailing numbers if separated by spaces, e.g., "Show 01 02"
+            temp_name_for_num_strip = current_processing_name
+            while True:
+                parts = temp_name_for_num_strip.split(' ')
+                if len(parts) > 1 and parts[-1].isdigit():
+                    stripped_once = " ".join(parts[:-1]).strip()
+                    if stripped_once == temp_name_for_num_strip : # No change, break
+                        break
+                    temp_name_for_num_strip = stripped_once
+                else:
+                    break # Last part is not a number or only one part left
+            current_processing_name = temp_name_for_num_strip
+            
+            base_key = current_processing_name
+            # --- End of Key Generation ---
+
+            # Fallback for very short names (mimicking original logic's intent)
+            if len(base_key) < 3 and base_key != show_lower : # if cleaning made it too short AND it actually changed
+                base_key = show_lower # Revert to the original (lowercase) name if cleaning was too destructive
+
+            if base_key not in base_to_variants:
+                base_to_variants[base_key] = set()
+            # Store the original casing version
+            base_to_variants[base_key].add(show_name_original_case)
+
+        # Build the final deduplicated set
+        deduplicated_result = set()
+        for base_name_key, variants_in_original_case in base_to_variants.items():
+            if len(variants_in_original_case) == 1:
+                # Only one original variant mapped to this base key, so add it.
+                deduplicated_result.update(variants_in_original_case)
+            else:
+                # Multiple original variants mapped to this base_name_key.
+                # Re-clean each variant consistently to find their "ultimate common base".
+                ultimate_common_bases_for_this_bucket = set()
+                for variant_original_case_item in variants_in_original_case:
+                    variant_lower_item = variant_original_case_item.lower()
+                    
+                    # Consistent secondary cleaning:
+                    # 1. Strip colors
+                    cleaned_secondary = variant_lower_item
+                    if self.colors:
+                        color_pattern = r'\s*\b(?:' + '|'.join(re.escape(c) for c in self.colors) + r')\b\s*$'
+                        cleaned_secondary = re.sub(color_pattern, '', cleaned_secondary, flags=re.I).strip()
+                    
+                    # 2. Strip trailing numbers (iteratively)
+                    temp_secondary_num_strip = cleaned_secondary
+                    while True:
+                        parts_secondary = temp_secondary_num_strip.split(' ')
+                        if len(parts_secondary) > 1 and parts_secondary[-1].isdigit():
+                            stripped_secondary_once = " ".join(parts_secondary[:-1]).strip()
+                            if stripped_secondary_once == temp_secondary_num_strip:
+                                break
+                            temp_secondary_num_strip = stripped_secondary_once
+                        else:
+                            break
+                    cleaned_secondary = temp_secondary_num_strip
+
+                    # Add the non-empty cleaned name, or the original (lowercase) if cleaning resulted in empty.
+                    ultimate_common_bases_for_this_bucket.add(cleaned_secondary if cleaned_secondary else variant_lower_item)
+
+                if len(ultimate_common_bases_for_this_bucket) == 1:
+                    # All original variants in this bucket clean to the *same single ultimate base*.
+                    # They are true duplicates. Pick the shortest original string among them.
+                    shortest_original_variant = min(variants_in_original_case, key=len)
+                    deduplicated_result.add(shortest_original_variant)
+                else:
+                    deduplicated_result.update(variants_in_original_case)
+        
+        return deduplicated_result
+
+    
     def _analyze_all_multibumps(self, media_files, shows):
         """Analyze ALL multi-bumps to determine show coverage."""
         analysis = {
@@ -242,7 +333,12 @@ class MediaProcessor:
         
         # Clean up incomplete shows that also have complete bumps
         analysis['shows_with_incomplete_multibumps'] -= analysis['shows_with_complete_multibumps']
-        
+
+        # Deduplicate missing shows before returning
+        analysis['shows_referenced_not_in_library'] = self._deduplicate_missing_shows(
+            analysis['shows_referenced_not_in_library']
+        )
+
         return analysis
 
     def _process_data_patterns(self, media_files, shows):
