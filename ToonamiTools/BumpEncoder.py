@@ -22,7 +22,7 @@ class ToonamiEncoder:
 
     def get_abbr(self, name, kind, index):
         """
-        Generates an abbreviation from the first few letters of the name (one or two words). If that avvreviation already exists appends a number to differentiate. Returns a string with 'kind', 'index', and abbreviation.
+        Generates an abbreviation from the first few letters of the name (one or two words). If that abbreviation already exists appends a number to differentiate. Returns a string with 'kind', 'index', and abbreviation.
         This enables the creation of unique codes for each bump.
 
         """
