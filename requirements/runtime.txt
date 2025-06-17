@@ -17,3 +17,4 @@ remi>=2022.7.27
 opencv-python-headless>=4.5.5.64
 ffmpeg-python>=0.2.0
 plexauth>=0.0.6
+colorama>=0.4.6
