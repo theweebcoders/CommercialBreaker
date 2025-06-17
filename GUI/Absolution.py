@@ -460,7 +460,7 @@ class BasePage(gui.Container):
     def __init__(self, app, title_key, *args, **kwargs):
         super(BasePage, self).__init__(*args, **kwargs)
         self.app = app
-        self.title_key = title_key  # Store the title key for later reference
+        self.title_key = title_key
         self.set_size('100%', '100%')
         self.style.update(Styles.default_container_style)
         
@@ -473,6 +473,9 @@ class BasePage(gui.Container):
         self.append(self.main_container)
         self.add_page_title(self.main_container, self.app.page_titles.get(title_key, ''))
         
+        # Create error bar but don't append it yet
+        self.error_bar = self.create_error_bar()
+        
         # Add status bar at the bottom
         self.status_bar = self.create_status_bar()
         self.append(self.status_bar)
@@ -482,6 +485,63 @@ class BasePage(gui.Container):
         
         # Track progress value
         self.global_progress_value = 0
+        
+        # --- Error message subscription ---
+        # Create a LogicController instance if we don't have one
+        from API import LogicController
+        if not hasattr(self.app, 'logic') or self.app.logic is None:
+            self.app.logic = LogicController()
+        
+        # Clear any existing error state when creating a new page
+        self.error_label.set_text("")
+        self.error_bar_visible = False
+        self.error_bar.style['display'] = 'none'
+            
+        def error_callback(error_data):
+            # If this is a clear signal, dismiss the error bar and clear the message
+            if isinstance(error_data, dict) and error_data.get('action') == 'clear':
+                self.error_label.set_text("")  # Clear the message text
+                self.dismiss_error_bar(None)
+            else:
+                # Format error message for display
+                if isinstance(error_data, dict):
+                    msg = error_data.get('message', str(error_data))
+                    level = error_data.get('level', 'ERROR')
+                    src = error_data.get('source', '')
+                    op = error_data.get('operation', '')
+                    details = error_data.get('details', None)
+                    suggestion = error_data.get('suggestion', None)
+                    parts = [f"[{level}] {src}: {msg}"]
+                    if op:
+                        parts[0] += f" ({op})"
+                    if details:
+                        parts.append(f"Details: {details}")
+                    if suggestion:
+                        parts.append(f"Suggestion: {suggestion}")
+                    display_msg = "\n".join(parts)
+                else:
+                    display_msg = str(error_data)
+                    level = 'DEFAULT'
+                
+                # Apply the appropriate style based on error level
+                level_upper = level.upper() if isinstance(level, str) else 'DEFAULT'
+                style = self.error_styles.get(level_upper, self.error_styles['DEFAULT'])
+                
+                # Apply the style to the error bar
+                for prop, value in style.items():
+                    if prop == 'color' or prop == 'text-shadow':
+                        # Text styles go on the label
+                        self.error_label.style[prop] = value
+                    else:
+                        # Container styles go on the error bar
+                        self.error_bar.style[prop] = value
+                
+                # Set the message text and show the error bar
+                self.error_label.set_text(display_msg)
+                self.show_error_bar()
+                self.app.refresh()
+                
+        self.app.logic.subscribe_to_error_messages(error_callback)
 
     def refresh_nav_bar(self):
         # Store reference to main container before removing
@@ -551,29 +611,24 @@ class BasePage(gui.Container):
         
         return status_bar
     
-    def update_status_display(self, status_text, show_progress=False, progress_value=None):
-        """Update the status display with appropriate styling based on content"""
+    def update_status_display(self, status_text, show_progress=False, progress_value=None, is_error=False):
+        """Update the status display with the given text and optional progress"""
         if not hasattr(self, 'status_label'):
             return
             
-        # Add "Status: " prefix if not present
-        if not status_text.startswith("Status: "):
-            status_text = f"Status: {status_text}"
-            
+        # Update the status text
         self.status_label.set_text(status_text)
         
-        # Apply appropriate styling based on status content
-        if "error" in status_text.lower() or "failed" in status_text.lower():
-            self.status_label.style.update(Styles.status_label_style)
+        # Apply appropriate styling based on whether this is an error
+        if is_error:
             self.status_label.style.update(Styles.status_error_style)
-        elif status_text.lower() == "status: idle":
-            self.status_label.style.update(Styles.status_label_style)
-            self.status_label.style.update(Styles.status_idle_style)
-            # Hide progress bar when idle
-            show_progress = False
         else:
+            # Reset to default status style
             self.status_label.style.update(Styles.status_label_style)
-            self.status_label.style.update(Styles.status_active_style)
+            if status_text == "Idle":
+                self.status_label.style.update(Styles.status_idle_style)
+            elif status_text != "Idle":
+                self.status_label.style.update(Styles.status_active_style)
         
         # Update progress indicator if needed
         if hasattr(self, 'status_progress_container'):
@@ -722,6 +777,514 @@ class BasePage(gui.Container):
         # keep a reference to the wrapper so callers can show/hide it
         checkbox.wrapper = hbox
         return checkbox
+
+    def create_error_bar(self):
+        """Create a stylized error bar to be added/removed from the main container"""
+        # Base style common to all error levels
+        base_style = {
+            'width': '90%',
+            'padding': '10px 20px',
+            'border-radius': '5px',
+            'margin': '10px auto',
+            'display': 'none',
+            'z-index': '1001',
+            'transition': 'all 0.3s ease',
+            'border-left': '4px solid',
+            'border-right': '1px solid',
+            'border-top': '1px solid',
+            'border-bottom': '1px solid',
+            'box-shadow': '0 2px 10px rgba(0,0,0,0.1)'
+        }
+        
+        # Create the container with base style
+        error_bar = gui.Container(style=base_style)
+        
+        # Create header container with buttons
+        header_container = gui.HBox(style={
+            'justify-content': 'space-between',
+            'align-items': 'center',
+            'margin-bottom': '5px',
+            'background': 'transparent'
+        })
+        
+        # Error messages label
+        error_header = gui.Label("Error Messages:", style={
+            'font-size': '14px',
+            'font-weight': 'bold',
+            'color': 'inherit',
+            'margin': '0'
+        })
+        
+        # Button container
+        button_container = gui.HBox(style={
+            'align-items': 'center',
+            'background': 'transparent',
+            'gap': '5px'
+        })
+        
+        # History button
+        self.history_button = gui.Button("📋", style={
+            'width': '25px',
+            'height': '25px',
+            'font-size': '14px',
+            'font-weight': 'bold',
+            'padding': '0',
+            'margin': '0',
+            'border': '1px solid rgba(255,255,255,0.3)',
+            'border-radius': '3px',
+            'background': 'rgba(0,0,0,0.2)',
+            'color': 'inherit',
+            'cursor': 'pointer',
+            'title': 'View Error History'
+        })
+        self.history_button.onclick.do(self.show_error_history)
+        
+        # Dismiss button
+        self.dismiss_button = gui.Button("✕", style={
+            'width': '25px',
+            'height': '25px',
+            'font-size': '16px',
+            'font-weight': 'bold',
+            'padding': '0',
+            'margin': '0',
+            'border': '1px solid rgba(255,255,255,0.3)',
+            'border-radius': '3px',
+            'background': 'rgba(0,0,0,0.2)',
+            'color': 'inherit',
+            'cursor': 'pointer'
+        })
+        self.dismiss_button.onclick.do(self.dismiss_error_bar)
+        
+        button_container.append(self.history_button)
+        button_container.append(self.dismiss_button)
+        
+        header_container.append(error_header)
+        header_container.append(button_container)
+        
+        # Create the label with base text style
+        self.error_label = gui.Label("", style={
+            'font-size': '16px',
+            'font-weight': 'bold',
+            'text-align': 'left',
+            'white-space': 'pre-wrap',
+            'margin': '0',
+            'padding': '0'
+        })
+        
+        # Add header and label to error bar
+        error_bar.append(header_container)
+        error_bar.append(self.error_label)
+        
+        # Store the error bar element for later style updates
+        self.error_bar = error_bar
+        self.error_bar_visible = False
+        
+        # Define styles for different error levels
+        self.error_styles = {
+            'CRITICAL': {
+                'background-color': 'rgba(120, 20, 20, 0.95)',
+                'border-color': '#ff0000',
+                'box-shadow': '0 0 15px rgba(255, 0, 0, 0.4)',
+                'color': '#ffffff',
+                'text-shadow': '0 0 8px #ff0000'
+            },
+            'ERROR': {
+                'background-color': 'rgba(60, 20, 20, 0.9)',
+                'border-color': '#ff6b6b',
+                'box-shadow': '0 0 15px rgba(255, 107, 107, 0.3)',
+                'color': '#ff9e9e',
+                'text-shadow': '0 0 5px #ff0000'
+            },
+            'WARNING': {
+                'background-color': 'rgba(100, 80, 0, 0.9)',
+                'border-color': '#ffcc00',
+                'box-shadow': '0 0 15px rgba(255, 204, 0, 0.3)',
+                'color': '#fff2a8',
+                'text-shadow': '0 0 5px #ffcc00'
+            },
+            'INFO': {
+                'background-color': 'rgba(0, 60, 100, 0.9)',
+                'border-color': '#00aaff',
+                'box-shadow': '0 0 15px rgba(0, 170, 255, 0.3)',
+                'color': '#a5e2ff',
+                'text-shadow': '0 0 5px #00aaff'
+            },
+            'DEFAULT': {
+                'background-color': 'rgba(60, 60, 60, 0.9)',
+                'border-color': '#cccccc',
+                'box-shadow': '0 0 15px rgba(200, 200, 200, 0.3)',
+                'color': '#ffffff',
+                'text-shadow': '0 0 5px #ffffff'
+            }
+        }
+        
+        error_bar.append(self.error_label)
+        return error_bar
+    
+    def dismiss_error_bar(self, widget):
+        """Hide the error display and clear the message"""
+        if hasattr(self, 'error_bar') and self.error_bar_visible:
+            self.error_bar.style['display'] = 'none'
+            self.error_bar_visible = False
+            # Clear the error message so it doesn't reappear on page navigation
+            self.error_label.set_text("")
+            # Clear the error state in the LogicController
+            if hasattr(self.app, 'logic') and self.app.logic is not None:
+                self.app.logic.clear_error_messages()
+    
+    def show_error_bar(self):
+        """Show the error display"""
+        if hasattr(self, 'error_bar') and not self.error_bar_visible:
+            self.error_bar.style['display'] = 'block'
+            if not self.error_bar in self.main_container.children.values():
+                # Insert error bar after the title but before other content
+                self.main_container.append(self.error_bar)
+            self.error_bar_visible = True
+
+    def show_error_history(self, widget):
+        """Show the error history modal"""
+        try:
+            # Get error history from LogicController
+            if not hasattr(self.app, 'logic') or self.app.logic is None:
+                self._show_error_dialog("No error history available", "Error history could not be retrieved.")
+                return
+            
+            error_history = self.app.logic.get_error_history()
+            error_summary = self.app.logic.get_error_summary()
+            
+            if not error_history:
+                self._show_error_dialog("No Error History", "No errors have been recorded yet.")
+                return
+            
+            # Create modal dialog
+            self._create_error_history_modal(error_history, error_summary)
+            
+        except Exception as e:
+            self._show_error_dialog("Error", f"Failed to load error history: {str(e)}")
+    
+    def _create_error_history_modal(self, error_history, error_summary):
+        """Create and display the error history modal dialog"""
+        # Create modal overlay
+        modal_overlay = gui.Container(style={
+            'position': 'fixed',
+            'top': '0',
+            'left': '0',
+            'width': '100%',
+            'height': '100%',
+            'background-color': 'rgba(0, 0, 0, 0.7)',
+            'z-index': '9999',
+            'display': 'flex',
+            'justify-content': 'center',
+            'align-items': 'center'
+        })
+        
+        # Create modal dialog
+        modal_dialog = gui.Container(style={
+            'width': '80%',
+            'max-width': '900px',
+            'height': '80%',
+            'max-height': '700px',
+            'background-color': 'rgba(0, 20, 40, 0.95)',
+            'border': '2px solid rgba(0, 140, 255, 0.6)',
+            'border-radius': '10px',
+            'padding': '20px',
+            'overflow': 'hidden',
+            'display': 'flex',
+            'flex-direction': 'column',
+            'box-shadow': '0 0 20px rgba(0, 140, 255, 0.3)'
+        })
+        
+        # Header
+        header_container = gui.HBox(style={
+            'justify-content': 'space-between',
+            'align-items': 'center',
+            'margin-bottom': '15px',
+            'background': 'transparent'
+        })
+        
+        title_label = gui.Label("Error History", style={
+            'font-size': '24px',
+            'font-weight': 'bold',
+            'color': '#00ccff',
+            'text-shadow': '0 0 5px rgba(0, 204, 255, 0.7)',
+            'margin': '0'
+        })
+        
+        close_button = gui.Button("✕", style={
+            'width': '30px',
+            'height': '30px',
+            'font-size': '18px',
+            'font-weight': 'bold',
+            'padding': '0',
+            'margin': '0',
+            'border': '1px solid rgba(255,255,255,0.3)',
+            'border-radius': '5px',
+            'background': 'rgba(0,0,0,0.2)',
+            'color': '#ffffff',
+            'cursor': 'pointer'
+        })
+        close_button.onclick.do(lambda w: self._close_error_history_modal(modal_overlay))
+        
+        header_container.append(title_label)
+        header_container.append(close_button)
+        
+        # Summary section
+        summary_container = gui.Container(style={
+            'background-color': 'rgba(0, 40, 80, 0.5)',
+            'border': '1px solid rgba(0, 140, 255, 0.3)',
+            'border-radius': '5px',
+            'padding': '10px',
+            'margin-bottom': '15px'
+        })
+        
+        summary_text = []
+        if error_summary:
+            summary_text.append("Summary:")
+            for level, count in error_summary.items():
+                if count > 0:
+                    summary_text.append(f"  {level}: {count}")
+        else:
+            summary_text.append("No error summary available")
+            
+        summary_label = gui.Label("\n".join(summary_text), style={
+            'font-size': '14px',
+            'color': '#a5f3fc',
+            'white-space': 'pre',
+            'margin': '0'
+        })
+        summary_container.append(summary_label)
+        
+        # Filter controls
+        filter_container = gui.HBox(style={
+            'margin-bottom': '15px',
+            'align-items': 'center',
+            'background': 'transparent',
+            'gap': '10px'
+        })
+        
+        filter_label = gui.Label("Filter by level:", style={
+            'font-size': '14px',
+            'color': '#a5f3fc',
+            'margin': '0'
+        })
+        
+        self.level_filter = gui.DropDown(style={
+            'width': '120px',
+            'background-color': 'rgba(0, 40, 80, 0.8)',
+            'color': '#a5f3fc',
+            'border': '1px solid rgba(0, 140, 255, 0.3)',
+            'border-radius': '3px'
+        })
+        self.level_filter.append('ALL', 'All Levels')
+        self.level_filter.append('CRITICAL', 'Critical')
+        self.level_filter.append('ERROR', 'Error')
+        self.level_filter.append('WARNING', 'Warning')
+        self.level_filter.append('INFO', 'Info')
+        
+        # Try to select 'ALL' by default, but don't fail if it's not available yet
+        try:
+            self.level_filter.select_by_key('ALL')
+        except (KeyError, AttributeError):
+            pass  # Will default to first item
+            
+        self.level_filter.onchange.do(lambda w, k: self._filter_error_history(error_history))
+        
+        filter_container.append(filter_label)
+        filter_container.append(self.level_filter)
+        
+        # Error list container (scrollable)
+        self.error_list_container = gui.Container(style={
+            'flex': '1',
+            'overflow-y': 'auto',
+            'border': '1px solid rgba(0, 140, 255, 0.3)',
+            'border-radius': '5px',
+            'padding': '10px',
+            'background-color': 'rgba(0, 10, 20, 0.5)'
+        })
+        
+        # Store error history for filtering
+        self.current_error_history = error_history
+        self._populate_error_list(error_history)
+        
+        # Assemble modal
+        modal_dialog.append(header_container)
+        modal_dialog.append(summary_container)
+        modal_dialog.append(filter_container)
+        modal_dialog.append(self.error_list_container)
+        
+        modal_overlay.append(modal_dialog)
+        
+        # Add to page
+        self.append(modal_overlay)
+        self.error_history_modal = modal_overlay
+    
+    def _populate_error_list(self, error_history):
+        """Populate the error list with error entries"""
+        # Clear existing content
+        self.error_list_container.empty()
+        
+        if not error_history:
+            no_errors_label = gui.Label("No errors found for the selected filter.", style={
+                'font-size': '14px',
+                'color': '#a5f3fc',
+                'text-align': 'center',
+                'margin': '20px'
+            })
+            self.error_list_container.append(no_errors_label)
+            return
+        
+        for i, error in enumerate(error_history):
+            error_item = self._create_error_item(error, i)
+            self.error_list_container.append(error_item)
+    
+    def _create_error_item(self, error, index):
+        """Create a single error item widget"""
+        # Get error details
+        level = error.get('level', 'ERROR')
+        source = error.get('source', 'Unknown')
+        operation = error.get('operation', 'Unknown')
+        message = error.get('message', 'No message')
+        timestamp = error.get('timestamp', 'Unknown time')
+        details = error.get('details', '')
+        suggestion = error.get('suggestion', '')
+        
+        # Format timestamp
+        try:
+            from datetime import datetime
+            dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            formatted_time = dt.strftime('%Y-%m-%d %H:%M:%S')
+        except:
+            formatted_time = timestamp
+        
+        # Choose color based on level
+        level_colors = {
+            'CRITICAL': '#ff4444',
+            'ERROR': '#ff6b6b',
+            'WARNING': '#ffcc00',
+            'INFO': '#00aaff',
+            'DEFAULT': '#cccccc'
+        }
+        level_color = level_colors.get(level, level_colors['DEFAULT'])
+        
+        # Create error item container
+        r, g, b = int(level_color[1:3], 16), int(level_color[3:5], 16), int(level_color[5:7], 16)
+        error_container = gui.Container(style={
+            'border': f'1px solid {level_color}',
+            'border-radius': '5px',
+            'margin': '5px 0',
+            'padding': '10px',
+            'background-color': f'rgba({r}, {g}, {b}, 0.1)'
+        })
+        
+        # Header line with level, source, and timestamp
+        header_text = f"[{level}] {source} - {formatted_time}"
+        header_label = gui.Label(header_text, style={
+            'font-size': '12px',
+            'font-weight': 'bold',
+            'color': level_color,
+            'margin': '0 0 5px 0'
+        })
+        
+        # Operation line
+        if operation:
+            operation_label = gui.Label(f"Operation: {operation}", style={
+                'font-size': '11px',
+                'color': '#a5f3fc',
+                'margin': '0 0 5px 0',
+                'font-style': 'italic'
+            })
+            error_container.append(operation_label)
+        
+        # Main message
+        message_label = gui.Label(message, style={
+            'font-size': '13px',
+            'color': '#ffffff',
+            'margin': '0 0 5px 0',
+            'white-space': 'pre-wrap'
+        })
+        
+        error_container.append(header_label)
+        error_container.append(message_label)
+        
+        # Details if available
+        if details:
+            details_label = gui.Label(f"Details: {details}", style={
+                'font-size': '11px',
+                'color': '#cccccc',
+                'margin': '5px 0',
+                'white-space': 'pre-wrap',
+                'font-style': 'italic'
+            })
+            error_container.append(details_label)
+        
+        # Suggestion if available
+        if suggestion:
+            suggestion_label = gui.Label(f"Suggestion: {suggestion}", style={
+                'font-size': '11px',
+                'color': '#00ff88',
+                'margin': '5px 0',
+                'white-space': 'pre-wrap',
+                'font-weight': 'bold'
+            })
+            error_container.append(suggestion_label)
+        
+        return error_container
+    
+    def _filter_error_history(self, full_history):
+        """Filter error history based on selected level"""
+        selected_level = self.level_filter.get_value()
+        
+        if selected_level == 'ALL':
+            filtered_history = full_history
+        else:
+            filtered_history = [error for error in full_history if error.get('level') == selected_level]
+        
+        self._populate_error_list(filtered_history)
+    
+    def _close_error_history_modal(self, modal_overlay):
+        """Close the error history modal"""
+        if hasattr(self, 'error_history_modal') and self.error_history_modal:
+            try:
+                self.remove_child(self.error_history_modal)
+                self.error_history_modal = None
+            except:
+                pass
+    
+    def _show_error_dialog(self, title, message):
+        """Show a simple error dialog"""
+        dialog = gui.GenericDialog(title, message)
+        
+        # Optionally, you can add custom styles to the dialog
+        dialog.style.update({
+            'background-color': 'rgba(0, 20, 40, 0.9)',
+            'border': '1px solid rgba(0, 140, 255, 0.6)',
+            'border-radius': '8px',
+            'padding': '15px',
+            'color': '#ffffff',
+            'font-family': 'Arial, sans-serif',
+            'font-size': '14px',
+            'text-shadow': '0 0 5px rgba(0, 204, 255, 0.7)'
+        })
+        
+        # Style the buttons (access them through children.values())
+        for child in dialog.children.values():
+            if hasattr(child, 'style'):
+                child.style.update({
+                    'font-family': 'Rajdhani, sans-serif',
+                    'font-size': '14px',
+                    'font-weight': '500',
+                    'color': '#a5f3fc',
+                    'background': 'rgba(0, 140, 255, 0.4)',
+                    'border': '1px solid rgba(0, 255, 255, 0.6)',
+                    'border-radius': '4px',
+                    'padding': '8px 16px',
+                    'margin': '5px',
+                    'cursor': 'pointer',
+                    'transition': 'all 0.3s ease'
+                })
+        
+        dialog.show(self)
+        return dialog
 
 class NavigationBar(gui.Container):
     def __init__(self, app, current_page, *args, **kwargs):
@@ -2174,7 +2737,6 @@ class Page5(BasePage):
         self.continue_button = self.add_button_with_style(self.main_container, "Continue", self.on_continue_button_click, 'secondary')
         # Now that all widgets are created, check platform type
         self.check_platform_type()
-    # ...existing code...
 
     def check_platform_type(self):
         """Check the platform type and update button display accordingly"""
@@ -2237,6 +2799,7 @@ class Page5(BasePage):
     def handle_message(self, channel, data):
         """Handle messages from the message broker"""
         if channel == 'cutless_state':
+            # Handle cutless mode state changes
             try:
                 is_enabled = data if isinstance(data, bool) else str(data).lower() == 'true'
                 print(f"Cutless state changed: {is_enabled}")
@@ -2367,7 +2930,22 @@ class MainApp(App):
             'Page6': 'Page5'
         }
         
+        # Initialize the LogicController
+        from API import LogicController
+        self.logic = LogicController()
+        
         super(MainApp, self).__init__(*args, **kwargs)
+
+    def refresh(self):
+        """Force UI refresh using JavaScript reflow"""
+        self.execute_javascript("""
+            setTimeout(function() {
+                // Force browser reflow to update UI immediately
+                document.body.style.display='none';
+                document.body.offsetHeight; // Trigger reflow
+                document.body.style.display='';
+            }, 10);
+        """)
 
     def main(self):
         container = gui.Container(width='100%', height='100%')

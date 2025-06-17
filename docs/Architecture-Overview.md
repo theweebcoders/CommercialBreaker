@@ -23,8 +23,8 @@ CommercialBreaker & Toonami Tools is a modular Python application designed to au
 ├─────────────────────────────────────────────────────────────┤
 │Interface Selection: --tom | --webui | --clydes | --combreak │
 └─────────────────────────────────────────────────────────────┘
-                               │
-                               ▼
+                           │
+                           ▼
 ┌─────────────────┬─────────────────┬─────────────────┐
 │   GUI Layer     │   Web Layer     │   CLI Layer     │
 │                 │                 │                 │
@@ -35,40 +35,64 @@ CommercialBreaker & Toonami Tools is a modular Python application designed to au
 └─────────┬───────┴─────────┬───────┴─────────┬───────┘
           │                 │                 │
           └─────────────────┼─────────────────┘
-                            ▼
-┌─────────────────────────────────────────────────────────────┐           ┌────────────────────────────────────────────────────────────┐
-│               FrontEndLogic.py (Orchestrator API)           │           │              Supporting API Modules                        │
-├─────────────────────────────────────────────────────────────┤===========├──────────────────────────┬─────────────────────────────────┤
-│ • LogicController class - Central API for all UIs           │           │   FlagManager.py         │  messagebroker.py               │
-│ • State management via SQLite database                      │           │ • Platform compatibility │ • Real-time communication       │
-│ • Threading for background operations                       │           │ • Global Flags           │ • In-memory pub/sub             │
-└─────────────────────────────────────────────────────────────┘           └──────────────────────────┴─────────────────────────────────┘
-                               │
-                               ▼
-
-┌─────────────────────────────────────────────────────────────┐
-│                   Core Processing Layer                     │
-├─────────────────┬─────────────────┬─────────────────────────┤
-│   ComBreak/     │ ToonamiTools/   │     ExtraTools/         │
-│                 │                 │                         │
-│ • Commercial    │ • Show Detection│ • Manual Tools          │
-│   Detection     │ • Lineup        │ • Utilities             │
-│ • File Cutting  │   Generation    │ • Debugging             │
-│ • Cutless Mode  │ • Bump Encoding │                         │
-└─────────────────┴─────────────────┴─────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    Data & Integration Layer                 │
-├─────────────────┬─────────────────┬─────────────────────────┤
-│   Database      │   Plex API      │   Platform APIs         │
-│   (SQLite)      │                 │                         │
-│                 │ • Authentication│ • DizqueTV REST         │
-│ • Show Metadata │ • Library Scan  │ • Tunarr Integration    │
-│ • Bump Catalog  │ • Timestamps    │                         │
-│ • Lineup State  │ • File Paths    │                         │
-└─────────────────┴─────────────────┴─────────────────────────┘
-```
+                            ▼ 
+┌─────────────────────────────────────────────────────────────┐          
+│               FrontEndLogic.py (Orchestrator API)           │
+├─────────────────────────────────────────────────────────────┤
+│ • LogicController class - Central API for all UIs           │           
+│ • State management via SQLite database via DataManager      │
+│ • Threading for background operations                       │
+└─────────────────────────────────────────────────────────────┘           
+        │    │  ▲          │    ▲
+        │    │  │          │    │
+        │    │  │          ▼    │  
+        │    │  │   ┌───────────────────────────────────────────────────────────┐
+        │    │  │   │                  Supporting API Modules                   │
+        │    │  │   ├──────────────────────────┬────────────────────────────────┤
+        │    │  │   │  FlagManager.py          │  MessageBroker.py              │ 
+        │    │  │   │ • Platform compatibility │ • Real-time communication      │
+        │    │  │   │ • Global Flags           │ • In-memory pub/sub            │
+        │    │  │   ├──────────────────────────┼────────────────────────────────┤
+        │    │  │   │      Reserved Box        │  ErrorManager.py               │
+        │    │  │   │                          │ • Centralized error handling   │
+        │    │  │   │   for Future Use         │ • Error history tracking       │
+        │    │  │   │                          │ • UI error broadcasting        │
+        │    │  │   └──────────────────────────┴────────────────────────────────┘
+        │    │  │                                               ▲ 
+        │    ▼  │                                               │
+        │  ┌────────────────────────────────────────────────┐   │
+        │  │                    Database                    │   │ 
+        │  ├────────────────────────────────────────────────┤   │
+        │  │ DatabaseManager.py                             │   │
+        │  ├────────────────────────────────────────────────┤   │
+        │  │ • Thread-safe connections • Transaction support│   │
+        │  │ • Automatic retry logic   • Simplified API     │   │
+        │  └────────────────────────────────────────────────┘   │
+        │     ▲  │                                              │
+        │     │  │                ┌─────────────────────────────┘
+        ▼     │  ▼                │
+   ┌─────────────────────────────────────────────────────────────┐
+   │                   Core Processing Layer                     │
+   ├─────────────────┬─────────────────┬─────────────────────────┤
+   │   ComBreak/     │ ToonamiTools/   │     ExtraTools/         │
+   │                 │                 │                         │
+   │ • Commercial    │ • Show Detection│ • Manual Tools          │
+   │   Detection     │ • Lineup        │ • Utilities             │
+   │ • File Cutting  │   Generation    │ • Debugging             │
+   │ • Cutless Mode  │ • Bump Encoding │                         │
+   └─────────────────┴─────────────────┴─────────────────────────┘
+                           │
+                           ▼
+┌───────────────────────────────────────┐
+│      Platform Integration Layer       │
+├─────────────────┬─────────────────────┤
+│   Plex API      │   Platform APIs     │
+│                 │                     │
+│ • Authentication│ • DizqueTV REST     │
+│ • Library Scan  │ • Tunarr Integration│
+│ • Timestamps    │                     │
+│ • File Paths    │                     │
+└─────────────────┴─────────────────────┘
 
 ---
 
@@ -78,6 +102,26 @@ A unified in-memory message broker is responsible for all real-time communicatio
 
 - **Channel-Based Communication**: All UIs subscribe to relevant channels for updates and publish user actions/events.
 - **Decoupled Integration**: Interfaces interact with the LogicController exclusively through the message broker, ensuring modularity and testability.
+
+## Database Management
+
+The CommercialBreaker uses a centralized DatabaseManager for all database operations, providing:
+
+- **Thread-safe connections**: Each thread gets its own database connection
+- **Automatic retry logic**: Handles database locks with exponential backoff
+- **Transaction support**: Atomic operations with automatic commit/rollback
+- **Simplified API**: Common operations wrapped in convenient methods
+
+All modules access the database through `get_db_manager()` from `API.utils.DatabaseManager`. This ensures consistent error handling and prevents database lock issues in multi-threaded scenarios.
+
+## Centralized Error Handling
+
+The system employs a centralized error handling mechanism via `ErrorManager.py`, which provides:
+- **Global Error Tracking**: All errors are logged and can be retrieved by any interface
+- **UI Broadcasting**: Errors can be sent to all interfaces for real-time user feedback
+- **Error History**: Maintains a history of errors for debugging and user support
+- **Modular Error Handling**: Each module can raise errors that are caught and processed by the ErrorManager
+- **Custom Error Types**: Allows for specific error handling based on module needs
 
 ---
 

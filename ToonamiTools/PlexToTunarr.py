@@ -2,7 +2,8 @@
 import os
 import re
 import json
-import sqlite3
+from API.utils.DatabaseManager import get_db_manager
+from API.utils.ErrorManager import get_error_manager
 import logging
 import requests
 import pandas as pd
@@ -35,6 +36,46 @@ if DEBUG_MODE:
 
 class PlexToTunarr:
     def __init__(self, plex_url, plex_token, library_name, table, tunarr_url, channel_number, flex_duration, channel_name=None):
+        self.error_manager = get_error_manager()
+        
+        # Validate flex duration format
+        if not re.match(r'^\d+:\d{2}$', flex_duration):
+            self.error_manager.send_error_level(
+                source="PlexToTunarr",
+                operation="__init__",
+                message="Invalid flex duration format",
+                details=f"Duration '{flex_duration}' is not in MM:SS format",
+                suggestion="Flex duration should be in format MM:SS (e.g., 02:30 for 2 minutes 30 seconds)"
+            )
+            raise ValueError("Invalid flex duration format")
+            
+        # Try to connect to Plex
+        try:
+            self.plex = PlexServer(plex_url, plex_token)
+        except Exception as e:
+            self.error_manager.send_error_level(
+                source="PlexToTunarr",
+                operation="__init__",
+                message="Cannot connect to Plex",
+                details=str(e),
+                suggestion="Check that your Plex server is running and your credentials are correct"
+            )
+            raise
+            
+        # Test Tunarr connection - just see if we can reach it
+        try:
+            response = requests.get(f"{tunarr_url}/api/channels", timeout=5)
+            # Don't check status code - Tunarr is beta and unpredictable
+        except Exception as e:
+            self.error_manager.send_error_level(
+                source="PlexToTunarr",
+                operation="__init__",
+                message="Cannot connect to Tunarr",
+                details=f"Failed to reach Tunarr at {tunarr_url}",
+                suggestion="Make sure Tunarr is running and the URL is correct"
+            )
+            raise
+            
         self.plex_url = plex_url
         self.plex_token = plex_token
         self.plex = PlexServer(plex_url, plex_token)
@@ -80,15 +121,40 @@ class PlexToTunarr:
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             os.path.dirname(os.path.abspath(__file__))
         ):
-            db_path = config.DATABASE_PATH
+            db_manager = get_db_manager()
             try:
-                logger.debug("Attempting to connect to SQLite database at: %s", db_path)
-                con = sqlite3.connect(db_path)
-                df = pd.read_sql_query(f"SELECT * FROM {self.table}", con)
+                logger.debug("Attempting to connect to SQLite database")
+                
+                # Check if table exists
+                if not db_manager.table_exists(self.table):
+                    self.error_manager.send_error_level(
+                        source="PlexToTunarr",
+                        operation="load_db_data",
+                        message=f"Lineup table '{self.table}' not found",
+                        details="The specified lineup table does not exist in the database",
+                        suggestion="Run 'Prepare Cut Anime for Lineup' first to create the necessary lineup data"
+                    )
+                    raise Exception(f"Table {self.table} not found")
+                    
+                with db_manager.transaction() as conn:
+                    df = pd.read_sql_query(f"SELECT * FROM {self.table}", conn)
+                    
+                if df.empty:
+                    self.error_manager.send_error_level(
+                        source="PlexToTunarr",
+                        operation="load_db_data",
+                        message="Lineup table is empty",
+                        details=f"Table '{self.table}' exists but contains no data",
+                        suggestion="Run 'Prepare Cut Anime for Lineup' to populate the lineup data"
+                    )
+                    raise Exception("Lineup table is empty")
+                    
                 logger.info("Loaded %d rows from table '%s'", len(df), self.table)
                 return df
             except Exception as e:
-                logger.error("Error connecting to database at %s: %s", db_path, e)
+                if "not found" not in str(e) and "empty" not in str(e):
+                    logger.error("Error connecting to database: %s", e)
+                raise
         logger.warning("No valid DB data found; using all Plex media.")
         return None
 
@@ -466,9 +532,19 @@ class PlexToTunarr:
     # MAIN RUN LOGIC
     # ------------------------------------------------------------------
     def run(self):
-        # Fetch all Plex media from the given library section.
-        all_media = self.plex.library.section(self.library_name).all()
-        logger.info("Found %d items in Plex library '%s'", len(all_media), self.library_name)
+        try:
+            # Fetch all Plex media from the given library section.
+            all_media = self.plex.library.section(self.library_name).all()
+            logger.info("Found %d items in Plex library '%s'", len(all_media), self.library_name)
+        except Exception as e:
+            self.error_manager.send_error_level(
+                source="PlexToTunarr",
+                operation="run",
+                message=f"Cannot access Plex library '{self.library_name}'",
+                details=str(e),
+                suggestion="Check that the library name is correct and exists in your Plex server"
+            )
+            raise
 
         # Filter Plex items based on the DB table (match file name)
         if self.df is not None and not self.df.empty and "FULL_FILE_PATH" in self.df.columns:

@@ -1,8 +1,9 @@
 import pandas as pd
 import random
-import sqlite3
+from API.utils.DatabaseManager import get_db_manager
 import re
 import config
+from .utils import show_name_mapper
 
 
 class ShowScheduler:
@@ -33,13 +34,14 @@ class ShowScheduler:
         :param uncut: If True, the schedule is for uncut anime; otherwise,
                       it's for cut anime.
         """
-        self.conn = sqlite3.connect(config.DATABASE_PATH)
-        self.last_used_episode_block = {}
-        self.last_spreadsheet = None
+        # Database connection
+        self.db_manager = get_db_manager()
+        
+        # Dataframes
         self.encoder_df = None
-        self.commercial_injector_df = None
-        self.decoder = None
         self.decoded_df = None
+        self.commercial_injector_df = None
+        self.decoder = {}
         self.show_episode_blocks = None
 
         # Configuration toggles
@@ -54,13 +56,14 @@ class ShowScheduler:
 
         # Possibly load previously used blocks if continuing
         if continue_from_last_used_episode_block:
-            query = "SELECT name FROM sqlite_master WHERE type='table' AND name='last_used_episode_block';"
-            if self.conn.execute(query).fetchone():
+            if self.db_manager.table_exists("last_used_episode_block"):
                 self.last_used_episode_block = self.load_last_used_episode_block()
                 print("Continuing from last used episode blocks")
             else:
                 print("Resetting episode tracking for the last spreadsheet.")
         else:
+            # If not continuing, reset
+            self.last_used_episode_block = {}
             print("Resetting episode tracking for the last spreadsheet.")
 
     #####################################################
@@ -81,7 +84,8 @@ class ShowScheduler:
         print(f"Loading commercial injector data from {commercial_table}")
         print("Loading codes from codes")
     
-        self.encoder_df = pd.read_sql(f"SELECT * FROM {encoder_table}", self.conn)
+        with self.db_manager.transaction() as conn:
+            self.encoder_df = pd.read_sql(f"SELECT * FROM {encoder_table}", conn)
         self._load_codes()
         self.decoded_df = self._decode_shows()
     
@@ -90,26 +94,10 @@ class ShowScheduler:
         for shows_list in self.decoded_df["shows"]:
             used_shows.update(shows_list)
     
-        # For each show, we'll try multiple variations
+        # Use show_name_mapper to get all possible BLOCK_ID prefixes
         block_id_prefixes = set()
-        
         for show in used_shows:
-            # First, add the show itself (normalized)
-            normalized_show = self._normalize_show_name(show)
-            block_format = re.sub(r'\W+', '_', normalized_show).upper()
-            block_id_prefixes.add(block_format)
-            
-            # Also try the original show name (before normalization)
-            original_format = re.sub(r'\W+', '_', show).upper()
-            if original_format != block_format:
-                block_id_prefixes.add(original_format)
-            
-            # Find all keys in the mapping that normalize to this show
-            for mapping_key, mapping_value in config.show_name_mapping.items():
-                if mapping_value == normalized_show and mapping_key != normalized_show:
-                    # This key maps to our normalized show
-                    key_format = re.sub(r'\W+', '_', mapping_key).upper()
-                    block_id_prefixes.add(key_format)
+            block_id_prefixes.update(show_name_mapper.get_block_id_prefixes(show))
         
         # Convert set to list for SQL query
         block_id_prefixes = list(block_id_prefixes)
@@ -120,7 +108,8 @@ class ShowScheduler:
         # Load only relevant rows from commercial_injector table
         if where_conditions:
             query = f"SELECT * FROM {commercial_table} WHERE {where_conditions}"
-            self.commercial_injector_df = pd.read_sql(query, self.conn)
+            with self.db_manager.transaction() as conn:
+                self.commercial_injector_df = pd.read_sql(query, conn)
             print(f"Loaded {len(self.commercial_injector_df)} rows for {len(used_shows)} shows")
             
             # Extract show_name from BLOCK_ID by splitting at "_S", then normalize
@@ -147,7 +136,8 @@ class ShowScheduler:
                 print("Falling back to loading full commercial_injector table...")
                 
                 # JUST LOAD THE WHOLE TABLE - NO OPTIMIZATION
-                self.commercial_injector_df = pd.read_sql(f"SELECT * FROM {commercial_table}", self.conn)
+                with self.db_manager.transaction() as conn:
+                    self.commercial_injector_df = pd.read_sql(f"SELECT * FROM {commercial_table}", conn)
                 print(f"Loaded all {len(self.commercial_injector_df)} rows (fallback mode)")
                 
                 # Re-extract and normalize
@@ -163,7 +153,8 @@ class ShowScheduler:
                 self.show_episode_blocks = self._group_shows()
         else:
             # NO OPTIMIZATION - JUST LOAD EVERYTHING
-            self.commercial_injector_df = pd.read_sql(f"SELECT * FROM {commercial_table}", self.conn)
+            with self.db_manager.transaction() as conn:
+                self.commercial_injector_df = pd.read_sql(f"SELECT * FROM {commercial_table}", conn)
             print(f"Loaded all {len(self.commercial_injector_df)} rows (no show filtering)")
             
             # Extract show_name from BLOCK_ID by splitting at "_S", then normalize
@@ -184,7 +175,8 @@ class ShowScheduler:
         the encoder dataframe.
         """
         print("Loading codes...")
-        codes_df = pd.read_sql("SELECT * FROM codes", self.conn)
+        with self.db_manager.transaction() as conn:
+            codes_df = pd.read_sql("SELECT * FROM codes", conn)
         self.decoder = {row["Code"]: row["Name"].lower() for _, row in codes_df.iterrows()}
 
     def _decode_shows(self):
@@ -220,10 +212,11 @@ class ShowScheduler:
 
     def _normalize_show_name(self, show):
         """
-        Return normalized show name using config.show_name_mapping,
+        Return normalized show name using show_name_mapper,
         if it exists; otherwise, return the original show name.
         """
-        return config.show_name_mapping.get(show.lower(), show)
+        mapped_show = show_name_mapper.map(show, strategy='first')
+        return mapped_show
 
     def _group_shows(self):
         """
@@ -700,7 +693,8 @@ class ShowScheduler:
         Save the final schedule to a specified table in the DB.
         """
         print(f"Saving schedule to {save_table}")
-        final_df.to_sql(save_table, self.conn, index=False, if_exists="replace")
+        with self.db_manager.transaction() as conn:
+            final_df.to_sql(save_table, conn, index=False, if_exists="replace")
 
     def save_last_used_episode_block(self):
         """
@@ -708,7 +702,8 @@ class ShowScheduler:
         last_used_episode_block table in the DB.
         """
         df = pd.DataFrame(list(self.last_used_episode_block.items()), columns=["show", "last_used_block"])
-        df.to_sql("last_used_episode_block", self.conn, index=False, if_exists="replace")
+        with self.db_manager.transaction() as conn:
+            df.to_sql("last_used_episode_block", conn, index=False, if_exists="replace")
         print("Last used episode blocks have been saved.")
 
     def load_last_used_episode_block(self):
@@ -716,9 +711,9 @@ class ShowScheduler:
         Load the table last_used_episode_block from the DB (if it exists) and
         return a dict mapping show -> last used BLOCK_ID.
         """
-        query = "SELECT name FROM sqlite_master WHERE type='table' AND name='last_used_episode_block';"
-        if self.conn.execute(query).fetchone():
-            df = pd.read_sql("SELECT * FROM last_used_episode_block", self.conn)
+        if self.db_manager.table_exists("last_used_episode_block"):
+            with self.db_manager.transaction() as conn:
+                df = pd.read_sql("SELECT * FROM last_used_episode_block", conn)
             return df.set_index("show")["last_used_block"].to_dict()
         else:
             print("No existing last used episode blocks found.")

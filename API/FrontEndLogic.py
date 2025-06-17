@@ -1,15 +1,18 @@
-import sqlite3
 import ToonamiTools
-from .components.FlagManager import FlagManager
+from .utils.FlagManager import FlagManager
+from .utils.DatabaseManager import get_db_manager
 import config
 import threading
 import time
 import json
+import re
 from queue import Queue
 import sys
 import webbrowser
 import traceback
-from .components.MessageBroker import get_message_broker
+from typing import Optional
+from .utils.MessageBroker import get_message_broker
+from .utils.ErrorManager import get_error_manager, ErrorLevel
 
 class LogicController():
     docker = FlagManager.docker
@@ -17,7 +20,7 @@ class LogicController():
     cutless = FlagManager.cutless
 
     def __init__(self):
-        self.db_path = config.DATABASE_PATH
+        self.db_manager = get_db_manager()
         self._setup_database()
         self.docker = FlagManager.docker
         self.cutless = FlagManager.cutless
@@ -54,6 +57,12 @@ class LogicController():
 
         # Register callback for cutless state changes
         FlagManager.register_cutless_callback(self._on_cutless_change)
+
+        self.error_manager = get_error_manager()
+        self._setup_error_handling()
+        self._current_operation_thread = None
+        self._operation_queue = Queue()
+        self._error_rate_limiter = {}  # For rate limiting repeated errors
 
     def subscribe_to_status_updates(self, callback: callable):
         """Subscribe to status updates. Callback receives (status_message)"""
@@ -139,38 +148,260 @@ class LogicController():
                 # Avoid busy-looping on persistent errors
                 time.sleep(1)
 
-    def _setup_database(self):
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS app_data (
-                    key TEXT PRIMARY KEY,
-                    value TEXT
+    def _setup_error_handling(self):
+        """Initialize error message handling"""
+        self._error_queue = self.message_broker.subscribe(['error_messages'])
+        # Start a thread to monitor the error queue
+        error_thread = threading.Thread(target=self._error_handler_loop, daemon=True)
+        error_thread.start()
+
+    def _error_handler_loop(self):
+        """Continuously monitor the error queue and handle messages"""
+        while True:
+            try:
+                channel, error_data = self._error_queue.get()
+                self._handle_error_message(error_data)
+                self._error_queue.task_done()
+            except Exception as e:
+                print(f"Error in error handler loop: {e}")
+                time.sleep(1)  # Avoid busy-looping on persistent errors
+    
+    def _handle_error_message(self, error_data: dict):
+        """
+        Handle incoming error messages and broadcast them to UIs.
+        This ensures all UIs receive error messages in a consistent format.
+        
+        For critical errors, attempts to gracefully stop the current operation.
+        """
+        # Check if this is a clear action
+        if error_data.get('action') == 'clear':
+            return
+            
+        # Ensure required fields exist
+        if not all(key in error_data for key in ['source', 'operation', 'message', 'level']):
+            print(f"Error: Missing required fields in error data: {error_data}")
+            return
+            
+        # Rate limiting for repeated errors
+        error_key = f"{error_data['source']}:{error_data['operation']}:{error_data['message']}"
+        current_time = time.time()
+        if error_key in self._error_rate_limiter:
+            last_time = self._error_rate_limiter[error_key]
+            if current_time - last_time < 5:  # 5 second rate limit
+                return
+        self._error_rate_limiter[error_key] = current_time
+        
+        # Handle critical errors
+        if error_data['level'] == 'CRITICAL':
+            self._handle_critical_error(error_data)
+        
+    
+    def _format_error_message(self, error_data: dict) -> str:
+        """Format error message with all available context"""
+        message_parts = [
+            f"[{error_data['level']}] {error_data['source']}: {error_data['message']}"
+        ]
+        
+        if error_data.get('details'):
+            message_parts.append(f"Details: {error_data['details']}")
+        if error_data.get('suggestion'):
+            message_parts.append(f"Suggestion: {error_data['suggestion']}")
+        
+        return "\n".join(message_parts)
+    
+    def _handle_critical_error(self, error_data: dict):
+        """
+        Handle critical errors by attempting to gracefully stop the current operation.
+        """
+        self._broadcast_status_update("Critical error detected!")
+        
+        # Stop current operation thread if it exists
+        if self._current_operation_thread and self._current_operation_thread.is_alive():
+            try:
+                # Signal the thread to stop
+                self._broadcast_status_update("Stopping current operation...")
+                # Note: We can't directly kill the thread, but we can signal it to stop
+                # The thread should check for this signal periodically
+                self._should_stop = True
+                
+                # Wait for thread to finish (with timeout)
+                self._current_operation_thread.join(timeout=5)
+                
+                if self._current_operation_thread.is_alive():
+                    self._broadcast_status_update("Warning: Operation did not stop gracefully")
+            except Exception as e:
+                self._broadcast_status_update(f"Error stopping operation: {str(e)}")
+        
+        # Clear operation queue
+        while not self._operation_queue.empty():
+            try:
+                self._operation_queue.get_nowait()
+            except Empty:
+                break
+        
+        # Reset UI state
+        self._reset_ui_state()
+    
+    def _reset_ui_state(self):
+        """Reset UI state after a critical error"""
+        self._should_stop = False
+        self._current_operation_thread = None
+    
+    def _run_operation(self, operation_func, *args, **kwargs):
+        """
+        Run an operation in a thread with proper error handling and state management.
+        
+        Args:
+            operation_func: The function to run
+            *args: Arguments to pass to the function
+            **kwargs: Keyword arguments to pass to the function
+        """
+        def operation_wrapper():
+            try:
+                self._should_stop = False
+                operation_func(*args, **kwargs)
+            except Exception as e:
+                # Log the error and send it through the error system
+                self.error_manager.send_critical(
+                    source="FrontEndLogic",
+                    operation=operation_func.__name__,
+                    message=f"Operation failed: {str(e)}",
+                    details=traceback.format_exc()
                 )
-            """)
-            conn.commit()
+            finally:
+                self._current_operation_thread = None
+        
+        # Store reference to current operation thread
+        self._current_operation_thread = threading.Thread(target=operation_wrapper)
+        self._current_operation_thread.start()
+
+    def subscribe_to_error_messages(self, callback: callable) -> None:
+        """Subscribe to error messages. Callback receives (error_data)"""
+        queue = self.message_broker.subscribe(['error_messages'])
+        # Start a thread to monitor the error queue
+        def error_handler():
+            while True:
+                try:
+                    channel, error_data = queue.get()
+                    callback(error_data)
+                    queue.task_done()
+                except Exception as e:
+                    print(f"Error in error handler: {e}")
+                    time.sleep(1)  # Avoid busy-looping on persistent errors
+        
+        error_thread = threading.Thread(target=error_handler, daemon=True)
+        error_thread.start()
+
+    def clear_error_messages(self) -> None:
+        """
+        Clear all error messages from all UIs.
+        Broadcasts a clear action to the error messaging system.
+        """
+        try:
+            clear_message = {
+                'action': 'clear',
+                'timestamp': time.time()
+            }
+            
+            # Send clear message through message broker
+            self.message_broker.publish('error_messages', clear_message)
+            
+            # Also clear local rate limiter if it exists
+            if hasattr(self, '_error_rate_limiter'):
+                self._error_rate_limiter.clear()
+                
+        except Exception as e:
+            print(f"Error clearing error messages: {e}")
+
+    def get_error_history(self, 
+                         level_filter: Optional[str] = None,
+                         source_filter: Optional[str] = None,
+                         limit: Optional[int] = None) -> list:
+        """
+        Get error history with optional filtering.
+        
+        Args:
+            level_filter: Filter by error level (CRITICAL, ERROR, WARNING, INFO)
+            source_filter: Filter by source component
+            limit: Maximum number of errors to return (most recent first)
+            
+        Returns:
+            List of error messages matching the filters
+        """
+        try:
+            return self.error_manager.get_error_history(
+                level_filter=level_filter,
+                source_filter=source_filter,
+                limit=limit
+            )
+        except Exception as e:
+            print(f"Error retrieving error history: {e}")
+            return []
+    
+    def get_recent_errors(self, count: int = 10) -> list:
+        """Get the most recent N errors"""
+        try:
+            return self.error_manager.get_recent_errors(count)
+        except Exception as e:
+            print(f"Error retrieving recent errors: {e}")
+            return []
+    
+    def get_errors_by_level(self, level: str) -> list:
+        """Get all errors of a specific level"""
+        try:
+            return self.error_manager.get_errors_by_level(level)
+        except Exception as e:
+            print(f"Error retrieving errors by level: {e}")
+            return []
+    
+    def get_critical_errors(self) -> list:
+        """Get all critical errors"""
+        try:
+            return self.error_manager.get_critical_errors()
+        except Exception as e:
+            print(f"Error retrieving critical errors: {e}")
+            return []
+    
+    def clear_error_history(self) -> None:
+        """Clear the entire error history"""
+        try:
+            self.error_manager.clear_error_history()
+            self._broadcast_status_update("Error history cleared")
+        except Exception as e:
+            print(f"Error clearing error history: {e}")
+            self._broadcast_status_update(f"Failed to clear error history: {str(e)}")
+    
+    def get_error_summary(self) -> dict:
+        """Get a summary of errors by level"""
+        try:
+            return self.error_manager.get_error_summary()
+        except Exception as e:
+            print(f"Error retrieving error summary: {e}")
+            return {
+                'CRITICAL': 0,
+                'ERROR': 0,
+                'WARNING': 0,
+                'INFO': 0
+            }
+
+    def _setup_database(self):
+        self.db_manager.create_table(
+            "app_data",
+            "key TEXT PRIMARY KEY, value TEXT"
+        )
 
     def _set_data(self, key, value):
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT OR REPLACE INTO app_data (key, value)
-                VALUES (?, ?)
-            """, (key, value))
-            conn.commit()
+        self.db_manager.insert_or_replace("app_data", {"key": key, "value": value})
 
     def _get_data(self, key):
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT value FROM app_data WHERE key = ?", (key,))
-            result = cursor.fetchone()
-            return result[0] if result else None
+        result = self.db_manager.fetchone(
+            "SELECT value FROM app_data WHERE key = ?", 
+            (key,)
+        )
+        return result["value"] if result else None
 
     def _check_table_exists(self, table_name):
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
-            return cursor.fetchone() is not None
+        return self.db_manager.table_exists(table_name)
 
     def _publish_status_update(self, channel, message):
         """
@@ -344,14 +575,37 @@ class LogicController():
         """
         Updated to handle a single platform URL and its type
         """
-        if selected_anime_library.startswith("eg. ") or not selected_anime_library:
-            selected_anime_library = self._get_data("selected_anime_library")
+        # Validate required fields before processing
+        missing_fields = []
+        
+        if selected_anime_library.startswith("eg. ") or not selected_anime_library or selected_anime_library == "Select your Anime Library":
+            existing_anime_library = self._get_data("selected_anime_library")
+            if not existing_anime_library or existing_anime_library == "Select your Anime Library":
+                missing_fields.append("Anime Library")
+            selected_anime_library = existing_anime_library
 
-        if selected_toonami_library.startswith("eg. ") or not selected_toonami_library:
-            selected_toonami_library = self._get_data("selected_toonami_library")
+        if selected_toonami_library.startswith("eg. ") or not selected_toonami_library or selected_toonami_library == "Select your Toonami Library":
+            existing_toonami_library = self._get_data("selected_toonami_library")
+            if not existing_toonami_library or existing_toonami_library == "Select your Toonami Library":
+                missing_fields.append("Toonami Library")
+            selected_toonami_library = existing_toonami_library
 
         if platform_url.startswith("eg. ") or not platform_url:
-            platform_url = self._get_data("platform_url")
+            existing_platform_url = self._get_data("platform_url")
+            if not existing_platform_url or existing_platform_url.startswith("eg. "):
+                missing_fields.append("Platform URL")
+            platform_url = existing_platform_url
+        
+        # Send error if required fields are missing
+        if missing_fields:
+            self.error_manager.send_error_level(
+                source="FrontEndLogic",
+                operation="on_continue_first",
+                message="Required fields are missing",
+                details=f"Please fill in: {', '.join(missing_fields)}",
+                suggestion="Complete all required fields before continuing to the next step"
+            )
+            return False
         
         # Save the fetched data to the database
         self._set_data("selected_anime_library", selected_anime_library)
@@ -373,19 +627,53 @@ class LogicController():
         print(f"Platform URL: {platform_url} ({platform_type})")
         
         self._broadcast_status_update("Idle")
+        return True
 
-    def on_continue_second(self, selected_anime_library, selected_toonami_library, plex_url, plex_token, platform_url, platform_type='dizquetv'):
+    def on_continue_second(self, plex_url, plex_token, selected_anime_library, selected_toonami_library, platform_url, platform_type='dizquetv'):
+        # Validate required fields before processing
+        missing_fields = []
+        
         # Check each widget value, if it starts with "eg. ", fetch the value from the database
         if selected_anime_library.startswith("eg. ") or not selected_anime_library:
-            selected_anime_library = self._get_data("selected_anime_library")
+            existing_anime_library = self._get_data("selected_anime_library")
+            if not existing_anime_library or existing_anime_library.startswith("eg. "):
+                missing_fields.append("Anime Library")
+            selected_anime_library = existing_anime_library
+            
         if selected_toonami_library.startswith("eg. ") or not selected_toonami_library:
-            selected_toonami_library = self._get_data("selected_toonami_library")
+            existing_toonami_library = self._get_data("selected_toonami_library")
+            if not existing_toonami_library or existing_toonami_library.startswith("eg. "):
+                missing_fields.append("Toonami Library")
+            selected_toonami_library = existing_toonami_library
+            
         if plex_url.startswith("eg. ") or not plex_url:
-            plex_url = self._get_data("plex_url")
+            existing_plex_url = self._get_data("plex_url")
+            if not existing_plex_url or existing_plex_url.startswith("eg. "):
+                missing_fields.append("Plex URL")
+            plex_url = existing_plex_url
+            
         if plex_token.startswith("eg. ") or not plex_token:
-            plex_token = self._get_data("plex_token")
+            existing_plex_token = self._get_data("plex_token")
+            if not existing_plex_token or existing_plex_token.startswith("eg. "):
+                missing_fields.append("Plex Token")
+            plex_token = existing_plex_token
+            
         if platform_url.startswith("eg. ") or not platform_url:
-            platform_url = self._get_data("platform_url")
+            existing_platform_url = self._get_data("platform_url")
+            if not existing_platform_url or existing_platform_url.startswith("eg. "):
+                missing_fields.append("Platform URL")
+            platform_url = existing_platform_url
+
+        # Send error if required fields are missing
+        if missing_fields:
+            self.error_manager.send_error_level(
+                source="FrontEndLogic",
+                operation="on_continue_second",
+                message="Required fields are missing",
+                details=f"Please fill in: {', '.join(missing_fields)}",
+                suggestion="Complete all required fields before continuing to the next step"
+            )
+            return False
 
         # Save the fetched data to the database
         self._set_data("selected_anime_library", selected_anime_library)
@@ -407,18 +695,42 @@ class LogicController():
         self._broadcast_status_update("Idle")
 
     def on_continue_third(self, anime_folder, bump_folder, special_bump_folder, working_folder):
+        # Validate required fields before processing (special_bump_folder is optional)
+        missing_fields = []
+        
         # Check each widget value, if it's blank, fetch the value from the database
         if not anime_folder:
-            anime_folder = self._get_data("anime_folder")
+            existing_anime_folder = self._get_data("anime_folder")
+            if not existing_anime_folder:
+                missing_fields.append("Anime Folder")
+            anime_folder = existing_anime_folder
 
         if not bump_folder:
-            bump_folder = self._get_data("bump_folder")
+            existing_bump_folder = self._get_data("bump_folder")
+            if not existing_bump_folder:
+                missing_fields.append("Bump Folder")
+            bump_folder = existing_bump_folder
 
         if not special_bump_folder:
             special_bump_folder = self._get_data("special_bump_folder")
+            # Special bump folder is optional, so no validation needed
 
         if not working_folder:
-            working_folder = self._get_data("working_folder")
+            existing_working_folder = self._get_data("working_folder")
+            if not existing_working_folder:
+                missing_fields.append("Working Folder")
+            working_folder = existing_working_folder
+
+        # Send error if required fields are missing
+        if missing_fields:
+            self.error_manager.send_error_level(
+                source="FrontEndLogic",
+                operation="on_continue_third",
+                message="Required fields are missing",
+                details=f"Please fill in: {', '.join(missing_fields)}",
+                suggestion="Complete all required folder selections before continuing (Special Bump Folder is optional)"
+            )
+            return False
 
         # Save the fetched data to the database
         self._set_data("anime_folder", anime_folder)
@@ -429,6 +741,7 @@ class LogicController():
         # Optional: Print values for verification
         print(anime_folder, bump_folder, special_bump_folder, working_folder)
         self._broadcast_status_update("Idle")
+        return True
 
     def on_continue_fourth(self):
         self._broadcast_status_update("Idle")
@@ -642,6 +955,41 @@ class LogicController():
         """
         Create a Toonami channel using the stored platform settings
         """
+        # Validate required fields before processing
+        missing_fields = []
+        
+        # Validate toonami_version
+        if not toonami_version or toonami_version in ["Please select version", "Select a Toonami Version"]:
+            missing_fields.append("Toonami Version")
+        
+        # Validate channel_number
+        if not channel_number or channel_number.startswith("eg. ") or channel_number.strip() == "":
+            missing_fields.append("Channel Number")
+        else:
+            try:
+                int(channel_number)
+            except ValueError:
+                missing_fields.append("Channel Number (must be numeric)")
+        
+        # Validate flex_duration
+        if not flex_duration or flex_duration.startswith("eg. ") or flex_duration.strip() == "":
+            missing_fields.append("Flex Duration")
+        else:
+            # Check format MM:SS
+            if not re.match(r'^\d+:\d{2}$', flex_duration):
+                missing_fields.append("Flex Duration (must be in MM:SS format, e.g., 04:20)")
+        
+        # Send error if required fields are missing
+        if missing_fields:
+            self.error_manager.send_error_level(
+                source="FrontEndLogic",
+                operation="create_toonami_channel",
+                message="Required fields are missing or invalid",
+                details=f"Please fill in: {', '.join(missing_fields)}",
+                suggestion="Complete all required fields with valid values before creating the channel"
+            )
+            return False
+        
         def create_toonami_channel_thread():
             try:
                 self._broadcast_status_update("Creating Toonami channel...")
@@ -728,6 +1076,41 @@ class LogicController():
         """
         Create a Toonami continuation channel using the stored platform settings
         """
+        # Validate required fields before processing
+        missing_fields = []
+        
+        # Validate toonami_version
+        if not toonami_version or toonami_version in ["Please select version", "Select a Toonami Version"]:
+            missing_fields.append("Toonami Version")
+        
+        # Validate channel_number
+        if not channel_number or channel_number.startswith("eg. ") or channel_number.strip() == "":
+            missing_fields.append("Channel Number")
+        else:
+            try:
+                int(channel_number)
+            except ValueError:
+                missing_fields.append("Channel Number (must be numeric)")
+        
+        # Validate flex_duration
+        if not flex_duration or flex_duration.startswith("eg. ") or flex_duration.strip() == "":
+            missing_fields.append("Flex Duration")
+        else:
+            # Check format MM:SS
+            if not re.match(r'^\d+:\d{2}$', flex_duration):
+                missing_fields.append("Flex Duration (must be in MM:SS format, e.g., 04:20)")
+        
+        # Send error if required fields are missing
+        if missing_fields:
+            self.error_manager.send_error_level(
+                source="FrontEndLogic",
+                operation="create_toonami_channel_cont",
+                message="Required fields are missing or invalid",
+                details=f"Please fill in: {', '.join(missing_fields)}",
+                suggestion="Complete all required fields with valid values before creating the channel"
+            )
+            return False
+            
         self._broadcast_status_update("Creating new Toonami channel...")
         cont_config = config.TOONAMI_CONFIG_CONT.get(toonami_version, {})
         table = cont_config["merger_out"]
@@ -768,6 +1151,37 @@ class LogicController():
         self.filter_complete_event.set()
 
     def add_flex(self, channel_number, duration):
+        # Validate required fields before processing
+        missing_fields = []
+        
+        # Validate channel_number
+        if not channel_number or channel_number.startswith("eg. ") or channel_number.strip() == "":
+            missing_fields.append("Channel Number")
+        else:
+            try:
+                int(channel_number)
+            except ValueError:
+                missing_fields.append("Channel Number (must be numeric)")
+        
+        # Validate duration (flex duration)
+        if not duration or duration.startswith("eg. ") or duration.strip() == "":
+            missing_fields.append("Flex Duration")
+        else:
+            # Check format MM:SS
+            if not re.match(r'^\d+:\d{2}$', duration):
+                missing_fields.append("Flex Duration (must be in MM:SS format, e.g., 04:20)")
+        
+        # Send error if required fields are missing
+        if missing_fields:
+            self.error_manager.send_error_level(
+                source="FrontEndLogic",
+                operation="add_flex",
+                message="Required fields are missing or invalid",
+                details=f"Please fill in: {', '.join(missing_fields)}",
+                suggestion="Complete all required fields with valid values before adding flex content"
+            )
+            return False
+            
         self.platform_url = self._get_data("platform_url")
         self.network = config.network
         self.channel_number = int(channel_number)

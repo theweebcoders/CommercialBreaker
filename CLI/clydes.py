@@ -5,6 +5,10 @@ from API import LogicController
 from CLI.CommercialBreakerCLI import main as CommercialBreakerCLI
 from queue import Queue, Empty
 import json
+from datetime import datetime
+from colorama import Fore, Style, init
+
+init()  # Initialize colorama
 
 class PlexManager:
     def __init__(self, logic, app):
@@ -363,6 +367,38 @@ class ToonamiManager:
         # Once done, reset
         self.logic.reset_filter_event()
 
+class ErrorDisplay:
+    def __init__(self):
+        self.error_colors = {
+            'CRITICAL': Fore.RED + Style.BRIGHT,
+            'ERROR': Fore.RED,
+            'WARNING': Fore.YELLOW,
+            'INFO': Fore.BLUE
+        }
+    
+    def add_error(self, error_data: dict):
+        """Display an error message with appropriate formatting"""
+        # Get color for error level
+        color = self.error_colors.get(error_data['level'], Fore.WHITE)
+        
+        # Format timestamp
+        timestamp = datetime.fromisoformat(error_data['timestamp']).strftime('%H:%M:%S')
+        
+        # Print error message
+        print(f"{Fore.CYAN}[{timestamp}]{Style.RESET_ALL} "
+              f"{color}[{error_data['level']}] {error_data['source']}: {error_data['message']}{Style.RESET_ALL}")
+        
+        # Print details if present
+        if error_data.get('details'):
+            print(f"{Fore.WHITE}Details: {error_data['details']}{Style.RESET_ALL}")
+        
+        # Print suggestion if present
+        if error_data.get('suggestion'):
+            print(f"{Fore.GREEN}Suggestion: {error_data['suggestion']}{Style.RESET_ALL}")
+        
+        # Add separator
+        print()
+
 class ClydesApp:
     def __init__(self):
         self.input_lock = threading.Lock()
@@ -373,6 +409,8 @@ class ClydesApp:
         self.content_preparer = ContentPreparer(self.logic, self)
         self.toonami_manager = ToonamiManager(self.logic, self)
         self.config = {}
+        self.error_display = ErrorDisplay()
+        self.logic.subscribe_to_error_messages(self.error_display.add_error)
 
         # Subscribe to updates via LogicController
         self.logic.subscribe_to_updates('status_updates', self.handle_status_updates)

@@ -709,6 +709,11 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 
 ## **Immediate Attention**
 
+### Error Handling To-Do
+
+- [ ] Create error messages for merger
+- [ ] Make better documentation
+
 ### Fun Stuff
 
 - [ ] Make Clydes a TUI
@@ -718,7 +723,6 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 - [ ] Find out why tkkthemes could not be in the docker container, do a clean install with a new tom_env and make sure it works on desktop
 - [ ] Cleanup the repo structure
 - [ ] Actually use the icon for favicon, TOM, etc
-- [ ] Make the webui not randomly rely on clydes
 - [ ] Cleanup the docker compose if the run didn't need the enviorment varibles does it??
 - [ ] Cleanup the requirments.txt
 - [ ] Clean up Commercial Breaker code
@@ -745,11 +749,6 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 ## **Ongoing Tasks**
 - [ ] Add how to use Clydes to the readme
 - [ ] Make it so Clydes can rerun prepare show cut 
-- [ ] Bug Testing
-    - [ ] Create automated tests for each tool
-    - [x] Test on Linux
-    - [x] Test on Mac
-    - [x] Test on Windows
 
 ## **Known Issues**
 - [ ] Anime added via Toonami Checker and not cut will cause issues with the lineup

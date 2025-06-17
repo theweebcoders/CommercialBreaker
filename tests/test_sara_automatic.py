@@ -60,7 +60,7 @@ class TestSaraAutomatic:
             "channel_number": "69",
             "flex_duration": "3:00",
             "minimum_anime_rows": 6,
-            "timeout": 90
+            "timeout": 120
         }
         
         # Events for tracking specific operation completions

@@ -8,6 +8,7 @@ import threading
 import os
 import json
 import psutil # Added back psutil
+from datetime import datetime
 
 
 class Page1(ttk.Frame):
@@ -230,7 +231,12 @@ class Page2(ttk.Frame):
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
 
-        self.continue_button = ttk.Button(self, text="Continue",
+        # Go Back button on the left
+        self.go_back_button = ttk.Button(button_frame, text="Go Back",
+                                    command=self.controller.go_back)
+        self.go_back_button.pack(side="left", padx=5, pady=5)
+
+        self.continue_button = ttk.Button(button_frame, text="Continue",
                                     command=self.on_continue_button_click)
         self.continue_button.pack(side="right", padx=5, pady=5)
 
@@ -293,7 +299,12 @@ class Page3(ttk.Frame):
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
 
-        self.continue_button = ttk.Button(self, text="Continue",
+        # Go Back button on the left
+        self.go_back_button = ttk.Button(button_frame, text="Go Back",
+                                    command=self.controller.go_back)
+        self.go_back_button.pack(side="left", padx=5, pady=5)
+
+        self.continue_button = ttk.Button(button_frame, text="Continue",
                                     command=self.on_continue_button_click)
         self.continue_button.pack(side="right", padx=5, pady=5)
 
@@ -362,7 +373,12 @@ class Page4(ttk.Frame):
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
 
-        self.continue_button = ttk.Button(self, text="Continue",
+        # Go Back button on the left
+        self.go_back_button = ttk.Button(button_frame, text="Go Back",
+                                    command=self.controller.go_back)
+        self.go_back_button.pack(side="left", padx=5, pady=5)
+
+        self.continue_button = ttk.Button(button_frame, text="Continue",
                                     command=self.on_continue_button_click)
 
         self.continue_button.pack(side="right", padx=5, pady=5)
@@ -642,6 +658,11 @@ class Page5(ttk.Frame):
         for text, cmd in button_configs:
             button = ttk.Button(button_frame, text=text, command=cmd)
             button.pack(side="left", padx=5, pady=3)
+
+        # Go Back button on the left side of checkbox_frame
+        self.go_back_button = ttk.Button(self.checkbox_frame, text="Go Back",
+                                    command=self.controller.go_back)
+        self.go_back_button.pack(side="left", padx=5, pady=5)
 
         self.continue_button = ttk.Button(self.checkbox_frame, text="Continue", command=lambda: [self.controller.show_frame("Page6"), self.on_continue_button_click()])
         self.continue_button.pack(side="right", padx=5, pady=5)
@@ -932,7 +953,7 @@ class Page6(ttk.Frame):
         what_toonami_version_label.pack(pady=3)
 
         self.toonami_version = tk.StringVar()
-        self.toonami_version.set("OG")
+        self.toonami_version.set("Please select version")
         toonami_version_dropdown = ttk.Combobox(self, textvariable=self.toonami_version)
         toonami_version_dropdown['values'] = ("OG", "2", "3", "Mixed", "Uncut OG", "Uncut 2", "Uncut 3", "Uncut Mixed")
         toonami_version_dropdown.pack(pady=3)
@@ -982,7 +1003,12 @@ class Page6(ttk.Frame):
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
 
-        self.continue_button = ttk.Button(self, text="Continue",
+        # Go Back button on the left
+        self.go_back_button = ttk.Button(button_frame, text="Go Back",
+                                    command=self.controller.go_back)
+        self.go_back_button.pack(side="left", padx=5, pady=5)
+
+        self.continue_button = ttk.Button(button_frame, text="Continue",
                                     command=self.on_continue_button_click)
         self.continue_button.pack(side="right", padx=5, pady=5)
 
@@ -1041,10 +1067,10 @@ class Page7(ttk.Frame):
 
         label = ttk.Label(self, text="Make a new Toonami Channel:", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
-
+        
         self.toonami_version = tk.StringVar()
-        self.toonami_version.set("OG")
-
+        self.toonami_version.set("Please select version")
+        
         what_toonami_version_label = ttk.Label(self, text="What Toonami Version are you making today?")
         what_toonami_version_label.pack(pady=3)
 
@@ -1092,6 +1118,11 @@ class Page7(ttk.Frame):
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
 
+        # Go Back button on the left
+        self.go_back_button = ttk.Button(button_frame, text="Go Back",
+                                    command=self.controller.go_back)
+        self.go_back_button.pack(side="left", padx=5, pady=5)
+
     def tkraise(self):
         platform_type = self.logic._get_data("platform_type")
         
@@ -1138,6 +1169,99 @@ class Page7(ttk.Frame):
         flex_duration = self.flex_duration_entry.get()
         self.logic.add_flex(channel_number, flex_duration)
 
+class ErrorDisplay(ttk.Frame):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.pack(fill=tk.X, padx=5, pady=2)  # Changed to fill X and reduced padding
+        self.is_visible = False
+        
+        # Create header frame with dismiss button
+        self.header_frame = ttk.Frame(self)
+        self.header_frame.pack(fill=tk.X, pady=(0, 2))
+        
+        self.error_label = ttk.Label(self.header_frame, text="Error Messages:", font=('TkDefaultFont', 10, 'bold'))
+        self.error_label.pack(side=tk.LEFT)
+        
+        self.dismiss_button = ttk.Button(self.header_frame, text="✕", width=3, command=self.dismiss)
+        self.dismiss_button.pack(side=tk.RIGHT)
+        
+        # Create text widget with scrollbar
+        self.text_widget = tk.Text(self, wrap=tk.WORD, height=10)
+        self.scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL, command=self.text_widget.yview)
+        self.text_widget.configure(yscrollcommand=self.scrollbar.set)
+        
+        # Pack widgets
+        self.text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Configure tags for different error levels
+        self.text_widget.tag_configure('CRITICAL', foreground='red', font=('TkDefaultFont', 10, 'bold'))
+        self.text_widget.tag_configure('ERROR', foreground='red')
+        self.text_widget.tag_configure('WARNING', foreground='orange')
+        self.text_widget.tag_configure('INFO', foreground='blue')
+        self.text_widget.tag_configure('details', foreground='gray')
+        self.text_widget.tag_configure('suggestion', foreground='green')
+        
+        # Make text widget read-only
+        self.text_widget.configure(state='disabled')
+        
+        # Hide by default
+        self.pack_forget()
+        self.is_visible = False
+    
+    def dismiss(self):
+        """Hide the error display"""
+        self.pack_forget()
+        self.is_visible = False
+    
+    def show(self):
+        """Show the error display"""
+        if not self.is_visible:
+            self.pack(fill=tk.X, padx=5, pady=2)
+            self.is_visible = True
+    
+    def add_error(self, error_data: dict):
+        """Add an error message to the display"""
+        # Check if this is a clear action
+        if error_data.get('action') == 'clear':
+            self.clear()
+            return
+            
+        # Show the error display
+        self.show()
+        
+        self.text_widget.configure(state='normal')
+        
+        # Add timestamp
+        timestamp = datetime.fromisoformat(error_data['timestamp']).strftime('%H:%M:%S')
+        self.text_widget.insert(tk.END, f"[{timestamp}] ", 'details')
+        
+        # Add error message with appropriate tag
+        self.text_widget.insert(tk.END, f"[{error_data['level']}] {error_data['source']}: {error_data['message']}\n",
+                              error_data['level'])
+        
+        # Add details if present
+        if error_data.get('details'):
+            self.text_widget.insert(tk.END, f"Details: {error_data['details']}\n", 'details')
+        
+        # Add suggestion if present
+        if error_data.get('suggestion'):
+            self.text_widget.insert(tk.END, f"Suggestion: {error_data['suggestion']}\n", 'suggestion')
+        
+        # Add separator
+        self.text_widget.insert(tk.END, "\n")
+        
+        # Scroll to bottom
+        self.text_widget.see(tk.END)
+        self.text_widget.configure(state='disabled')
+    
+    def clear(self):
+        """Clear all error messages and hide the display"""
+        self.text_widget.configure(state='normal')
+        self.text_widget.delete(1.0, tk.END)
+        self.text_widget.configure(state='disabled')
+        self.dismiss()  # Use dismiss method instead of pack_forget
+
 class MainApplication(tk.Tk):
     def __init__(self, *args, **kwargs):
         tk.Tk.__init__(self, *args, **kwargs)
@@ -1158,6 +1282,11 @@ class MainApplication(tk.Tk):
             self.frames[page_name] = frame
             frame.grid(row=0, column=0, sticky="nsew")
 
+        # Add error display at the bottom
+        self.error_display = ErrorDisplay(self)
+        
+        # Subscribe to error messages
+        self.logic.subscribe_to_error_messages(self.error_display.add_error)
 
         self.show_frame("Page1")
 
@@ -1185,6 +1314,24 @@ class MainApplication(tk.Tk):
         frame = self.frames[page_name]
         frame.tkraise()
         self.title(frame_titles[page_name])
+        self.current_page = page_name
+
+    def go_back(self):
+        """Navigate to the previous page in the wizard."""
+        # Define the previous page mapping
+        previous_page_mapping = {
+            'Page2': 'Page1',
+            'Page3': 'Page2',
+            'Page4': 'Page3',
+            'Page5': 'Page4',
+            'Page6': 'Page5',
+            'Page7': 'Page6'
+        }
+        
+        current = getattr(self, 'current_page', None)
+        if current and current in previous_page_mapping:
+            previous_page = previous_page_mapping[current]
+            self.show_frame(previous_page)
 
 
 def main():
