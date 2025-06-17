@@ -11,3 +11,6 @@ logs
 .vscode/launch.json
 /venv/
 /tom_env/
+tests/test_toonami.db
+.gitignore
+tests/fixtures/sample.txt
