@@ -1,45 +1,95 @@
 import pandas as pd
 from itertools import cycle
 import random
-import sqlite3
+from API.utils.DatabaseManager import get_db_manager
+from API.utils.ErrorManager import get_error_manager
 import config
+from .utils import show_name_mapper
 
 
 class LineupLogic:
     def __init__(self):
         print("Initializing database connection...")
-        db_path = config.DATABASE_PATH
-        self.conn = sqlite3.connect(db_path)
+        self.db_manager = get_db_manager()
+        self.error_manager = get_error_manager()
         print("Database connection established.")
 
     def generate_lineup(self):
         print("Fetching and preparing data...")
-        df_parts = pd.read_sql('SELECT * FROM commercial_injector_prep', self.conn)
-        df_bumps = pd.read_sql('SELECT * FROM singles_data', self.conn)
+        
+        try:
+            with self.db_manager.transaction() as conn:
+                df_parts = pd.read_sql('SELECT * FROM commercial_injector_prep', conn)
+                df_bumps = pd.read_sql('SELECT * FROM singles_data', conn)
+        except Exception as e:
+            self.error_manager.send_critical(
+                source="CommercialInjector",
+                operation="generate_lineup",
+                message="Cannot access required data",
+                details=str(e),
+                suggestion="Something went wrong accessing your data. Try running Prepare Content again"
+            )
+            raise
+            
+        # Check if we have any cut parts to work with
+        if df_parts.empty:
+            self.error_manager.send_error_level(
+                source="CommercialInjector",
+                operation="generate_lineup",
+                message="No cut episode parts found",
+                details="The commercial_injector_prep table is empty",
+                suggestion="You need to run CommercialBreaker first to cut your episodes into parts"
+            )
+            raise Exception("No cut episode parts available")
+            
+        # Check if we have any bumps
+        if df_bumps.empty:
+            self.error_manager.send_error_level(
+                source="CommercialInjector",
+                operation="generate_lineup",
+                message="No single-show bumps found",
+                details="The singles_data table is empty - no bumps are available",
+                suggestion="You need at least some single-show bumps (intro, to ads, back) for the cut lineup"
+            )
+            raise Exception("No bumps available for commercial injection")
+            
         # Create a sanitized DataFrame for comparisons
         df_bumps_sanitized = df_bumps.copy()
         df_bumps_sanitized['FULL_FILE_PATH'] = df_bumps_sanitized['FULL_FILE_PATH'].apply(lambda x: x.split('Θ')[0])
 
-        def apply_show_name_mapping(show_name):
-            show_name = config.show_name_mapping.get(show_name, show_name)
-            show_name = config.show_name_mapping_2.get(show_name, show_name)
-            show_name = config.show_name_mapping_3.get(show_name, show_name)
-            return show_name
-
-        df_parts['SHOW_NAME_1'] = df_parts['SHOW_NAME_1'].str.lower().apply(apply_show_name_mapping)
-        df_bumps['SHOW_NAME_1'] = df_bumps['SHOW_NAME_1'].str.lower().apply(apply_show_name_mapping)
-        df_bumps_sanitized['SHOW_NAME_1'] = df_bumps_sanitized['SHOW_NAME_1'].str.lower().apply(apply_show_name_mapping)
+        df_parts['SHOW_NAME_1'] = df_parts['SHOW_NAME_1'].apply(lambda x: show_name_mapper.map(x, strategy='all'))
+        df_bumps['SHOW_NAME_1'] = df_bumps['SHOW_NAME_1'].apply(lambda x: show_name_mapper.map(x, strategy='all'))
+        df_bumps_sanitized['SHOW_NAME_1'] = df_bumps_sanitized['SHOW_NAME_1'].apply(lambda x: show_name_mapper.map(x, strategy='all'))
 
         df_parts.sort_values(by=['SHOW_NAME_1', 'Season and Episode', 'Part Number'], inplace=True)
 
         print("Data preparation complete.")
 
         rows = []
+        shows_without_bumps = set()
+        shows_without_specific_bumps = {'to_ads': set(), 'back': set(), 'intro': set()}
 
         print("Generating lineup...")
 
+        # Check for default/fallback bumps
+        default_bumps = list(
+            df_bumps_sanitized[
+                (df_bumps_sanitized['SHOW_NAME_1'] == 'clydes')
+                | (df_bumps_sanitized['SHOW_NAME_1'] == 'robot')
+            ]['FULL_FILE_PATH']
+        )
+        
+        if not default_bumps:
+            self.error_manager.send_warning(
+                source="CommercialInjector",
+                operation="generate_lineup",
+                message="No generic fallback bumps found",
+                details="No 'clydes' or 'robot' bumps found to use as defaults",
+                suggestion="Consider adding some generic Toonami bumps as fallbacks for shows without specific bumps"
+            )
+
         for (show_name, season_and_episode), group in df_parts.groupby(['SHOW_NAME_1', 'Season and Episode']):
-            mapped_show_name = config.show_name_mapping.get(show_name, show_name)
+            mapped_show_name = show_name_mapper.map(str(show_name), strategy='first')
 
             parts = list(group['FULL_FILE_PATH'])
             bumps = df_bumps_sanitized[df_bumps_sanitized['SHOW_NAME_1'] == mapped_show_name].sort_values('PLACEMENT_2')
@@ -65,13 +115,28 @@ class LineupLogic:
                 ]
             )
 
-            default_bumps = list(
-                df_bumps_sanitized[
-                    (df_bumps_sanitized['SHOW_NAME_1'] == 'clydes')
-                    | (df_bumps_sanitized['SHOW_NAME_1'] == 'robot')
-                ]['FULL_FILE_PATH']
-            )
             random.shuffle(default_bumps)
+
+            # Track which shows are missing specific bumps
+            if not to_ads_bumps and not generic_bumps:
+                shows_without_specific_bumps['to_ads'].add(show_name)
+            if not back_bumps and not generic_bumps:
+                shows_without_specific_bumps['back'].add(show_name)
+            if not intro_bumps and not generic_bumps:
+                shows_without_specific_bumps['intro'].add(show_name)
+                
+            # Check if show has NO bumps at all
+            if not any([to_ads_bumps, back_bumps, intro_bumps, generic_bumps]):
+                shows_without_bumps.add(show_name)
+                if not default_bumps:
+                    self.error_manager.send_error_level(
+                        source="CommercialInjector",
+                        operation="generate_lineup",
+                        message=f"No bumps available for show: {show_name}",
+                        details=f"'{show_name}' has no specific bumps and no fallback bumps are available",
+                        suggestion="Add bumps for this show or add generic 'clydes' or 'robot' bumps to continue"
+                    )
+                    raise Exception(f"No bumps available for {show_name}")
 
             if not to_ads_bumps:
                 to_ads_bumps = generic_bumps or default_bumps
@@ -95,9 +160,51 @@ class LineupLogic:
                     if back_bumps_cycle:
                         rows.append({'SHOW_NAME_1': show_name, 'Season and Episode': season_and_episode, 'FULL_FILE_PATH': next(back_bumps_cycle, None)})
 
-        print("Lineup generated. Proceeding to database writing.")
+        # Report shows using generic/default bumps
+        if shows_without_bumps:
+            self.error_manager.send_info(
+                source="CommercialInjector",
+                operation="generate_lineup",
+                message=f"{len(shows_without_bumps)} shows using only generic bumps",
+                details=f"{len(shows_without_bumps)} shows have no specific bumps at all",
+                suggestion="Consider adding intro, to ads, and back bumps for these shows for a better experience"
+            )
+            
+        # Report specific missing bump types
+        for bump_type, shows in shows_without_specific_bumps.items():
+            if shows and len(shows) > len(df_parts['SHOW_NAME_1'].unique()) * 0.3:  # More than 30% of shows
+                self.error_manager.send_info(
+                    source="CommercialInjector",
+                    operation="generate_lineup",
+                    message=f"{len(shows)} shows missing '{bump_type}' bumps",
+                    details=f"These shows are using generic or default bumps for '{bump_type}' transitions",
+                    suggestion=f"Consider adding '{bump_type}' bumps for a more authentic Toonami experience"
+                )
 
-        df_lineup = pd.DataFrame(rows, columns=['SHOW_NAME_1', 'Season and Episode', 'FULL_FILE_PATH'])
-        df_lineup.to_sql('commercial_injector', self.conn, index=False, if_exists='replace')
+        print("Lineup generated. Proceeding to database writing.")
+        
+        if not rows:
+            self.error_manager.send_error_level(
+                source="CommercialInjector",
+                operation="generate_lineup",
+                message="No lineup entries generated",
+                details="The lineup generation produced no entries",
+                suggestion="Check that your cut episodes and bumps are properly set up"
+            )
+            raise Exception("Empty lineup generated")
+
+        try:
+            df_lineup = pd.DataFrame(rows, columns=['SHOW_NAME_1', 'Season and Episode', 'FULL_FILE_PATH'])
+            with self.db_manager.transaction() as conn:
+                df_lineup.to_sql('commercial_injector', conn, index=False, if_exists='replace')
+        except Exception as e:
+            self.error_manager.send_error_level(
+                source="CommercialInjector",
+                operation="generate_lineup",
+                message="Failed to save commercial injection lineup",
+                details=str(e),
+                suggestion="There was an issue saving your lineup. Try running this step again"
+            )
+            raise
 
         print("Lineup has been written to the database.")

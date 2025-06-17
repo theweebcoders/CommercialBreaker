@@ -1,8 +1,8 @@
-import sqlite3
 import pandas as pd
 import re 
 from pathlib import Path
 import config
+from API.utils import get_db_manager
 
 
 
@@ -15,27 +15,24 @@ class VirtualCut:
     def generate_virtual_prep_data(self, video_files_data, total_videos, progress_callback=None, status_callback=None):
             """Generates data for commercial_injector_prep table without physical cutting."""
             prep_data = []
-            db_path = config.DATABASE_PATH
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
+            db_manager = get_db_manager()
             
             # Create required tables if they don't exist
             try:
                 # Check if app_data table exists and has data
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='app_data'")
-                if not cursor.fetchone():
-                    cursor.execute('''
+                result = db_manager.fetchone("SELECT name FROM sqlite_master WHERE type='table' AND name='app_data'")
+                if not result:
+                    db_manager.execute('''
                     CREATE TABLE IF NOT EXISTS app_data (
                         key TEXT PRIMARY KEY,
                         value TEXT
                     )
                     ''')
-                    conn.commit()
                 
                 # Check if commercial_injector_prep table exists
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='commercial_injector_prep'")
-                if not cursor.fetchone():
-                    cursor.execute('''
+                result = db_manager.fetchone("SELECT name FROM sqlite_master WHERE type='table' AND name='commercial_injector_prep'")
+                if not result:
+                    db_manager.execute('''
                     CREATE TABLE IF NOT EXISTS commercial_injector_prep (
                         SHOW_NAME_1 TEXT,
                         "Season and Episode" TEXT,
@@ -46,7 +43,6 @@ class VirtualCut:
                         endTime INTEGER
                     )
                     ''')
-                    conn.commit()
                 
             except Exception as e:
                 if status_callback:
@@ -117,7 +113,6 @@ class VirtualCut:
             if not prep_data:
                 if status_callback:
                     status_callback("No virtual data generated.")
-                conn.close()
                 return
 
             # Create DataFrame
@@ -129,39 +124,37 @@ class VirtualCut:
             # Save to commercial_injector_prep table
             try:
                 table_name = 'commercial_injector_prep'
-                cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
-                table_exists = bool(cursor.fetchone())
+                result = db_manager.fetchone(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+                table_exists = bool(result)
 
-                if table_exists:
-                    existing_df = pd.read_sql(f'SELECT * FROM {table_name}', conn)
-                    # Ensure columns match before concatenating
-                    for col in df.columns:
-                        if col not in existing_df.columns:
-                            existing_df[col] = None
-                    for col in existing_df.columns:
-                        if col not in df.columns:
-                            df[col] = None
-                    
-                    combined_df = pd.concat([existing_df, df], ignore_index=True)
-                    # Use FULL_FILE_PATH for deduplication
-                    duplicates = combined_df.duplicated(subset=['FULL_FILE_PATH'], keep='last')
-                    combined_df = combined_df[~duplicates]
-                    combined_df.to_sql(table_name, conn, index=False, if_exists='replace')
-                    if status_callback:
-                        status_callback(f"Updated {table_name} table with {len(combined_df)} entries.")
-                else:
-                    df.to_sql(table_name, conn, index=False, if_exists='replace')
-                    if status_callback:
-                        status_callback(f"Created {table_name} table with {len(df)} entries.")
+                with db_manager.transaction() as conn:
+                    if table_exists:
+                        existing_df = pd.read_sql(f'SELECT * FROM {table_name}', conn)
+                        # Ensure columns match before concatenating
+                        for col in df.columns:
+                            if col not in existing_df.columns:
+                                existing_df[col] = None
+                        for col in existing_df.columns:
+                            if col not in df.columns:
+                                df[col] = None
+                        
+                        combined_df = pd.concat([existing_df, df], ignore_index=True)
+                        # Use FULL_FILE_PATH for deduplication
+                        duplicates = combined_df.duplicated(subset=['FULL_FILE_PATH'], keep='last')
+                        combined_df = combined_df[~duplicates]
+                        combined_df.to_sql(table_name, conn, index=False, if_exists='replace')
+                        if status_callback:
+                            status_callback(f"Updated {table_name} table with {len(combined_df)} entries.")
+                    else:
+                        df.to_sql(table_name, conn, index=False, if_exists='replace')
+                        if status_callback:
+                            status_callback(f"Created {table_name} table with {len(df)} entries.")
                 
                 # Set the cutless mode flag in app_data
-                cursor.execute("INSERT OR REPLACE INTO app_data (key, value) VALUES (?, ?)", ('cutless_mode_used', 'True'))
-                conn.commit()
+                db_manager.execute("INSERT OR REPLACE INTO app_data (key, value) VALUES (?, ?)", ('cutless_mode_used', 'True'))
                 if status_callback:
                     status_callback("Set Cutless Mode Used flag to True.")
                     
             except Exception as e:
                  if status_callback:
                     status_callback(f"Error saving virtual data or setting flag: {e}")
-            finally:
-                conn.close()

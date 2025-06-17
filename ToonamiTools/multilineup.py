@@ -1,13 +1,14 @@
 import pandas as pd
-import sqlite3
 import random
 import config
+from API.utils import get_db_manager
+from API.utils.ErrorManager import get_error_manager
 
 
 class Multilineup:
     def __init__(self):
-        db_path = config.DATABASE_PATH
-        self.conn = sqlite3.connect(db_path)
+        self.db_manager = get_db_manager()
+        self.error_manager = get_error_manager()
         self.next_show_name = None
         self.used_rows = set()
         self.recent_shows = []
@@ -27,9 +28,10 @@ class Multilineup:
         return df.sample(n=1, weights=normalized_weights)
 
     def unused_bumps(self, table_name):
-        df = pd.read_sql_query(f"SELECT * FROM {table_name}", self.conn)
+        with self.db_manager.transaction() as conn:
+            df = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
 
-        unused_df = df.drop(self.used_rows, errors='ignore')
+        unused_df = df.drop(list(self.used_rows), errors='ignore')
         return unused_df
     
     def get_next_row(self, table_name):
@@ -79,7 +81,18 @@ class Multilineup:
         return next_row, index
 
     def write_to_table(self, next_row, table_name):
-        next_row.to_sql(table_name, self.conn, if_exists='append')
+        try:
+            with self.db_manager.transaction() as conn:
+                next_row.to_sql(table_name, conn, if_exists='append')
+        except Exception as e:
+            self.error_manager.send_error_level(
+                source="Multilineup",
+                operation="write_to_table",
+                message=f"Failed to save reordered bump to {table_name}",
+                details=str(e),
+                suggestion="There was an error while trying to save the bump to the database. Please check that the database still exists and is accessible."
+            )
+            raise
 
         if next_row['PLACEMENT_2'].values[0] == 'next':
             self.next_show_name = next_row['SHOW_NAME_3'].values[0]
@@ -123,6 +136,9 @@ class Multilineup:
 
         # If neither situation 1, situation 2 nor situation 3 is met, return the first bump
         if optimal_first_bump is None:
+            if df.empty:
+                print("Warning: Empty dataframe passed to find_optimal_first_bump")
+                return pd.DataFrame()
             optimal_first_bump = df.iloc[[0]]
 
         return optimal_first_bump
@@ -133,7 +149,7 @@ class Multilineup:
         print(f"Starting reordering for {table_name}")
         unused_df = self.unused_bumps(table_name)
         first_bump = self.find_optimal_first_bump(unused_df)
-        if first_bump is not None:
+        if first_bump is not None and not first_bump.empty:
             self.write_to_table(first_bump, reordered_table_name)
             self.used_rows.add(first_bump.index[0]) 
             unused_df = self.unused_bumps(table_name)  # Refresh unused rows

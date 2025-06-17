@@ -12,6 +12,7 @@ ffplay_path = tools_dir + "ffplay.exe"
 fpcalc_path = tools_dir + "fpcalc.exe"
 mkvmerge_path = tools_dir + "mkvmerge.exe"
 ENGLISH_VARIATIONS = ['eng', 'english', 'english dub', 'inglês', 'en', 'en-us', '英語', 'anglais']
+cutless_mode = True
 
 DATABASE_DIR = os.environ.get("DB_DIR") or os.path.dirname(__file__)
 DATABASE_PATH = os.environ.get("DB_PATH") or os.path.join(DATABASE_DIR, f'{network}.db')
@@ -88,13 +89,13 @@ keywords = [
     "To Ads",
     "Generic",
     "Intro",
-    "Next From",
     #triples
     "Later",
     "Now",
     "Next",    #singles and triples
     #doubles
     "From",
+    "Next From",
 
 ]
 
@@ -185,7 +186,7 @@ video_file_types = [
     '.qt'  # QuickTime File Format
 ]
 
-genric_bumps = ['clydes', 'robot', 'robots', 'robot', 'robot 1', 'robot 2', 'robot 3', 'robot 4', 'robot 5', 'robot 6', 'robot 7', 'robot 8', 'robot 9', 'robot 10']
+generic_bumps = ['clydes', 'robot', 'robots', 'robot', 'robot 1', 'robot 2', 'robot 3', 'robot 4', 'robot 5', 'robot 6', 'robot 7', 'robot 8', 'robot 9', 'robot 10']
 
 part_a = [
     "Bursting", "Hidden", "Expansive", "Boundless", "Closed", "Quiet",

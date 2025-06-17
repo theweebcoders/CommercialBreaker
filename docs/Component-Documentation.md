@@ -6,12 +6,11 @@ This document provides detailed information about each tool and module in the Co
 
 The tools work together in a specific sequence to create your Toonami channel:
 
-```
-1. LoginToPlex → 2. ToonamiChecker → 3. LineupPrep → 4. ToonamiEncoder → 
-5. UncutEncoder → 6. ShowScheduler (Merger) → 7. FilterAndMove (EpisodeFilter) → 8. GetPlexTimestamps → 
-9. CommercialBreaker → 10. AnimeFileOrganizer (CommercialInjectorPrep) → 11. LineupLogic (CommercialInjector) → 
-12. ShowScheduler (again) → 13. CutlessFinalizer → 14. PlexAutoSplitter (PlexSplitter) → 
-15. PlexLibraryUpdater (PlexSplitRenamer) → 16. PlexToDizqueTV/PlexToTunarr → 17. DizqueTVManager (FlexInjector)
+```plaintext
+1. LoginToPlex (Optional) → 2. FolderMaker → 3. ToonamiChecker → 4. LineupPrep → 5. BumpEncoder → 
+6. UncutEncoder → 7. Multilineup → 8. ShowScheduler (Merger) X4 → 9. EpisodeFilter (EpisodeFilter) → 10. GetPlexTimestamps (Optional) → 
+11. CommercialBreaker → 
+12. CommercialInjectorPrep → 13. CommercialInjector → 14. BlockMaker (BlockIDCreator) → 15. ShowScheduler (Merger) (again) X4 → 16. CutlessFinalizer (If using cutless mode) → 17. ExtraBumps (FileProcessor) (Optional) → 18. PlexAutoSplitter (Optional) → 19. PlexSplitRenamer (Optional) → 20. PlexToDizqueTV/PlexToTunarr → 21. DizqueTVManager (FlexInjector) (If using DizqueTV)
 ```
 
 ---
@@ -77,7 +76,7 @@ The tools work together in a specific sequence to create your Toonami channel:
 ## Content Discovery Components
 
 ### ToonamiChecker
-**File**: `ToonamiTools/toonamichecker.py`
+**File**: `ToonamiTools/ToonamiChecker.py`
 **Classes**: `ToonamiShowsFetcher`, `ToonamiChecker`
 **Purpose**: Identifies which shows in the user's local anime folder are known to have aired on the configured network (eg. Toonami) by cross-referencing with a list fetched from Wikipedia. It then saves this information, including file paths, to a database.
 
@@ -131,7 +130,7 @@ The tools work together in a specific sequence to create your Toonami channel:
 ## Lineup Generation Components
 
 ### LineupPrep
-**File**: `ToonamiTools/lineupprep.py`
+**File**: `ToonamiTools/LineupPrep.py`
 **Class**: `MediaProcessor`
 **Purpose**: Processes bump video files from a specified folder, extracts metadata (show names, placements, versions, colors) based on their filenames, and categorizes them into "nice" (matching known shows and patterns) and "naughty" (not matching) lists. This structured data is saved to a database for use in lineup creation.
 
@@ -166,7 +165,7 @@ The tools work together in a specific sequence to create your Toonami channel:
         -   `nice_list`: Bumps with 'nice' status.
         -   `naughty_list`: Bumps with 'naughty' status.
         -   `no_match`: Files for which no pattern was matched.
-        -   `lineup_prep_out`: A subset of `nice_list` (dropping `ORIGINAL_FILE_PATH` and `Status`), which serves as the primary input for `ToonamiEncoder`.
+        -   `lineup_prep_out`: A subset of `nice_list` (dropping `ORIGINAL_FILE_PATH` and `Status`), which serves as the primary input for `BumpEncoder`.
     -   Handles existing tables by appending new data and removing duplicates.
 -   **Inputs**:
     -   `bump_folder` (path to bump files).
@@ -175,10 +174,10 @@ The tools work together in a specific sequence to create your Toonami channel:
 -   **Outputs**:
     -   Populates/updates `nice_list`, `naughty_list`, `no_match`, and `lineup_prep_out` tables in the SQLite database.
 
-**Significance**: This tool is critical for structuring raw bump files into a usable format. It standardizes naming and categorizes bumps, making it possible for subsequent tools like `ToonamiEncoder` and `ShowScheduler` (Merger) to build coherent Toonami lineups. The `lineup_prep_out` table is the key handoff to the next stage of encoding.
+**Significance**: This tool is critical for structuring raw bump files into a usable format. It standardizes naming and categorizes bumps, making it possible for subsequent tools like `BumpEncoder` and `ShowScheduler` (Merger) to build coherent Toonami lineups. The `lineup_prep_out` table is the key handoff to the next stage of encoding.
 
-### ToonamiEncoder
-**File**: `ToonamiTools/ToonamiEncoder.py`
+### BumpEncoder
+**File**: `ToonamiTools/BumpEncoder.py`
 **Purpose**: Processes bump data from the `lineup_prep_out` database table to create standardized codes for each bump. These codes are used for efficient library management and bump selection during lineup generation by the `Merger (ShowScheduler)`.
 
 **Key Features & Process**:
@@ -217,7 +216,7 @@ The tools work together in a specific sequence to create your Toonami channel:
     4. Saves the `codes` mapping table to the database.
 
 **Significance**:
-- The `ToonamiEncoder` standardizes bump representation, making it easier for the `Merger (ShowScheduler)` to identify and sequence bumps based on the shows they feature and their type (single, double, triple, version, etc.).
+- The `BumpEncoder` standardizes bump representation, making it easier for the `Merger (ShowScheduler)` to identify and sequence bumps based on the shows they feature and their type (single, double, triple, version, etc.).
 - The `codes` table is crucial for the `Merger` to decode these abbreviations back to full show names when processing the lineup.
 
 
@@ -230,7 +229,7 @@ The tools work together in a specific sequence to create your Toonami channel:
 -   **Initialization**:
     -   Connects to the SQLite database (`[config.network].db`).
 -   **Bump Data Loading (`load_bumps_data` method)**:
-    -   Reads bump data from the `singles_data` table (created by `ToonamiEncoder`).
+    -   Reads bump data from the `singles_data` table (created by `BumpEncoder`).
     -   Applies show name mappings (from `config.show_name_mapping`, `_2`, `_3`) to the `SHOW_NAME_1` column in the loaded bumps data.
     -   Creates a `default_bump_cycle` by selecting generic bumps (e.g., containing 'clydes' or 'robot' in `SHOW_NAME_1`) to be used as a fallback if specific intro bumps are not found.
 -   **Episode File Discovery (`find_files` method)**:
@@ -270,7 +269,7 @@ The tools work together in a specific sequence to create your Toonami channel:
 ### Multilineup
 **File**: `ToonamiTools/Multilineup.py`
 **Class**: `Multilineup`
-**Purpose**: Re-orders multi-show bump tables (e.g., `multibumps_vX_data` created by `ToonamiEncoder`) to create a more logical and flowing sequence of bumps. The goal is to ensure that the "Later" show of one bump becomes the "Now" or "Next" show of the subsequent bump, creating a continuous chain.
+**Purpose**: Re-orders multi-show bump tables (e.g., `multibumps_vX_data` created by `BumpEncoder`) to create a more logical and flowing sequence of bumps. The goal is to ensure that the "Later" show of one bump becomes the "Now" or "Next" show of the subsequent bump, creating a continuous chain.
 
 **Key Features & Process**:
 -   **Initialization**:
@@ -304,15 +303,15 @@ The tools work together in a specific sequence to create your Toonami channel:
         -   Continues until all bumps from the original table are used.
     -   `reorder_all_tables`: Iterates through potential table names (`multibumps_v0_data` to `multibumps_v9_data`) and calls `reorder_table` for each one that exists.
 -   **Inputs**:
-    -   Various `multibumps_vX_data` tables from the database (created by `ToonamiEncoder`).
+    -   Various `multibumps_vX_data` tables from the database (created by `BumpEncoder`).
     -   `config.network` (for database name).
 -   **Outputs**:
     -   Creates new tables in the database with `_reordered` suffix (e.g., `multibumps_v2_data_reordered`), containing the bumps in a more logical sequence.
 
 **Significance**: `Multilineup` is crucial for creating engaging Toonami blocks where the announcements flow logically from one multi-show bump to the next. The reordered tables it produces are used by the `ShowScheduler` (Merger) to construct the final channel lineup, ensuring that transitions between shows are smooth and make narrative sense based on the bump announcements.
 
-### BlockIDCreator
-**File**: `ToonamiTools/lineupencode.py` (Class: `BlockIDCreator`)
+### BlockMaker
+**File**: `ToonamiTools/BlockMaker.py` (Class: `BlockMaker`)
 **Purpose**: Processes data from the `commercial_injector` table (which contains paths to cut episode parts and associated metadata), generates a standardized `BLOCK_ID` for each entry, and saves the result to the `commercial_injector_final` table. The `BLOCK_ID` groups all parts of the same original episode, which is crucial for subsequent lineup scheduling.
 
 **Key Features & Process**:
@@ -527,8 +526,8 @@ The CommercialBreaker system is composed of several specialized components worki
 
 ## Content Enhancement Components
 
-### Bonus! (ExtraBumpsToSheet)
-**File**: `ToonamiTools/extrabumpstosheet.py`
+### ExtraBumps
+**File**: `ToonamiTools/ExtraBumps.py`
 **Class**: `FileProcessor`
 **Purpose**: Integrates additional video files (referred to as "special bumps" or "bonus" content) from a specified input directory into existing lineup tables in the database. These are inserted at random intervals.
 
@@ -562,7 +561,7 @@ The CommercialBreaker system is composed of several specialized components worki
 ## Plex Management Components
 
 ### PlexSplitter
-**File**: `ToonamiTools/plexautosplitter.py`
+**File**: `ToonamiTools/PlexAutoSplitter.py`
 **Class**: `PlexAutoSplitter`
 **Purpose**: Automates the "split apart" action in Plex for media items that Plex has incorrectly merged (i.e., a single library entry points to multiple distinct video files). This is crucial for ensuring each video part or episode is treated as a separate entity for accurate lineup generation and playback.
 
@@ -910,8 +909,8 @@ Plex's automatic matching can sometimes incorrectly merge multiple video files (
 
 **Significance**:
 -   A simple but essential utility that sets up the foundational directory structure used by many other components in the pipeline.
--   `cut` folder: Typically used by `CommercialBreaker` as an output directory for timestamp files or physically cut video segments. Also used by `AnimeFileOrganizer` (CommercialInjectorPrep).
--   `toonami_filtered` folder: Used by `FilterAndMove` (EpisodeFilter) as a destination for moved show directories.
+-   `cut` folder: Typically used by `CommercialBreaker` as an output directory for timestamp files or physically cut video segments. Also used by `CommercialInjectorPrep` (CommercialInjectorPrep).
+-   `toonami_filtered` folder: Used by `EpisodeFilter` (EpisodeFilter) as a destination for moved show directories.
 -   Ensures consistency and prevents errors that might arise if tools expect certain directories that haven't been created. Called early in the `prepare_content` workflow in `FrontEndLogic.py`.
 
 ---

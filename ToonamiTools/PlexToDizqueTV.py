@@ -3,13 +3,17 @@ import re
 import os
 import sys
 import config
-import sqlite3
+from API.utils.DatabaseManager import get_db_manager
+from API.utils.ErrorManager import get_error_manager
 from plexapi.server import PlexServer
 from dizqueTV import API
+from .utils import show_name_mapper
 
 
 class PlexToDizqueTVSimplified:
     def __init__(self, plex_url, plex_token, anime_library, toonami_library, table, dizquetv_url, channel_number, cutless_mode):
+        self.error_manager = get_error_manager()
+        
         # Store all parameters directly from arguments - no DB interaction
         self.plex_url = plex_url
         self.plex_token = plex_token
@@ -32,10 +36,30 @@ class PlexToDizqueTVSimplified:
         print("Initializing the connection to Plex and dizqueTV...")
         
         # Connect to Plex
-        self.plex = PlexServer(self.plex_url, self.plex_token)
+        try:
+            self.plex = PlexServer(self.plex_url, self.plex_token)
+        except Exception as e:
+            self.error_manager.send_error_level(
+                source="PlexToDizqueTV",
+                operation="run",
+                message="Cannot connect to Plex",
+                details=str(e),
+                suggestion="Check that your Plex server is running and your credentials are correct"
+            )
+            raise
         
         # Initialize DizqueTV API
-        self.dtv = API(url=self.dizquetv_url)
+        try:
+            self.dtv = API(url=self.dizquetv_url)
+        except Exception as e:
+            self.error_manager.send_error_level(
+                source="PlexToDizqueTV",
+                operation="run",
+                message="Cannot connect to DizqueTV",
+                details=f"Failed to connect to {self.dizquetv_url}",
+                suggestion="Check that DizqueTV is running and the URL is correct"
+            )
+            raise
         
         # Use provided dataframe or load from table name
         if df is not None:
@@ -44,9 +68,21 @@ class PlexToDizqueTVSimplified:
         else:
             # The caller should provide the dataframe, but this provides backward compatibility
             print(f"Loading data from table '{self.table}' in database.")
-            db = sqlite3.connect(config.DATABASE_PATH)
-            self.df = pd.read_sql_query(f"SELECT * FROM {self.table}", db)
-            db.close()
+            db_manager = get_db_manager()
+            
+            # Check if table exists
+            if not db_manager.table_exists(self.table):
+                self.error_manager.send_error_level(
+                    source="PlexToDizqueTV",
+                    operation="run",
+                    message=f"Lineup table '{self.table}' not found",
+                    details="The specified lineup table does not exist in the database",
+                    suggestion="Run 'Prepare Cut Anime for Lineup' first to create the necessary lineup data"
+                )
+                raise Exception(f"Table {self.table} not found")
+            
+            with db_manager.transaction() as conn:
+                self.df = pd.read_sql_query(f"SELECT * FROM {self.table}", conn)
         
         # Initialize libraries
         self._init_libraries()
@@ -218,25 +254,14 @@ class PlexToDizqueTVSimplified:
 
     def fuzzy_find_show(self, anime_section, show_title):
         """Try to find a show in the section by fuzzy matching the title (ignoring punctuation/case)."""
-        # Apply show name mappings if applicable
+        # Apply show name mappings using the mapper utility
         original_title = show_title
-        show_title_lower = show_title.lower()
-        
-        # Apply mappings from config
-        if show_title_lower in config.show_name_mapping:
-            show_title = config.show_name_mapping[show_title_lower]
-            print(f"Mapped '{original_title}' to '{show_title}' using primary mappings")
-        elif show_title_lower in config.show_name_mapping_2:
-            show_title = config.show_name_mapping_2[show_title_lower]
-            print(f"Mapped '{original_title}' to '{show_title}' using secondary mappings")
-        elif show_title_lower in config.show_name_mapping_3:
-            show_title = config.show_name_mapping_3[show_title_lower]
-            print(f"Mapped '{original_title}' to '{show_title}' using tertiary mappings")
-        
+        mapped_title = show_name_mapper.map(show_title, strategy='first_match')
+
         def normalize(s):
             return re.sub(r'[^a-z0-9]', '', s.lower())
         
-        target = normalize(show_title)
+        target = normalize(mapped_title)
         
         # Try exact match first
         for show in anime_section.all():
@@ -249,7 +274,7 @@ class PlexToDizqueTVSimplified:
                 return show
         
         # If we get here and we applied a mapping, try the original title as a fallback
-        if original_title != show_title:
+        if original_title != mapped_title:
             print(f"Mapped title not found, trying original title: '{original_title}'")
             target = normalize(original_title)
             

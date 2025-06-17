@@ -34,16 +34,30 @@ def __init__(self):
     """
 ```
 
-#### State Management API
+### Database Methods
+
+The LogicController uses DatabaseManager for all database operations:
+
+- `_setup_database()` - Initializes the app_data table
+- `_set_data(key, value)` - Stores configuration values
+- `_get_data(key)` - Retrieves configuration values
+- `_check_table_exists(table_name)` - Verifies table existence
 
 **Database Operations**
 ```python
+def _setup_database(self) -> None:
+    """Initialize the SQLite database and create necessary tables"""
+
 def _set_data(self, key: str, value: str) -> None:
     """Persist data to SQLite database"""
 
 def _get_data(self, key: str) -> str | None:
     """Retrieve data from SQLite database"""
+
+def _check_table_exists(self, table_name: str) -> bool:
+    """Check if a table exists in the database"""
 ```
+All methods use thread-safe DatabaseManager operations internally.
 
 **Common State Keys**:
 - `plex_url` - Plex server URL
@@ -126,6 +140,153 @@ def publish_filtered_files(self, filtered_files: list) -> None:
 def publish_cutless_state(self, enabled: bool) -> None:
     """Publishes the cutless mode state ('true' or 'false') via message broker"""
     
+```
+
+
+## ErrorManager API
+
+The `ErrorManager` class in `API/utils/ErrorManager.py` provides a unified way to send error messages throughout the system. It uses the message broker to ensure all UIs receive error messages in a consistent format.
+
+### Getting the ErrorManager
+
+```python
+from API.utils.ErrorManager import get_error_manager
+
+class MyModule:
+    def __init__(self):
+        self.error_manager = get_error_manager()
+```
+
+### Error Levels
+
+The system supports four error levels defined in `ErrorLevel`:
+
+- `CRITICAL`: System cannot continue
+- `ERROR`: Operation failed but system stable
+- `WARNING`: Operation degraded but continuing
+- `INFO`: Important non-error information
+
+### Core Methods
+
+```python
+def send_error(self, 
+              level: str,
+              source: str,
+              operation: str,
+              message: str,
+              details: Optional[str] = None,
+              suggestion: Optional[str] = None) -> None:
+    """
+    Send an error message through the message broker.
+    
+    Args:
+        level: Error level (CRITICAL, ERROR, WARNING, INFO)
+        source: Component or module generating the error
+        operation: Operation that triggered the error
+        message: Primary error message
+        details: Additional error details (optional)
+        suggestion: Suggested resolution (optional)
+    """
+```
+
+### Convenience Methods
+
+```python
+def send_critical(self, source: str, operation: str, message: str, **kwargs) -> None:
+    """Send a critical error message"""
+
+def send_error_level(self, source: str, operation: str, message: str, **kwargs) -> None:
+    """Send an error level message"""
+
+def send_warning(self, source: str, operation: str, message: str, **kwargs) -> None:
+    """Send a warning message"""
+
+def send_info(self, source: str, operation: str, message: str, **kwargs) -> None:
+    """Send an info message"""
+```
+
+### Error Message Structure
+
+```python
+{
+    "level": "ERROR",
+    "source": "MyTool",
+    "operation": "process_file",
+    "message": "File not found",
+    "details": "The specified file does not exist",
+    "suggestion": "Check the file path",
+    "timestamp": "2024-03-14T10:30:45"
+}
+```
+
+### FrontEndLogic Integration
+
+The LogicController provides methods for handling error messages:
+
+```python
+def subscribe_to_error_messages(self, callback: callable) -> None:
+    """
+    Subscribe to error messages from any component.
+    
+    Args:
+        callback: Function to call with error data when an error occurs
+    """
+```
+
+### Thread Safety
+
+- ErrorManager is thread-safe through MessageBroker
+- Can be used from any thread
+- No additional synchronization needed
+
+### Rate Limiting
+
+FrontEndLogic automatically rate limits repeated errors:
+- 5-second cooldown between identical errors
+- Prevents error message spam
+- Based on source, operation, and message
+
+### Critical Error Handling
+
+When a critical error occurs:
+1. Current operation is stopped
+2. Operation queue is cleared
+3. UI state is reset
+4. System returns to ready state
+
+
+#### Error Management API
+
+**Error History Methods**
+```python
+def get_error_history(self, level_filter: Optional[str] = None,
+                     source_filter: Optional[str] = None,
+                     limit: Optional[int] = None) -> list:
+    """Get error history with optional filtering"""
+
+def get_recent_errors(self, count: int = 10) -> list:
+    """Get the most recent N errors"""
+
+def get_errors_by_level(self, level: str) -> list:
+    """Get all errors of a specific level (CRITICAL, ERROR, WARNING, INFO)"""
+
+def get_critical_errors(self) -> list:
+    """Get all critical errors"""
+
+def clear_error_history(self) -> None:
+    """Clear the entire error history"""
+
+def get_error_summary(self) -> dict:
+    """Get a summary of errors by level"""
+```
+
+**Error Subscription Methods**
+```python
+def subscribe_to_error_messages(self, callback: callable) -> None:
+    """Subscribe to error messages. Callback receives (error_data dict)"""
+
+def clear_error_messages(self) -> None:
+    """Clear all error messages from all UIs"""
 ```
 
 #### Workflow API
@@ -257,7 +418,7 @@ def prepare_cut_anime(self) -> None:
     """
     Prepares cut anime for lineup generation:
     1. Runs CommercialInjectorPrep (traditional) or skips (cutless)
-    2. Executes LineupLogic for commercial injection planning
+    2. Executes CommercialInjector for commercial injection planning
     3. Creates block IDs for show organization
     4. Runs ShowScheduler merger for all lineup variants
     5. Handles CutlessFinalizer for virtual cut processing (if enabled)

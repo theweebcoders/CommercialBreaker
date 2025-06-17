@@ -1,76 +1,124 @@
-import sqlite3
 import pandas as pd
-import config
 import os
 import re
+from API.utils.DatabaseManager import get_db_manager
+from API.utils.ErrorManager import get_error_manager
+import config
 
 class CutlessFinalizer:
     def __init__(self):
-        self.db_path = config.DATABASE_PATH
-        self.conn = None
-        self.cursor = None
-        print(f"CutlessFinalizer initialized with DB path: {self.db_path}")
-
-    def _connect_db(self):
-        """Establish database connection."""
-        try:
-            self.conn = sqlite3.connect(self.db_path)
-            self.cursor = self.conn.cursor()
-            print("Database connection established.")
-        except sqlite3.Error as e:
-            print(f"Error connecting to database: {e}")
-            raise
-
-    def _close_db(self):
-        """Close database connection."""
-        if self.conn:
-            self.conn.close()
-            print("Database connection closed.")
+        self.db_manager = get_db_manager()
+        self.error_manager = get_error_manager()
+        print("CutlessFinalizer initialized with DatabaseManager.")
 
     def _get_cutless_mapping(self):
         """Retrieve the mapping from virtual paths to original paths and timestamps."""
         mapping_table = 'commercial_injector_prep'
         try:
-            if not self._check_table_exists(mapping_table):
-                 print(f"Error: Mapping table '{mapping_table}' does not exist.")
-                 return None
+            if not self.db_manager.table_exists(mapping_table):
+                self.error_manager.send_error_level(
+                    source="CutlessFinalizer",
+                    operation="_get_cutless_mapping",
+                    message="Virtual cut mapping table not found",
+                    details=f"Table '{mapping_table}' does not exist",
+                    suggestion="This step requires Cutless Mode to have been used during commercial processing. Make sure Cutless Mode was enabled"
+                )
+                return None
                  
             # Select only necessary columns
             query = f"SELECT FULL_FILE_PATH, ORIGINAL_FILE_PATH, startTime, endTime FROM {mapping_table}"
-            mapping_df = pd.read_sql_query(query, self.conn)
+            with self.db_manager.transaction() as conn:
+                # First check if the table has ANY columns
+                test_df = pd.read_sql_query(f"SELECT * FROM {mapping_table} LIMIT 1", conn)
+                
+                # Check if timestamp columns exist
+                missing_columns = []
+                if 'startTime' not in test_df.columns:
+                    missing_columns.append('startTime')
+                if 'endTime' not in test_df.columns:
+                    missing_columns.append('endTime')
+                    
+                if missing_columns:
+                    self.error_manager.send_critical(
+                        source="CutlessFinalizer",
+                        operation="_get_cutless_mapping",
+                        message="CRITICAL: Timestamp columns missing from virtual cut table",
+                        details=f"Missing columns: {', '.join(missing_columns)}. This indicates Cutless Mode may not have run correctly or the table structure is corrupted",
+                        suggestion="This is a critical issue that should be reported. Please join our Discord and let us know about this error so we can investigate"
+                    )
+                    return None
+                
+                # Now read the actual data we need
+                mapping_df = pd.read_sql_query(query, conn)
             
-            # Check if required columns exist
-            required_cols = ['FULL_FILE_PATH', 'ORIGINAL_FILE_PATH', 'startTime', 'endTime']
-            if not all(col in mapping_df.columns for col in required_cols):
-                print(f"Error: Mapping table '{mapping_table}' is missing required columns (need {required_cols}).")
+            # Check if we have any data
+            if mapping_df.empty:
+                self.error_manager.send_error_level(
+                    source="CutlessFinalizer",
+                    operation="_get_cutless_mapping",
+                    message="No virtual cut data found",
+                    details=f"The '{mapping_table}' table exists but is empty",
+                    suggestion="No cut episodes were processed in Cutless Mode. Make sure you ran commercial processing with Cutless Mode enabled"
+                )
                 return None
+                
+            # Verify data integrity - check if timestamps are actually populated
+            null_starts = mapping_df['startTime'].isna().sum()
+            null_ends = mapping_df['endTime'].isna().sum()
+            
+            if null_starts > 0 and null_ends > 0:
+                self.error_manager.send_critical(
+                    source="CutlessFinalizer",
+                    operation="_get_cutless_mapping",
+                    message=f"Some entries missing timestamp data",
+                    details=f"{null_starts} entries missing startTime, {null_ends} entries missing endTime",
+                    suggestion="Some virtual cuts don't have proper timestamps. Please report this issue to us on Discord so we can investigate"
+                )
                 
             print(f"Successfully loaded {len(mapping_df)} mappings from {mapping_table}.")
             # Set index for faster lookup
             mapping_df.set_index('FULL_FILE_PATH', inplace=True)
             return mapping_df
             
-        except pd.io.sql.DatabaseError as e:
-            print(f"Error reading mapping table '{mapping_table}': {e}")
-            return None
         except Exception as e:
-            print(f"An unexpected error occurred while getting cutless mapping: {e}")
+            self.error_manager.send_error_level(
+                source="CutlessFinalizer",
+                operation="_get_cutless_mapping",
+                message="Failed to read virtual cut mapping data",
+                details=str(e),
+                suggestion="There was an error accessing the virtual cut data. Try running Prepare Content again"
+            )
             return None
-
-    def _check_table_exists(self, table_name):
-        """Check if a table exists in the database."""
-        self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
-        return bool(self.cursor.fetchone())
 
     def _get_lineup_tables(self):
         """Get a list of all lineup table names matching the expected patterns, excluding uncut tables."""
-        self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'lineup_v%'")
-        tables = [row[0] for row in self.cursor.fetchall()]
-        # Filter to include only non-uncut tables that match lineup_vX or lineup_vX_cont patterns
-        lineup_patterns = re.compile(r'^lineup_v\d+(_cont)?$')
-        lineup_tables = [tbl for tbl in tables if lineup_patterns.match(tbl) and '_uncut' not in tbl]
-        print(f"Found lineup tables: {lineup_tables}")
-        return lineup_tables
+        try:
+            tables = self.db_manager.fetchall("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'lineup_v%'")
+            table_names = [row["name"] for row in tables]
+            # Filter to include only non-uncut tables that match lineup_vX or lineup_vX_cont patterns
+            lineup_patterns = re.compile(r'^lineup_v\d+(_cont)?$')
+            lineup_tables = [tbl for tbl in table_names if lineup_patterns.match(tbl) and '_uncut' not in tbl]
+            
+            if not lineup_tables:
+                self.error_manager.send_warning(
+                    source="CutlessFinalizer",
+                    operation="_get_lineup_tables",
+                    message="No lineup tables found to finalize",
+                    details="No lineup_vX or lineup_vX_cont tables found in the database",
+                    suggestion="This may be normal if you're only using uncut lineups. Cutless finalization is only needed for cut lineups"
+                )
+                
+            print(f"Found lineup tables: {lineup_tables}")
+            return lineup_tables
+        except Exception as e:
+            self.error_manager.send_error_level(
+                source="CutlessFinalizer",
+                operation="_get_lineup_tables",
+                message="Failed to retrieve lineup tables",
+                details=str(e),
+                suggestion="There was an error accessing the database. Try running this step again"
+            )
+            return []
 
     def _create_backup_table(self, table_name):
         """Create a backup of a table before modifying it, always using the current table version."""
@@ -78,22 +126,37 @@ class CutlessFinalizer:
         try:
             # Always recreate the backup table to ensure we're using the latest version of the table
             # This solves the issue where the paths in the lineup tables change between runs
-            self.cursor.execute(f"DROP TABLE IF EXISTS {backup_table_name}")
-            self.cursor.execute(f"CREATE TABLE {backup_table_name} AS SELECT * FROM {table_name}")
-            self.conn.commit()
+            self.db_manager.execute(f"DROP TABLE IF EXISTS {backup_table_name}")
+            self.db_manager.execute(f"CREATE TABLE {backup_table_name} AS SELECT * FROM {table_name}")
             print(f"Created fresh backup table: {backup_table_name}")
             return backup_table_name
         except Exception as e:
-            print(f"Error creating backup table for {table_name}: {e}")
+            self.error_manager.send_warning(
+                source="CutlessFinalizer",
+                operation="_create_backup_table",
+                message=f"Could not create backup for table {table_name}",
+                details=str(e),
+                suggestion="Proceeding without backup. The original table will be preserved"
+            )
             return None
         
     def run(self):
         """Process all lineup tables to replace virtual paths with original paths and timestamps.
         Creates new tables with '_cutless' suffix instead of modifying original tables."""
         print("Starting Cutless Finalization process...")
-        try:
-            self._connect_db()
+        
+        # Check if we're actually in cutless mode
+        if not config.cutless_mode:
+            self.error_manager.send_info(
+                source="CutlessFinalizer",
+                operation="run",
+                message="Cutless Mode is not enabled",
+                details="CutlessFinalizer only runs when Cutless Mode is active",
+                suggestion="This step will be skipped as it's not needed for traditional cut mode"
+            )
+            return
             
+        try:            
             mapping_df = self._get_cutless_mapping()
             if mapping_df is None:
                 print("Aborting finalization due to missing or invalid mapping data.")
@@ -104,6 +167,7 @@ class CutlessFinalizer:
                 print("No lineup tables found to process.")
                 return
 
+            successful_tables = 0
             for table_name in lineup_tables:
                 print(f"Processing lineup table: {table_name}...")
                 try:
@@ -111,10 +175,17 @@ class CutlessFinalizer:
                     cutless_table_name = f"{table_name}_cutless"
                     
                     # Read data from original lineup table
-                    lineup_df = pd.read_sql_query(f"SELECT * FROM {table_name}", self.conn)
+                    with self.db_manager.transaction() as conn:
+                        lineup_df = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
                     
                     if 'FULL_FILE_PATH' not in lineup_df.columns:
-                        print(f"Skipping table {table_name}: Missing 'FULL_FILE_PATH' column.")
+                        self.error_manager.send_warning(
+                            source="CutlessFinalizer",
+                            operation="run",
+                            message=f"Skipping table {table_name}",
+                            details="Table missing required 'FULL_FILE_PATH' column",
+                            suggestion="This table doesn't appear to be a valid lineup table"
+                        )
                         continue
                         
                     # Remove any existing timestamp columns before merging to avoid conflicts
@@ -174,16 +245,37 @@ class CutlessFinalizer:
 
                     # Write the result to a new table with _cutless suffix
                     # Always replace if it exists
-                    merged_df.to_sql(cutless_table_name, self.conn, if_exists='replace', index=False)
+                    with self.db_manager.transaction() as conn:
+                        merged_df.to_sql(cutless_table_name, conn, if_exists='replace', index=False)
                     print(f"Successfully created table: {cutless_table_name}")
+                    successful_tables += 1
 
                 except Exception as e:
-                    print(f"Error processing table {table_name}: {e}")
+                    self.error_manager.send_error_level(
+                        source="CutlessFinalizer",
+                        operation="run",
+                        message=f"Failed to process table {table_name}",
+                        details=str(e),
+                        suggestion="This table will be skipped. Check if the table structure is valid"
+                    )
                     # Continue to the next table
 
-            print("Cutless Finalization process completed.")
+            if successful_tables == 0 and len(lineup_tables) > 0:
+                self.error_manager.send_error_level(
+                    source="CutlessFinalizer",
+                    operation="run",
+                    message="Failed to finalize any lineup tables",
+                    details=f"Attempted to process {len(lineup_tables)} tables but all failed",
+                    suggestion="Check that your lineup tables are properly formatted and try again"
+                )
+            else:
+                print(f"Cutless Finalization completed. Processed {successful_tables} out of {len(lineup_tables)} tables.")
 
         except Exception as e:
-            print(f"An error occurred during the finalization process: {e}")
-        finally:
-            self._close_db()
+            self.error_manager.send_critical(
+                source="CutlessFinalizer",
+                operation="run",
+                message="Critical error during finalization",
+                details=str(e),
+                suggestion="The finalization process failed. Try running Prepare Content again from the beginning"
+            )
