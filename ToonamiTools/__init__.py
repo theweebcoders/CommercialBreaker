@@ -5,7 +5,7 @@ from .UncutEncoder import UncutEncoder
 from .EpisodeFilter import FilterAndMove
 from .CommercialInjectorPrep import AnimeFileOrganizer
 from .CommercialInjector import LineupLogic
-from .Multilineup import Multilineup
+from .MultiLineup import Multilineup
 from .BlockMaker import BlockIDCreator
 from .FolderMaker import FolderMaker
 from .Merger import ShowScheduler
