@@ -287,6 +287,14 @@ We recently introduced a new feature called "cutless mode". This is a new featur
 
 This feature is still in beta and may not work perfectly. It also has some caveats please see the FAQ for more info.
 
+### A quiet little superpower (optional)
+
+We also snuck in an Advanced switch that lets you run the whole thing for a different network. Yes, really. Cartoon Network, Disney Channel, etc. It works as long as your bumps and episodes follow the naming rules you just read. We keep it low‑key here because it’s still polishing its mecha armor.
+
+- Where: Page 1 in TOM (there’s an “Advanced” button), and bottom‑right in the Web UI.
+- How: Type a network name, press Validate, then “Apply & Restart.”
+- Read this first: Naming still matters. If files aren’t named right, nothing else matters. See the FAQ entry “Does this only work for Toonami?” at the bottom for the full scoop.
+
 # Support your local Mad Scientist
 <a href="https://www.buymeacoffee.com/tim000x3" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="41" width="174"></a>
 
@@ -301,6 +309,10 @@ From the bridge of this command center, you can engage with your Plex server, se
 So gear up, Space Cowboy, because with this tool, you're not just watching anime; you're launching a Toonami invasion right from your living room.
 
 Please read the FAQ before using this program. It will save you a lot of time and headaches.
+
+### Optional: Advanced network switch
+
+Feeling adventurous? On Page 1 there’s a small “Advanced” button. You can change the network there (e.g., “Cartoon Network”, “Disney Channel”) — hit Validate, then “Apply & Restart.” We’ll quietly reboot TOM for you so everything (including the database file) points to your new universe. Still: you must follow the naming rules above or the Clydes will revolt.
 
 ## Step 1 - Login to Plex - Welcome to the Absolution
 
@@ -712,7 +724,6 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 ### Error Handling To-Do
 
 - [ ] Create error messages for merger
-- [ ] Make better documentation
 
 ### Fun Stuff
 
@@ -764,6 +775,11 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 - [ ] Justify spending more than 2 years of man hours including six months of my own time on a project that will only be used by a handful of people and cannot be monetized in any way
 - [ ] Create a video tutorial
 - [ ] Complete project in my lifetime
+
+# Things I changed since last time I pushed to github
+
+- S.A.R.A Testing (Including some lines in cutless finalization)
+- Silent Black Frame Detection
 
 # FAQs
 
@@ -872,6 +888,20 @@ Q: Can I request a new feature for the apps?
 
 
   Yes, the developer of the apps is always open to feedback and feature requests. You can submit your ideas and suggestions via the contact link provided on the application's homepage.
+
+Q: Does this only work for Toonami?
+
+  Plot twist: it doesn’t have to. If you’ve got properly named bumps and episodes for another network (think “Cartoon Network” or “Disney Channel”), you can switch the active network from the Advanced button (TOM Page 1 or bottom‑right in the Web UI). We’ll validate the network by checking Wikipedia’s “List of programs broadcast by/on <Network>” page, then auto‑restart so the UI and database swap over. It’s still in the “shiny new toy” phase, so we’re not shouting it from the rooftops yet — but it works if you follow the rules.
+
+Q: How do I change the network?
+
+  - TOM: Page 1 → Advanced → enter network → Validate → Apply & Restart
+  - Web (Absolution): Page 1 → Advanced (bottom‑right) → Validate → Apply & Restart
+  - CLI (Clydes): Optional — pass a network name after a double dash to validate and persist immediately (Clydes restarts automatically):
+    - macOS/Linux: `python3 main.py --clydes -- "Cartoon Network"`
+    - Windows PowerShell: `python main.py --clydes -- "Cartoon Network"`
+    - If the network is invalid, Clydes stops right away with an error.
+  Pro‑tip: Names matter. If “Cartoon Network” is your pick, name things accordingly. The Clydes judge harshly.
 
 
 Q: I noticed you save the original file path and the full file path in the bump table. Why not just save the full file path?

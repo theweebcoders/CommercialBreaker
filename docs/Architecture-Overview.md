@@ -53,10 +53,10 @@ CommercialBreaker & Toonami Tools is a modular Python application designed to au
         │    │  │   │ • Platform compatibility │ • Real-time communication      │
         │    │  │   │ • Global Flags           │ • In-memory pub/sub            │
         │    │  │   ├──────────────────────────┼────────────────────────────────┤
-        │    │  │   │      Reserved Box        │  ErrorManager.py               │
-        │    │  │   │                          │ • Centralized error handling   │
-        │    │  │   │   for Future Use         │ • Error history tracking       │
-        │    │  │   │                          │ • UI error broadcasting        │
+        │    │  │   │  NetworkManager.py       │  ErrorManager.py               │
+        │    │  │   │ • Network validation     │ • Centralized error handling   │
+        │    │  │   │ • Config persistence     │ • Error history tracking       │
+        │    │  │   │   (update config.py)     │ • UI error broadcasting        │
         │    │  │   └──────────────────────────┴────────────────────────────────┘
         │    │  │                                               ▲ 
         │    ▼  │                                               │

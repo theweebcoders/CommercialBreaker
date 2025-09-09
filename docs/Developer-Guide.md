@@ -12,6 +12,7 @@ This guide provides information for developers who want to contribute to Commerc
 6. **Background Processing**: Long operations run in threads with progress updates
 7. **Status Bars Never Lie**: All status updates are broadcasted to all interfaces, ensuring users see real-time progress, we don't *estimate* completion times or provide false information
 8. **Platform Compatibility**: Automatic evaluation of features like cutless mode
+9. **Explicit Restart on Config Changes**: When changing `config.network`, UIs re‑exec the process to ensure a clean reload
 
 ## Development Environment Setup
 
@@ -39,7 +40,8 @@ CommercialBreaker/
 │       ├── FlagManager.py      # Global flag management
 │       ├── MessageBroker.py    # In-memory pub/sub for real-time updates
 │       ├── DatabaseManager.py  # Thread-safe database operations
-│       └── ErrorManager.py     # Centralized error handling and history
+│       ├── ErrorManager.py     # Centralized error handling and history
+│       └── NetworkManager.py   # Network validation & config persistence
 ├── GUI/                    # User interfaces
 │   ├── TOM.py              # Primary Tkinter GUI
 │   ├── Absolution.py       # Web interface (REMI)
@@ -481,6 +483,45 @@ def enhanced_detection(self, files, output_dir):
         # Handle result
     
     component.cleanup()
+
+## Network Switching (Developer Notes)
+
+### Overview
+The application supports dynamic network switching (e.g., “Toonami”, “Cartoon Network”). This affects UI labels and the selected SQLite database (`<network>.db`). To ensure consistency, UIs re‑exec the current process after updating `config.py`.
+
+### Orchestrator API
+`API/FrontEndLogic.py` exposes:
+
+```python
+validate_network(network_name: str) -> bool
+apply_network(network_name: str) -> bool
+reset_network() -> bool
+```
+
+Use `validate_network` before `apply_network` for UIs. `apply_network` writes the new `network` to `config.py` and broadcasts a status update. UIs are responsible for restarting the process.
+
+### Validator Component
+`API/utils/NetworkManager.py`
+
+```python
+validate_network_name(network_name) -> tuple[bool, str]
+update_config_network(config_path, new_network) -> None
+```
+
+- Uses urllib HEAD (fallback GET) with a custom User-Agent to probe Wikipedia pages:
+  - `List_of_programs_broadcast_by_<Network>` and `..._on_<Network>`
+- Accepts multi‑word names (spaces become underscores for probing only).
+- Returns guidance messages for UIs on failure.
+
+### UI Implementation Guidance
+- TOM (`GUI/TOM.py`): present Advanced dialog on Page 1; on success call `os.execv(sys.executable, [sys.executable] + sys.argv)`.
+- Absolution (`GUI/Absolution.py`): bottom‑right Advanced overlay; restart in a background thread after setting a status message.
+- Clydes (`CLI/clydes.py`): optional pre‑flight advanced prompt; instruct user to re‑run after persisting.
+
+### Testing Tips
+- Use the TV fixtures with non‑Toonami networks (“Cartoon Network”, “Disney Channel”) to verify end‑to‑end operation.
+- Mock `_url_exists` or the validator when running in offline CI.
+- Ensure no long‑lived modules cache `config.network` at import time across a restart boundary; rely on the re‑exec to reload imports cleanly.
 ```
 
 ## Performance Considerations
@@ -651,6 +692,34 @@ For more detailed output with S.A.R.A.'s transmission logs:
 pytest tests/test_sara_automatic.py -v -s
 ```
 
+### Chain Continuity Validator
+
+S.A.R.A. includes an optional chain continuity validator that asserts the lineup follows the TV guide announced by multibumps (NS2/NS3). It lives in `tests/validators/ChainValidator.py` and performs:
+
+- Bump-to-bump chaining: After an NS3 (Now S1, Next S2, Later S3), the next bump must anchor on S3 (Now S3 or From S3). After an NS2 (S1 Next From S2), the next bump must anchor on S1.
+- Bump-to-episode “Now”: The first episode after a bump must be the announced Now show (S1).
+- Episode-to-episode “Next”: At show-change boundaries, the new show must match the bump’s Next mapping (S1→S2, S2→S3).
+- NS2 “From” context: Immediately before an NS2, the active show must be S2.
+
+By default, the validator runs in non-strict mode and logs potential violations. To enforce strictly and fail the test on violations:
+
+```bash
+STRICT_CHAIN_VALIDATION=1 pytest -q -k test_sara_automatic.py -s
+```
+
+You can also run it ad-hoc in Python (honors `DB_PATH`):
+
+```bash
+python - <<'PY'
+from tests.validators.ChainValidator import ChainValidator
+import os
+os.environ['DB_PATH'] = 'absolute/path/to/your.db'
+cv = ChainValidator()
+viol = cv.validate_table_with_episodes('lineup_v8')
+print(len(viol), viol[:3])
+PY
+```
+
 ### Setting Up Test Data
 
 S.A.R.A. requires a `sample.txt` file that defines your simulated media library structure. This file should be placed at `tests/fixtures/sample.txt`.
@@ -744,6 +813,15 @@ If S.A.R.A. tests fail:
 3. Verify no leftover test databases exist though they should be cleaned up automatically
 4. Run with `-s` flag to see detailed S.A.R.A. transmissions
 5. Check for filename length limitations on your OS though S.A.R.A. should skip excessively long paths by default
+
+### Show Name Normalization
+
+Across tools, use the same normalization pipeline when comparing or joining show names:
+
+- Map using all configured dictionaries: `show_name_mapper.map(name, strategy='all')`
+- Then clean for matching: `show_name_mapper.clean(mapped, mode='matching')`
+
+This produces a canonical, lowercase, punctuation-free key (e.g., “Law & Order” -> “law and order”) that aligns bumps, Toonami_Shows, and episode-derived names.
 
 ### CI/CD Integration
 

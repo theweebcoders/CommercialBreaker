@@ -129,6 +129,9 @@ class SilentBlackFrameOrchestrator:
         for idx, (filename, original_file, out_dir) in enumerate(gathered):
             silence_periods = []
             try:
+                if status_callback:
+                    status_callback(f"Pre-scanning for silence in file {idx+1} of {len(gathered)}")
+                
                 # Use a minimal status callback during pre-scan if desired
                 # silence_periods = self.silence_detector.detect(original_file, lambda msg: None) 
                 silence_periods = self.silence_detector.detect(original_file, status_callback) 
@@ -266,8 +269,29 @@ class SilentBlackFrameOrchestrator:
                     # No frame analysis steps expected or taken if no segments
                     pass 
 
-                # 2.4 Reduction & write
-                final_ts = self.reducer.reduce(raw_ts)
+                # 2.4 Get video duration for filtering
+                video_duration = None
+                try:
+                    # Try to get duration from the original file
+                    import subprocess
+                    cmd = [
+                        get_executable_path("ffprobe", config.ffprobe_path),
+                        "-v", "error",
+                        "-show_entries", "format=duration",
+                        "-of", "default=noprint_wrappers=1:nokey=1",
+                        str(original_file)
+                    ]
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    if result.returncode == 0 and result.stdout.strip():
+                        video_duration = float(result.stdout.strip())
+                        if status_callback:
+                            status_callback(f"Video duration: {video_duration:.1f} seconds")
+                except Exception as e:
+                    if status_callback:
+                        status_callback(f"Could not get video duration: {e}")
+                
+                # 2.5 Reduction & write
+                final_ts = self.reducer.reduce(raw_ts, video_duration, status_callback)
                 self._write_timestamps(filename, out_dir, final_ts, status_callback)
 
             except Exception as e:
@@ -463,8 +487,20 @@ class VideoPreprocessor:
 
 class SilenceDetector:
     def detect(self, input_file, status_callback):
+        # Detect silence periods
         sections = FFMpegSilence.detect(input_file, status_callback)
-        return self._merge(sections)
+        
+        # Merge overlapping periods
+        merged = self._merge(sections)
+        
+        # Merge close periods (gaps < threshold)
+        # This helps catch commercial breaks with brief audio spikes
+        final_merged = self._merge_close_periods(merged, gap_threshold=config.SILENCE_GAP_MERGE_THRESHOLD)
+        
+        if status_callback and len(final_merged) != len(merged):
+            status_callback(f"Merged {len(merged) - len(final_merged)} close silence periods (gap < {config.SILENCE_GAP_MERGE_THRESHOLD}s)")
+        
+        return final_merged
 
     def _merge(self, sections):
         if not sections:
@@ -473,9 +509,34 @@ class SilenceDetector:
         merged = [sections[0].copy()]
         for s in sections[1:]:
             if s['start'] <= merged[-1]['end']:
+                # Overlapping periods - merge them
                 merged[-1]['end'] = max(s['end'], merged[-1]['end'])
             else:
+                # Non-overlapping period - add as new
                 merged.append(s.copy())
+        
+        return merged
+    
+    def _merge_close_periods(self, periods, gap_threshold=None):
+        """Merge silence periods that are very close together."""
+        if gap_threshold is None:
+            gap_threshold = config.SILENCE_GAP_MERGE_THRESHOLD
+        if not periods:
+            return []
+        
+        periods.sort(key=lambda x: x['start'])
+        merged = [periods[0].copy()]
+        
+        for period in periods[1:]:
+            last = merged[-1]
+            gap = period['start'] - last['end']
+            
+            # Merge if gap is small enough
+            if gap <= gap_threshold:
+                last['end'] = max(period['end'], last['end'])
+            else:
+                merged.append(period.copy())
+        
         return merged
 
 
@@ -483,7 +544,12 @@ class FFMpegSilence:
     @staticmethod
     def detect(input_file, status_callback=None):
         if not Path(input_file).is_file():
+            if status_callback:
+                status_callback(f"Error: Input file does not exist: {input_file}")
             return []
+        
+        filename = Path(input_file).name
+        
         try:
             cmd = [
                 get_executable_path("ffmpeg", config.ffmpeg_path),
@@ -497,12 +563,16 @@ class FFMpegSilence:
                 "-f", "null",
                 "-"
             ]
+            
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             _, stderr = proc.communicate()
             proc.terminate()
+            
             if b"Error" in stderr and status_callback:
-                raise Exception(f"FFmpeg encountered an error while detecting silence: {stderr.decode('utf-8')}")
+                raise Exception(f"Encountered an error while detecting silence: {stderr.decode('utf-8')}")
+            
             lines = [line.decode('utf-8') for line in stderr.splitlines() if 'silence_' in line.decode('utf-8')]
+            
             silences = []
             for i in range(0, len(lines), 2):
                 start = float(lines[i].split()[4])
@@ -512,11 +582,12 @@ class FFMpegSilence:
                 if end is not None:
                     silences.append({'start': start, 'end': end})
                 elif status_callback:
-                    status_callback(f"Warning: Missing silence end time for start time {start} in file {input_file}")
+                    status_callback(f"Warning: Missing silence end time for start time {start} in file {filename}")
+            
             return silences
         except Exception as e:
             if status_callback:
-                status_callback(f"An error occurred while detecting silence in {input_file}: {str(e)}")
+                status_callback(f"An error occurred while detecting silence in {filename}: {str(e)}")
             return []
 
 
@@ -666,16 +737,43 @@ class BlackFrameAnalyzer:
 
 class TimestampReducer:
     @staticmethod
-    def reduce(timestamps):
+    def reduce(timestamps, video_duration=None, status_callback=None):
         if not timestamps:
             return []
+        
+        original_count = len(timestamps)
+        
+        # Filter out timestamps too close to start
         filtered = [t for t in timestamps if t >= config.START_BUFFER]
+        start_filtered = original_count - len(filtered)
+        if start_filtered > 0 and status_callback:
+            status_callback(f"Filtered {start_filtered} timestamps within first {config.START_BUFFER}s")
+        
         if not filtered:
             return []
+        
+        # Filter out timestamps too close to end
+        if video_duration and hasattr(config, 'END_BUFFER'):
+            before_end_filter = len(filtered)
+            filtered = [t for t in filtered if t < (video_duration - config.END_BUFFER)]
+            end_filtered = before_end_filter - len(filtered)
+            if end_filtered > 0 and status_callback:
+                status_callback(f"Filtered {end_filtered} timestamps within last {config.END_BUFFER}s of video")
+        
+        if not filtered:
+            return []
+            
+        # Reduce timestamps that are too close together
+        before_reduce = len(filtered)
         reduced = [filtered[0]]
         for t in filtered[1:]:
             if t - reduced[-1] > config.TIMESTAMP_THRESHOLD:
                 reduced.append(t)
+        
+        close_filtered = before_reduce - len(reduced)
+        if close_filtered > 0 and status_callback:
+            status_callback(f"Merged {close_filtered} timestamps closer than {config.TIMESTAMP_THRESHOLD}s apart")
+        
         return reduced
 
 

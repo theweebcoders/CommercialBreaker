@@ -721,3 +721,45 @@ class ClydesApp:
 ```
 
 This unified API design allows multiple user interfaces to provide identical functionality while maintaining consistent state and providing real-time feedback to users.
+
+---
+
+## Network Configuration API
+
+Runtime network switching is supported across TOM, Absolution, and Clydes. The active network changes UI labels and the database file name (`<network>.db`). Validation checks Wikipedia for a broadcast list page.
+
+### LogicController additions
+
+```python
+def validate_network(self, network_name: str) -> bool:
+    """Validate against Wikipedia's list-of-programs pages; broadcasts status and error messages"""
+
+def apply_network(self, network_name: str) -> bool:
+    """Persist the network to config.py after validation and broadcast a 'restart required' status"""
+
+def reset_network(self) -> bool:
+    """Reset to 'Toonami' (calls apply_network)"""
+```
+
+- Behavior: `apply_network` rewrites `config.py` and UIs trigger a full process restart (re-exec) to load the new config consistently across modules.
+- Status/Error handling: Uses the existing MessageBroker + ErrorManager channels so all UIs display uniform feedback.
+
+### Module: `API/utils/NetworkManager.py`
+
+```python
+def validate_network_name(network_name: str) -> tuple[bool, str]:
+    """Return (is_valid, message) by probing Wikipedia with a custom User-Agent.
+
+    Tries these page patterns:
+    - List_of_programs_broadcast_by_<Network>
+    - List_of_programs_broadcast_on_<Network>
+    """
+
+def update_config_network(config_path: str, new_network: str) -> None:
+    """Rewrite the `network = "..."` line in config.py"""
+```
+
+Implementation notes:
+- Uses urllib (HEAD with fallback to GET) with a custom `User-Agent` to avoid 403s.
+- Multi-word names are supported (spaces converted to underscores only for page probing).
+- If offline, callers can skip validation in CLI flows; UIs default to validation-first.

@@ -584,8 +584,9 @@ class MediaProcessor:
                 # Clean show names consistently - remove special characters
                 shows = []
                 for show_title in shows_df['Title'].tolist():
-                    # Apply the same cleaning used everywhere else
-                    cleaned_show = show_name_mapper.clean(show_title, mode='matching')
+                    # Apply mapping then clean for consistent DB-key form
+                    mapped = show_name_mapper.map(show_title, strategy='all')
+                    cleaned_show = show_name_mapper.clean(mapped, mode='matching')
                     shows.append(cleaned_show)
                 
                 print("Toonami Shows retrieved.")

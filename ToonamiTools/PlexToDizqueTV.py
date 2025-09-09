@@ -147,7 +147,7 @@ class PlexToDizqueTVSimplified:
         channel = self.dtv.get_channel(self.channel_number)
         if not channel:
             print("Channel not found. Creating a new one...")
-            channel = self.dtv.add_channel(programs=[], name=f"Toonami Channel {self.channel_number}", number=self.channel_number)
+            channel = self.dtv.add_channel(programs=[], name=f"{config.network} Channel {self.channel_number}", number=self.channel_number)
         
         print("Deleting old programs from the channel...")
         if channel.delete_all_programs():

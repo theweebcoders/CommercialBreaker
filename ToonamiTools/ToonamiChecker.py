@@ -32,7 +32,10 @@ class ToonamiShowsFetcher:
     def check_wikipedia_connection(self):
         """Check if Wikipedia is reachable."""
         try:
-            response = requests.get("https://en.wikipedia.org", timeout=5)
+            headers = {
+                'User-Agent': 'CommercialBreaker/1.0 (https://github.com/theweebcoders/CommercialBreaker)'
+            }
+            response = requests.get("https://en.wikipedia.org", headers=headers, timeout=5)
             return response.status_code == 200
         except requests.RequestException:
             return False
@@ -63,15 +66,23 @@ class ToonamiShowsFetcher:
             )
             raise Exception("Cannot connect to Wikipedia")
         
+        # Replace spaces with underscores for Wikipedia URL compatibility
+        network_name = config.network.replace(" ", "_")
+        
         params = {
             "action": "parse",
-            "page": f"List of programs broadcast by {config.network}",
+            "page": f"List of programs broadcast by {network_name}",
             "format": "json",
             "prop": "text",
         }
 
+        # Add User-Agent header as required by Wikipedia API
+        headers = {
+            'User-Agent': 'CommercialBreaker/1.0 (https://github.com/theweebcoders/CommercialBreaker)'
+        }
+        
         try:
-            response = requests.get(self.api_url, params=params, timeout=10)
+            response = requests.get(self.api_url, params=params, headers=headers, timeout=10)
             response.raise_for_status()
         except requests.Timeout:
             self.error_manager.send_error_level(
@@ -133,6 +144,9 @@ class ToonamiShowsFetcher:
                 details=f"Expected wikitable elements on page: {params['page']}",
                 suggestion="The page format may have changed or the network name may be incorrect"
             )
+        # Uncomment for debugging new networks:
+        # else:
+        #     print(f"[DEBUG] Found {len(tables)} tables on Wikipedia page for {config.network}")
 
         for table in tables:
             # Get the headers from the table
@@ -145,25 +159,53 @@ class ToonamiShowsFetcher:
             # Normalize headers
             headers = [h.strip().lower() for h in headers]
 
-            # Check if 'title' or 'program' and 'year(s) aired' or 'airdate' are in headers
-            if ('title' in headers or 'program' in headers) and any(h in headers for h in ['year(s) aired', 'airdate']):
-                # This is a programming table
-                # Get indices for 'title'/'program' and 'year(s) aired' or 'airdate'
-                if 'title' in headers:
-                    title_idx = headers.index('title')
-                else:
-                    title_idx = headers.index('program')
-
-                if 'year(s) aired' in headers:
-                    year_idx = headers.index('year(s) aired')
-                else:
-                    year_idx = headers.index('airdate')
+            # Look for title-like columns (most universal pattern)
+            # Check for exact matches first, then fuzzy matches
+            title_idx = None
+            title_candidates = ['title', 'program', 'series', 'show', 'name']
+            
+            for candidate in title_candidates:
+                if candidate in headers:
+                    title_idx = headers.index(candidate)
+                    break
+            
+            # If no exact match, look for headers containing these words
+            if title_idx is None:
+                for i, header in enumerate(headers):
+                    if any(word in header for word in ['title', 'program', 'series']):
+                        title_idx = i
+                        break
+            
+            # Only process tables that have a title column
+            if title_idx is not None:
+                # OPTIONAL: Try to find date-related headers (not required)
+                # Expanded list based on analysis
+                year_idx = None
+                date_keywords = ['year', 'date', 'aired', 'premiere', 'debut', 
+                                'run', 'broadcast', 'first', 'last', 'original']
+                
+                for i, header in enumerate(headers):
+                    if any(keyword in header for keyword in date_keywords):
+                        year_idx = i
+                        break
+                
+                # Uncomment for debugging new networks:
+                # if len(titles) == 0:  # Only log for first table processed
+                #     print(f"[DEBUG] Processing table with headers: {headers[:5]}...")
+                #     print(f"[DEBUG] Using column {title_idx} ('{headers[title_idx]}') for titles")
+                #     if year_idx is not None:
+                #         print(f"[DEBUG] Using column {year_idx} ('{headers[year_idx]}') for dates")
 
                 for row in table.find_all('tr')[1:]:  # Skip the header row
                     cols = row.find_all(['td', 'th'])
-                    if len(cols) >= max(title_idx, year_idx) + 1:
+                    # Check if we have enough columns
+                    min_cols = title_idx + 1
+                    if year_idx is not None:
+                        min_cols = max(title_idx, year_idx) + 1
+                    
+                    if len(cols) >= min_cols:
                         title = cols[title_idx].get_text(strip=True)
-                        year = cols[year_idx].get_text(strip=True)
+                        year = cols[year_idx].get_text(strip=True) if year_idx is not None else ""
                         # Clean up the title by removing references in brackets
                         title = re.sub(r'\[.*?\]', '', title)
                         # Remove any extra spaces
@@ -297,9 +339,15 @@ class ToonamiChecker:
 
         # Use the show_name_mapper to normalize and map Toonami show titles
         normalized_toonami_shows = [show_name_mapper.normalize_and_map(x) for x in toonami_shows['Title']]
-        #print(normalized_toonami_shows) 1 line at a time
-        for title in normalized_toonami_shows:
-            print(title)
+        
+        print(f"Found {len(normalized_toonami_shows)} shows from {config.network} Wikipedia page")
+        print(f"Found {len(video_files)} unique shows in your library")
+        
+        # Show first few of each for debugging
+        if normalized_toonami_shows:
+            print(f"First 5 {config.network} shows from Wikipedia: {normalized_toonami_shows[:5]}")
+        if video_files:
+            print(f"First 5 shows from your library: {list(video_files.keys())[:5]}")
 
         for show in video_files:
             # Use the show_name_mapper to normalize and map video file titles

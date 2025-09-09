@@ -5,6 +5,7 @@ from ComBreak import CommercialBreakerLogic
 from API import LogicController
 import config
 import threading
+import sys
 import os
 import json
 import psutil # Added back psutil
@@ -48,11 +49,11 @@ class Page1(ttk.Frame):
         self.plex_anime_library_dropdown.pack(pady=3)
 
         self.plex_library_name = tk.StringVar()
-        self.plex_library_name.set("Select your Toonami Library")
+        self.plex_library_name.set(f"Select your {config.network} Library")
         self.plex_library_dropdown = ttk.Combobox(self, textvariable=self.plex_library_name)
-        self.plex_library_dropdown['values'] = ("Select your Toonami Library")
+        self.plex_library_dropdown['values'] = (f"Select your {config.network} Library")
         self.plex_library_dropdown.bind("<<ComboboxSelected>>", self.add_1_to_libraries_selected)
-        self.plex_library_dropdown.set("Select your Toonami Library")
+        self.plex_library_dropdown.set(f"Select your {config.network} Library")
         self.plex_library_dropdown.pack(pady=3)
 
         # Platform Selection Frame
@@ -91,6 +92,11 @@ class Page1(ttk.Frame):
 
         toggle_button = ttk.Button(button_frame, text="Toggle Dark Mode", command=self.controller.toggle_theme)
         toggle_button.pack(side="left", padx=5, pady=5)
+
+        # Advanced settings (network change)
+        adv_button = ttk.Button(button_frame, text="Advanced",
+                                 command=self.open_advanced_settings)
+        adv_button.pack(side="left", padx=5, pady=5)
 
         self.skip_button = ttk.Button(button_frame, text="Skip",
                                         command=lambda: controller.show_frame("Page2"))
@@ -172,6 +178,60 @@ class Page1(ttk.Frame):
                                    platform_url, platform_type)
         self.controller.show_frame("Page3")
 
+    def open_advanced_settings(self):
+        dialog = tk.Toplevel(self)
+        dialog.title("Advanced Settings")
+        dialog.transient(self)
+        dialog.grab_set()
+
+        ttk.Label(dialog, text="Network (e.g., 'Toonami', 'Cartoon Network'):").pack(pady=6)
+        network_var = tk.StringVar(value=config.network)
+        network_entry = ttk.Entry(dialog, textvariable=network_var, width=40)
+        network_entry.pack(pady=6)
+
+        status_lbl = ttk.Label(dialog, text="")
+        status_lbl.pack(pady=4)
+
+        def do_validate():
+            name = network_var.get().strip()
+            ok = self.logic.validate_network(name)
+            if ok:
+                messagebox.showinfo("Validation", f"'{name}' looks valid.")
+            else:
+                messagebox.showerror("Validation", f"'{name}' did not validate. See status/error bar for details.")
+
+        def do_apply():
+            name = network_var.get().strip()
+            if not name:
+                messagebox.showerror("Apply", "Network name cannot be empty.")
+                return
+            if self.logic.apply_network(name):
+                messagebox.showinfo("Restarting", "Network updated. Restarting now...")
+                dialog.destroy()
+                try:
+                    os.execv(sys.executable, [sys.executable] + sys.argv)
+                except Exception as e:
+                    messagebox.showerror("Restart Failed", f"Please restart manually. Error: {e}")
+            else:
+                messagebox.showerror("Apply", "Failed to update network. See status/error bar for details.")
+
+        def do_reset():
+            if self.logic.apply_network("Toonami"):
+                messagebox.showinfo("Restarting", "Network reset to 'Toonami'. Restarting now...")
+                dialog.destroy()
+                try:
+                    os.execv(sys.executable, [sys.executable] + sys.argv)
+                except Exception as e:
+                    messagebox.showerror("Restart Failed", f"Please restart manually. Error: {e}")
+            else:
+                messagebox.showerror("Reset", "Failed to reset network.")
+
+        btns = ttk.Frame(dialog)
+        btns.pack(pady=8)
+        ttk.Button(btns, text="Validate", command=do_validate).pack(side="left", padx=4)
+        ttk.Button(btns, text="Apply & Restart", command=do_apply).pack(side="left", padx=4)
+        ttk.Button(btns, text="Reset to Default", command=do_reset).pack(side="left", padx=4)
+
 class Page2(ttk.Frame):
     def __init__(self, parent, controller, logic):
         ttk.Frame.__init__(self, parent)
@@ -208,10 +268,10 @@ class Page2(ttk.Frame):
         self.plex_anime_library_name_entry.insert(0, "eg. Anime")
         self.plex_anime_library_name_entry.pack(pady=3)
 
-        plex_library_name_label = ttk.Label(self, text="Toonami Plex Library Name:")
+        plex_library_name_label = ttk.Label(self, text=f"{config.network} Plex Library Name:")
         plex_library_name_label.pack(pady=3)
         self.plex_library_name_entry = ttk.Entry(self)
-        self.plex_library_name_entry.insert(0, "eg. Toonami")
+        self.plex_library_name_entry.insert(0, f"eg. {config.network}")
         self.plex_library_name_entry.pack(pady=3)
 
         dizquetv_url_label = ttk.Label(self, text="dizqueTV or tunarr URL:")
@@ -949,7 +1009,7 @@ class Page6(ttk.Frame):
 
         self.logic.subscribe_to_updates('status_updates', self.update_status_label_handler)
 
-        what_toonami_version_label = ttk.Label(self, text="What Toonami Version are you making today?")
+        what_toonami_version_label = ttk.Label(self, text=f"What {config.network} Version are you making today?")
         what_toonami_version_label.pack(pady=3)
 
         self.toonami_version = tk.StringVar()
@@ -982,10 +1042,10 @@ class Page6(ttk.Frame):
                                                command=self.logic.create_prepare_plex)
         create_prepare_plex_button.pack(pady=3)
 
-        self.create_toonami_channel_button_with_flex = ttk.Button(self, text="Create Toonami Channel with Flex",
+        self.create_toonami_channel_button_with_flex = ttk.Button(self, text=f"Create {config.network} Channel with Flex",
                                                                  command=self.create_toonami_channel)
         
-        self.create_toonami_channel_button = ttk.Button(self, text="Create Toonami Channel",
+        self.create_toonami_channel_button = ttk.Button(self, text=f"Create {config.network} Channel",
                                                        command=self.create_toonami_channel)
         
         self.add_flex_button = ttk.Button(self, text="Add Flex",
@@ -1020,12 +1080,12 @@ class Page6(ttk.Frame):
             
         if platform_type == "tunarr":
             self.create_toonami_channel_button_with_flex = ttk.Button(self.dynamic_buttons_frame, 
-                                                                     text="Create Toonami Channel with Flex",
+                                                                     text=f"Create {config.network} Channel with Flex",
                                                                      command=self.create_toonami_channel)
             self.create_toonami_channel_button_with_flex.pack(pady=3)
         else:
             self.create_toonami_channel_button = ttk.Button(self.dynamic_buttons_frame, 
-                                                           text="Create Toonami Channel",
+                                                           text=f"Create {config.network} Channel",
                                                            command=self.create_toonami_channel)
             self.create_toonami_channel_button.pack(pady=3)
             
@@ -1065,13 +1125,13 @@ class Page7(ttk.Frame):
 
         self.logic.subscribe_to_updates('status_updates', self.update_status_label_handler)
 
-        label = ttk.Label(self, text="Make a new Toonami Channel:", font=("Helvetica", 24))
+        label = ttk.Label(self, text=f"Make a new {config.network} Channel:", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
         
         self.toonami_version = tk.StringVar()
         self.toonami_version.set("Please select version")
         
-        what_toonami_version_label = ttk.Label(self, text="What Toonami Version are you making today?")
+        what_toonami_version_label = ttk.Label(self, text=f"What {config.network} Version are you making today?")
         what_toonami_version_label.pack(pady=3)
 
         toonami_version_dropdown = ttk.Combobox(self, textvariable=self.toonami_version)
@@ -1094,16 +1154,16 @@ class Page7(ttk.Frame):
         start_from_last_episode_checkbox = ttk.Checkbutton(self, text="Start from last episode", variable=self.start_from_last_episode)
         start_from_last_episode_checkbox.pack(pady=3)
 
-        prepare_toonami_channel_button = ttk.Button(self, text="Prepare Toonami Channel", command=self.prepare_toonami_channel)
+        prepare_toonami_channel_button = ttk.Button(self, text=f"Prepare {config.network} Channel", command=self.prepare_toonami_channel)
         prepare_toonami_channel_button.pack(pady=3)
 
         self.dynamic_buttons_frame = ttk.Frame(self)
         self.dynamic_buttons_frame.pack(pady=3)
 
-        self.create_toonami_channel_button_with_flex = ttk.Button(self, text="Create Toonami Channel with Flex", 
+        self.create_toonami_channel_button_with_flex = ttk.Button(self, text=f"Create {config.network} Channel with Flex", 
                                                                  command=self.create_toonami_channel_cont)
         
-        self.create_toonami_channel_button = ttk.Button(self, text="Create Toonami Channel", 
+        self.create_toonami_channel_button = ttk.Button(self, text=f"Create {config.network} Channel", 
                                                        command=self.create_toonami_channel_cont)
         
         self.add_flex_button = ttk.Button(self, text="Add Flex",
@@ -1131,12 +1191,12 @@ class Page7(ttk.Frame):
             
         if platform_type == "tunarr":
             self.create_toonami_channel_button_with_flex = ttk.Button(self.dynamic_buttons_frame, 
-                                                                     text="Create Toonami Channel with Flex",
+                                                                     text=f"Create {config.network} Channel with Flex",
                                                                      command=self.create_toonami_channel_cont)
             self.create_toonami_channel_button_with_flex.pack(pady=3)
         else:
             self.create_toonami_channel_button = ttk.Button(self.dynamic_buttons_frame, 
-                                                           text="Create Toonami Channel",
+                                                           text=f"Create {config.network} Channel",
                                                            command=self.create_toonami_channel_cont)
             self.create_toonami_channel_button.pack(pady=3)
             
@@ -1306,9 +1366,9 @@ class MainApplication(tk.Tk):
             "Page2": "Step 1 - Enter Details - A Little Detour",
             "Page3": "Step 2 - Select Folders - Deploy the Clydes",
             "Page4": "Step 3 - Prepare Content - Intruder Alert",
-            "Page5": "Step 4 - Commercial Breaker - Toonami Will Be Right Back",
-            "Page6": "Step 5 - Create your Toonami Channel - All aboard the Absolution",
-            "Page7": "Step 6 - Let's Make Another Channel! - Toonami's Back Bitches",
+            "Page5": f"Step 4 - Commercial Breaker - {config.network} Will Be Right Back",
+            "Page6": f"Step 5 - Create your {config.network} Channel - All aboard the Absolution",
+            "Page7": f"Step 6 - Let's Make Another Channel! - {config.network}'s Back Bitches",
         }
 
         frame = self.frames[page_name]

@@ -28,6 +28,7 @@ dizquetv_channel_number = "1"
 
 
 START_BUFFER = 60
+END_BUFFER = 30  # Filter out timestamps within last 30 seconds of video
 sleep_time = 1
 Levenshtein_threshold = 0.8
 FRAME_RATE = 24
@@ -37,7 +38,7 @@ TIMESTAMP_THRESHOLD = 120
 BATCH_SIZE = 5
 SILENCE_DURATION = 0.3
 DECIBEL_THRESHOLD = -60
-API_KEY = "PUT YOUR OPEN AI KEY HERE"
+SILENCE_GAP_MERGE_THRESHOLD = 0.5  # Merge silence periods with gaps smaller than this
 
 AUTO_RUN_DEFAULT_CONFIG = {
     "anime_library_name": "Anime",

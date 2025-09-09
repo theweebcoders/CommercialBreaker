@@ -62,20 +62,47 @@ class CutlessFinalizer:
                 )
                 return None
                 
-            # Verify data integrity - check if timestamps are actually populated
-            null_starts = mapping_df['startTime'].isna().sum()
-            null_ends = mapping_df['endTime'].isna().sum()
+            # Verify data integrity - check if timestamps are populated for anime files only
+            # Bumps are identified by containing network name or keywords from config
+            network_name = config.network.lower()
+            keywords = [kw.lower() for kw in config.keywords]
             
-            if null_starts > 0 and null_ends > 0:
-                self.error_manager.send_critical(
-                    source="CutlessFinalizer",
-                    operation="_get_cutless_mapping",
-                    message=f"Some entries missing timestamp data",
-                    details=f"{null_starts} entries missing startTime, {null_ends} entries missing endTime",
-                    suggestion="Some virtual cuts don't have proper timestamps. Please report this issue to us on Discord so we can investigate"
-                )
+            def is_bump_file(file_path):
+                """Check if a file path represents a bump (contains network name or keywords)"""
+                file_path_lower = str(file_path).lower()
                 
-            print(f"Successfully loaded {len(mapping_df)} mappings from {mapping_table}.")
+                # Check for network name
+                if network_name in file_path_lower:
+                    return True
+                
+                # Check for any keywords
+                for keyword in keywords:
+                    if keyword in file_path_lower:
+                        return True
+                
+                return False
+            
+            # Separate anime files from bump files
+            anime_mask = ~mapping_df['FULL_FILE_PATH'].apply(is_bump_file)
+            anime_files = mapping_df[anime_mask]
+            bump_files = mapping_df[~anime_mask]
+            
+            if not anime_files.empty:
+                anime_null_starts = anime_files['startTime'].isna().sum()
+                anime_null_ends = anime_files['endTime'].isna().sum()
+                
+                # Only flag critical error if anime files are missing timestamps
+                if anime_null_starts > 0 and anime_null_ends > 0:
+                    self.error_manager.send_critical(
+                        source="CutlessFinalizer",
+                        operation="_get_cutless_mapping",
+                        message=f"Anime files missing timestamp data",
+                        details=f"{anime_null_starts} anime files missing startTime, {anime_null_ends} anime files missing endTime out of {len(anime_files)} total anime files",
+                        suggestion="Anime files need timestamps for cutless mode. This indicates commercial detection may have failed"
+                    )
+            
+            # Log summary of what was found
+            print(f"Successfully loaded {len(mapping_df)} mappings from {mapping_table} ({len(anime_files)} anime files, {len(bump_files)} bump files).")
             # Set index for faster lookup
             mapping_df.set_index('FULL_FILE_PATH', inplace=True)
             return mapping_df

@@ -118,6 +118,12 @@ This is where the magic happens! See the [Commercial Breaking detailed guide](#c
 #### Dark Mode
 Toggle with the button in bottom-left corner for comfortable viewing.
 
+#### Advanced Settings (Change Network)
+- On Page 1, click “Advanced.”
+- Enter a network name (e.g., “Toonami”, “Cartoon Network”, “Disney Channel”).
+- Click “Validate” to check the network’s Wikipedia list page exists.
+- Click “Apply & Restart” to save and automatically restart TOM.
+
 ---
 
 ## Absolution User Guide
@@ -156,6 +162,11 @@ WORKING_FOLDER=/path/to/your/working
 3. **Open browser** to `http://localhost:8081`
 4. **Follow TOM workflow** - interface is nearly identical
 
+#### Advanced Settings (Change Network)
+- On Page 1, click the “Advanced” button at the bottom‑right.
+- Enter a network and “Validate.”
+- Click “Apply & Restart” to save and automatically restart the server.
+
 For server deployments, replace `localhost` with your server's IP address.
 
 ---
@@ -172,6 +183,10 @@ Clydes provides a question-based command-line interface for users who prefer ter
 2. **Answer prompts**: Clydes asks questions step-by-step
 3. **Follow workflow**: Similar process to TOM but text-based
 4. **Automation-friendly**: Can be scripted for repeated operations
+
+#### Advanced Option (Change Network)
+- On launch, Clydes offers an advanced prompt to change the active network.
+- Enter a network (e.g., “Cartoon Network”) and confirm. Clydes will persist the setting and ask you to re‑run.
 
 ### When to Use Clydes
 

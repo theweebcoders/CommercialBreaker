@@ -140,6 +140,19 @@ pip install -r requirements.txt
 
 ---
 
+## Network Switching Issues
+
+### “Validation failed” when changing network
+- Ensure you have an active internet connection (validator checks Wikipedia).
+- Use the exact network name Wikipedia uses (e.g., “Cartoon Network”, “Disney Channel”).
+- Multi‑word names are supported; you do not need underscores.
+- Try again later — Wikipedia may rate‑limit requests in some environments.
+
+### Changed network but UI didn’t update
+- TOM/Absolution must restart to fully apply the change. “Apply & Restart” will re‑exec the app; if that fails (restricted environment), restart the process manually.
+
+---
+
 ## File Naming Issues
 
 ### Shows Not Recognized

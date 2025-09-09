@@ -13,6 +13,8 @@ import traceback
 from typing import Optional
 from .utils.MessageBroker import get_message_broker
 from .utils.ErrorManager import get_error_manager, ErrorLevel
+from .utils.NetworkManager import validate_network_name, update_config_network
+import os
 
 class LogicController():
     docker = FlagManager.docker
@@ -246,6 +248,65 @@ class LogicController():
         """Reset UI state after a critical error"""
         self._should_stop = False
         self._current_operation_thread = None
+
+    # -------- Advanced Settings: Network Management --------
+    def validate_network(self, network_name: str) -> bool:
+        """Validate target network against Wikipedia list page.
+
+        Broadcasts status updates and returns True/False.
+        """
+        try:
+            self._broadcast_status_update("Validating network...")
+            ok, msg = validate_network_name(network_name)
+            if ok:
+                self._broadcast_status_update(f"Network valid: {msg}")
+                return True
+            else:
+                # Use ErrorManager so UIs show feedback consistently
+                self.error_manager.send_error_level(
+                    source="FrontEndLogic",
+                    operation="validate_network",
+                    message="Invalid network name",
+                    details=msg,
+                    suggestion="Use the exact channel name used by Wikipedia (e.g., 'Cartoon Network', 'Disney Channel')."
+                )
+                self._broadcast_status_update("Validation failed")
+                return False
+        except Exception as e:
+            self.error_manager.send_error_level(
+                source="FrontEndLogic",
+                operation="validate_network",
+                message="Validation failed",
+                details=str(e)
+            )
+            return False
+
+    def apply_network(self, network_name: str) -> bool:
+        """Validate then persist network to config.py. Requires restart to fully apply."""
+        try:
+            if not self.validate_network(network_name):
+                return False
+
+            config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.py")
+            config_path = os.path.abspath(config_path)
+            update_config_network(config_path, network_name)
+
+            self._broadcast_status_update(
+                f"Network updated to '{network_name}'. Restart required to apply."
+            )
+            return True
+        except Exception as e:
+            self.error_manager.send_error_level(
+                source="FrontEndLogic",
+                operation="apply_network",
+                message="Failed to update network in config.py",
+                details=str(e)
+            )
+            return False
+
+    def reset_network(self) -> bool:
+        """Reset network to default 'Toonami'."""
+        return self.apply_network("Toonami")
     
     def _run_operation(self, operation_func, *args, **kwargs):
         """

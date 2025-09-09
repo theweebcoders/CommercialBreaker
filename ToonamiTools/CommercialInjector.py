@@ -57,9 +57,15 @@ class LineupLogic:
         df_bumps_sanitized = df_bumps.copy()
         df_bumps_sanitized['FULL_FILE_PATH'] = df_bumps_sanitized['FULL_FILE_PATH'].apply(lambda x: x.split('Θ')[0])
 
+        # Map to canonical values first
         df_parts['SHOW_NAME_1'] = df_parts['SHOW_NAME_1'].apply(lambda x: show_name_mapper.map(x, strategy='all'))
         df_bumps['SHOW_NAME_1'] = df_bumps['SHOW_NAME_1'].apply(lambda x: show_name_mapper.map(x, strategy='all'))
         df_bumps_sanitized['SHOW_NAME_1'] = df_bumps_sanitized['SHOW_NAME_1'].apply(lambda x: show_name_mapper.map(x, strategy='all'))
+
+        # Then clean with 'matching' so ampersands/apostrophes/etc. align across sources
+        df_parts['SHOW_NAME_1'] = df_parts['SHOW_NAME_1'].apply(lambda x: show_name_mapper.clean(x, mode='matching'))
+        df_bumps['SHOW_NAME_1'] = df_bumps['SHOW_NAME_1'].apply(lambda x: show_name_mapper.clean(x, mode='matching'))
+        df_bumps_sanitized['SHOW_NAME_1'] = df_bumps_sanitized['SHOW_NAME_1'].apply(lambda x: show_name_mapper.clean(x, mode='matching'))
 
         df_parts.sort_values(by=['SHOW_NAME_1', 'Season and Episode', 'Part Number'], inplace=True)
 
@@ -89,7 +95,9 @@ class LineupLogic:
             )
 
         for (show_name, season_and_episode), group in df_parts.groupby(['SHOW_NAME_1', 'Season and Episode']):
-            mapped_show_name = show_name_mapper.map(str(show_name), strategy='first')
+            # show_name is already mapped+cleaned; keep consistency
+            mapped_show_name = show_name
+            # Display name is not required for lineup logic; keep SHOW_NAME_1 only
 
             parts = list(group['FULL_FILE_PATH'])
             bumps = df_bumps_sanitized[df_bumps_sanitized['SHOW_NAME_1'] == mapped_show_name].sort_values('PLACEMENT_2')
