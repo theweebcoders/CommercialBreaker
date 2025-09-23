@@ -6,6 +6,7 @@ import requests
 from unidecode import unidecode
 from bs4 import BeautifulSoup
 from .utils import show_name_mapper
+from .utils.DirectoryScanner import fast_video_scan
 from API.utils import get_db_manager
 from API.utils.ErrorManager import get_error_manager
 import socket
@@ -272,25 +273,8 @@ class ToonamiChecker:
             )
             raise PermissionError(f"No read access to: {folder_path}")
         
-        episode_files = {}
-        file_count = 0
-        print(f"Starting to walk through directory: {folder_path}")
-        
         try:
-            for root, dirs, files in os.walk(folder_path):
-                for file in files:
-                    if file.endswith(('.mkv', '.mp4', '.avi', '.flv')):
-                        file_count += 1
-                        if matched_title := re.findall(
-                            r'^(.*?)(?: - S\d{1,2}E\d{1,2})', file, re.IGNORECASE
-                        ):
-                            show_title = matched_title[0].strip()
-                            episode = file
-                            rel_path = os.path.relpath(root, folder_path)  # calculate the relative path
-                            if show_title in episode_files:
-                                episode_files[show_title].append(os.path.join(rel_path, episode))
-                            else:
-                                episode_files[show_title] = [os.path.join(rel_path, episode)]
+            episode_files, file_count = fast_video_scan(folder_path)
         except Exception as e:
             self.error_manager.send_error_level(
                 source="ToonamiChecker",
