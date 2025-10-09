@@ -988,4 +988,4 @@ or just join the discord I guess https://discord.gg/S7NcUdhKRD
 
 # License
 
-You're Pirtates right? Are you really going to care about a license?
+You're Pirates right? Are you really going to care about a license?
