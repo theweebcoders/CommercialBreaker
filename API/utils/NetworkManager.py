@@ -29,26 +29,39 @@ def _candidate_pages(network_name: str) -> list[str]:
 
 
 def _url_exists(url: str, timeout: float = 5.0) -> bool:
+    """Check if a URL exists and is accessible.
+    
+    Args:
+        url: The URL to check
+        timeout: Request timeout in seconds
+        
+    Returns:
+        True if URL returns 2xx status code, False otherwise
+    """
     # Try HEAD first (lighter). Some sites reject HEAD; on 405, try GET
     try:
         req = Request(url, method='HEAD', headers={'User-Agent': 'CommercialBreaker/1.0'})
         with urlopen(req, timeout=timeout) as resp:
             code = getattr(resp, 'status', resp.getcode())
-            return 200 <= code < 400
+            return 200 <= code < 300
     except HTTPError as e:
+        # Only retry with GET if server explicitly rejects HEAD method
         if e.code == 405:
             try:
                 req = Request(url, method='GET', headers={'User-Agent': 'CommercialBreaker/1.0'})
                 with urlopen(req, timeout=timeout) as resp:
                     code = getattr(resp, 'status', resp.getcode())
-                    return 200 <= code < 400
-            except Exception:
+                    return 200 <= code < 300
+            except (HTTPError, URLError):
+                # Any error in fallback GET means URL doesn't exist or is inaccessible
                 return False
-        # Follow redirects are automatic; treat 200-399 as success
-        return 200 <= e.code < 400
+        # HTTPError means 4xx/5xx response - URL doesn't exist or is forbidden
+        return False
     except URLError:
+        # Network error, DNS failure, timeout, etc.
         return False
     except Exception:
+        # Catch unexpected errors (shouldn't happen with urlopen, but be safe)
         return False
 
 
