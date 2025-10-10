@@ -15,6 +15,35 @@ The tools work together in a specific sequence to create your Toonami channel:
 
 ---
 
+## Configuration & Network Switching Components
+
+### NetworkManager
+**File**: `API/utils/NetworkManager.py`
+**Functions**: `validate_network_name`, `update_config_network`
+**Purpose**: Validates and persists the active network used across the app.
+
+**Details**:
+- `validate_network_name(network_name)`
+  - Probes Wikipedia with a custom User-Agent using urllib.
+  - Tries these pages: `List_of_programs_broadcast_by_<Network>` and `..._on_<Network>`.
+  - Returns `(True, message)` when found; otherwise `(False, guidance)`.
+- `update_config_network(config_path, new_network)`
+  - Rewrites or inserts `network = "..."` in `config.py`.
+
+### LogicController (Network API)
+**File**: `API/FrontEndLogic.py`
+**Methods**: `validate_network`, `apply_network`, `reset_network`
+**Purpose**: Orchestrates validation, updates `config.py`, and broadcasts status/errors.
+
+**Restart Model**:
+- UIs call `apply_network` then re‑exec the process so modules import the new `config.network` and the DB path switches to `<network>.db` reliably.
+
+### UI Hooks
+- **TOM** (`GUI/TOM.py` Page 1): Advanced dialog → Validate, Apply & Restart, Reset to Default.
+- **Absolution** (`GUI/Absolution.py` Page 1): Bottom‑right Advanced overlay → Validate, Apply & Restart, Reset.
+- **Clydes** (`CLI/clydes.py`): Startup prompt to change network; instructs re‑run after persisting.
+
+---
 ## Authentication & Setup Components
 
 ### LoginToPlex
@@ -361,7 +390,9 @@ The tools work together in a specific sequence to create your Toonami channel:
     - `encoder_table`: Contains bump data with encoded show information (e.g., `multibumps_v9_data_reordered`). This table has a `Code` column that indicates the shows involved in a bump (e.g., `-S1:DBZ-S2:GITS-NS3` for a triple bump).
     - `commercial_table`: Contains episode data, including `FULL_FILE_PATH` and `BLOCK_ID` (e.g., `commercial_injector_final` for cut content, `uncut_encoded_data` for uncut).
 - **Output Table**: Saves the generated lineup to a specified table (e.g., `lineup_v9` from `config.TOONAMI_CONFIG[version]["merger_out"]`).
-- **Show Name Normalization**: Uses `config.show_name_mapping` to standardize show names.
+- **Show Name Normalization**:
+    - Decodes show codes via the `codes` table.
+    - Normalizes decoded names using `show_name_mapper.map(name, strategy='all')` followed by `show_name_mapper.clean(mapped, mode='matching')` to align with bump and episode data.
 - **Episode Block Management**:
     - `reuse_episode_blocks` (boolean, constructor arg): If `True`, episode blocks for a show are reused from the beginning once exhausted. If `False`, the show is skipped once all its blocks are used.
     - `continue_from_last_used_episode_block` (boolean, constructor arg): If `True`, the scheduler attempts to continue from the last used episode block for each show (persisted in `last_used_episode_block` table). Otherwise, it resets tracking.
@@ -374,9 +405,10 @@ The tools work together in a specific sequence to create your Toonami channel:
 2.  For each bump (`row`), extracts the shows involved (`shows` list from `row["Code"]`) and the bump code itself (`code_value`).
 3.  **NS2/NS3 Bump Handling** (`apply_ns3_logic` - enabled if NS2 bumps exist and not in `uncut` mode):
     -   **NS2 Bumps** (e.g., `Code` contains `-NS2`): These are typically "Next Show" transitions involving two shows (Show A, then Show B).
-        -   The scheduler ensures continuity: if the `last_show_name` from the previous segment isn't Show B, it first inserts an episode block of Show B.
-        -   Then, the NS2 bump file itself is added.
-        -   Finally, an episode block of Show A is added (often with `delete_intro=True` for the first part of Show A).
+        -   Continuity guard: If Show A’s next episode block cannot be placed immediately after the NS2 code, the scheduler skips appending that NS2 bump to preserve the invariant that bump rows are followed by appropriate program content.
+        -   If the `last_show_name` from the previous segment isn't Show B, an episode block of Show B is inserted first.
+        -   The NS2 bump file is added only when Show A’s next block is available to follow it.
+        -   Then, an episode block of Show A is added (often with `delete_intro=True` for the first part of Show A).
     -   **NS3 Bumps** (e.g., `Code` contains `-NS3`): These are typically "Now Show A, Next Show B, Later Show C" transitions.
         -   `_detect_ns2_ns3_chain`: If an NS3 bump for Show A immediately follows an NS2 bump that also featured Show A, the first show (Show A) in the NS3 list is skipped to avoid repetition.
         -   The NS3 bump file is added.

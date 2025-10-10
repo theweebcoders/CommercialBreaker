@@ -1,7 +1,10 @@
 import threading
 import queue
 import time
+import os
+import config
 from API import LogicController
+import sys
 from CLI.CommercialBreakerCLI import main as CommercialBreakerCLI
 from queue import Queue, Empty
 import json
@@ -27,7 +30,7 @@ class PlexManager:
             self._select_server()
             self._wait_for_libraries()
             anime_library_name = self._choose_library("Anime")
-            toonami_library_name = self._choose_library("Toonami")
+            toonami_library_name = self._choose_library(config.network)
             
             print("Choose the service you want to use:")
             print("1. DizqueTV")
@@ -84,7 +87,7 @@ class PlexManager:
         plex_url = self.app.safe_input("Enter your Plex URL: ")
         plex_token = self.app.safe_input("Enter your Plex token: ")
         anime_library_name = self.app.safe_input("Enter the name of your Anime library: ")
-        toonami_library_name = self.app.safe_input("Enter the name of your Toonami library: ")
+        toonami_library_name = self.app.safe_input(f"Enter the name of your {config.network} library: ")
         
         print("Choose the service you want to use:")
         print("1. DizqueTV")
@@ -205,27 +208,27 @@ class ToonamiManager:
         # Now that we're here, fetch the latest value:
         self.platform_type = self.logic._get_data("platform_type")
         if not self.logic._check_table_exists("lineup_v8"):
-            if self._confirm("We need to prepare your cut Anime for the Toonami channel. Would you like to continue? (y/n)"):
+            if self._confirm(f"We need to prepare your cut Anime for the {config.network} channel. Would you like to continue? (y/n)"):
                 self.logic.prepare_cut_anime()
                 self._wait_for("lineup_v8", "Preparing cut anime...")
                 self.add_special_bumps()
                 self.prepare_plex()
                 self.create_toonami_channel()
-                if self._confirm("Would you like to create a second Toonami channel? (y/n)"):
+                if self._confirm(f"Would you like to create a second {config.network} channel? (y/n)"):
                     self.create_second_toonami_channel()
                 elif self.platform_type == "dizquetv":
                     self.offer_flex_for_existing_channel()
         else:
-            if self._confirm("Is this your first time creating a Toonami channel? (y/n)"):
+            if self._confirm(f"Is this your first time creating a {config.network} channel? (y/n)"):
                 self.add_special_bumps()
                 self.prepare_plex()
                 self.create_toonami_channel()
-                if self._confirm("Would you like to create a second Toonami channel? (y/n)"):
+                if self._confirm(f"Would you like to create a second {config.network} channel? (y/n)"):
                     self.create_second_toonami_channel()
                 elif self.platform_type == "dizquetv":
                     self.offer_flex_for_existing_channel()
             else:
-                if self._confirm("Would you like to create a second Toonami channel? (y/n)"):
+                if self._confirm(f"Would you like to create a second {config.network} channel? (y/n)"):
                     self.create_second_toonami_channel()
                 elif self.platform_type == "dizquetv":
                     self.offer_flex_for_existing_channel()
@@ -236,15 +239,15 @@ class ToonamiManager:
             self._wait_for("lineup_v8_bonus", "Adding special bumps...")
 
     def prepare_plex(self):
-        if self._confirm("We need to prepare Plex for the Toonami channel. Would you like to continue? (y/n)"):
+        if self._confirm(f"We need to prepare Plex for the {config.network} channel. Would you like to continue? (y/n)"):
             self.logic.create_prepare_plex()
             while not self.logic.is_filtered_complete():
                 time.sleep(1)
             self.logic.reset_filter_event()
 
     def create_toonami_channel(self):
-        print("It's time to create the Toonami channel!")
-        print("Choose a Toonami version:")
+        print(f"It's time to create the {config.network} channel!")
+        print(f"Choose a {config.network} version:")
         for i, version in enumerate(self.toonami_versions):
             print(f"{i+1}. {version}")
         
@@ -257,18 +260,18 @@ class ToonamiManager:
         ).strip()
 
         # Summarize
-        print("\nThe settings for the Toonami channel are:")
-        print(f"Toonami version: {version}")
+        print(f"\nThe settings for the {config.network} channel are:")
+        print(f"{config.network} version: {version}")
         print(f"Channel number: {channel_number}")
         print(f"Platform URL: {self.platform_url}")
-        print(f"Toonami library: {self.toonami_library}")
+        print(f"{config.network} library: {self.toonami_library}")
         print(f"Flex duration: {flex_duration or '[Not Provided]'}")
 
         if self._confirm("Would you like to continue with these settings? (y/n)"):
-            if self._confirm("We are now ready to create the Toonami channel. This may take a few minutes. Continue? (y/n)"):
+            if self._confirm(f"We are now ready to create the {config.network} channel. This may take a few minutes. Continue? (y/n)"):
                 self.logic.create_toonami_channel(version, channel_number, flex_duration)
                 # **Block** the main thread until creation is done
-                self._wait_for_filter_event("Creating the Toonami channel...")
+                self._wait_for_filter_event(f"Creating the {config.network} channel...")
 
                 self.logic._set_data("toonami_channel_created", True)
 
@@ -281,8 +284,8 @@ class ToonamiManager:
                         self.channels_with_flex.add(channel_number)
 
     def create_second_toonami_channel(self):
-        print("It's time to create the second Toonami channel!")
-        print("Choose a Toonami version:")
+        print(f"It's time to create the second {config.network} channel!")
+        print(f"Choose a {config.network} version:")
         for i, version in enumerate(self.toonami_versions):
             print(f"{i+1}. {version}")
         
@@ -290,28 +293,28 @@ class ToonamiManager:
         version = self.toonami_versions[version_choice - 1]
         
         channel_number = self.app.safe_input("What channel number would you like to use? ")
-        continue_from_last = self._confirm("Would you like to continue from the last episode of the first Toonami channel? (y/n): ")
+        continue_from_last = self._confirm(f"Would you like to continue from the last episode of the first {config.network} channel? (y/n): ")
 
-        print("\nConfirm the settings for the second Toonami channel:")
-        print(f"Toonami version: {version}")
+        print(f"\nConfirm the settings for the second {config.network} channel:")
+        print(f"{config.network} version: {version}")
         print(f"Channel number: {channel_number}")
         print(f"Continue from last episode: {continue_from_last}")
 
         if not self._confirm("Would you like to continue with these settings? (y/n): "):
             return self.create_second_toonami_channel()
 
-        if self._confirm("We need to prepare your second Toonami channel. Would you like to continue? (y/n): "):
+        if self._confirm(f"We need to prepare your second {config.network} channel. Would you like to continue? (y/n): "):
             self.logic.prepare_toonami_channel(continue_from_last, version)
-            self._wait_for_filter_event("Preparing the second Toonami channel...")
+            self._wait_for_filter_event(f"Preparing the second {config.network} channel...")
 
         flex_duration = self.app.safe_input(
             "Enter your Flex duration (Minutes:Seconds) for commercial breaks: "
         ).strip()
 
-        if self._confirm("Would you like to create the second Toonami channel now? (y/n): "):
+        if self._confirm(f"Would you like to create the second {config.network} channel now? (y/n): "):
             self.logic.create_toonami_channel_cont(version, channel_number, flex_duration)
-            self._wait_for_filter_event("Creating the second Toonami channel...")
-            print("Second Toonami channel created successfully!")
+            self._wait_for_filter_event(f"Creating the second {config.network} channel...")
+            print(f"Second {config.network} channel created successfully!")
 
             if self.platform_type == "dizquetv":
                 if self._confirm("Would you like to add FLEX to this new channel now? (y/n)"):
@@ -400,7 +403,7 @@ class ErrorDisplay:
         print()
 
 class ClydesApp:
-    def __init__(self):
+    def __init__(self, network_override: str | None = None):
         self.input_lock = threading.Lock()
         self.logic = LogicController()
         self.status_queue = Queue()
@@ -412,13 +415,20 @@ class ClydesApp:
         self.error_display = ErrorDisplay()
         self.logic.subscribe_to_error_messages(self.error_display.add_error)
 
+        # Optional upfront network change via CLI argument
+        self.network_override = network_override
+
         # Subscribe to updates via LogicController
         self.logic.subscribe_to_updates('status_updates', self.handle_status_updates)
         self.logic.subscribe_to_updates('cutless_state', self.handle_cutless_state_update)
 
-        # Start the status printer thread
-        self.status_thread = threading.Thread(target=self.status_printer, daemon=True)
-        self.status_thread.start()
+        # Defer starting the status printer thread until after early-exit cases
+        self.status_thread = None
+
+    def _ensure_status_thread(self):
+        if self.status_thread is None:
+            self.status_thread = threading.Thread(target=self.status_printer, daemon=True)
+            self.status_thread.start()
 
     def safe_input(self, prompt=""):
         """
@@ -464,6 +474,54 @@ class ClydesApp:
         print(f"ClydesApp: Received cutless_state update from LogicController: {is_enabled}")
 
     def run(self):
+        # Handle CLI-provided network override (via main.py extra args)
+        if self.network_override:
+            name = self.network_override.strip()
+            if not name:
+                print("Invalid network argument (empty)")
+                return
+            if self.logic.apply_network(name):
+                print(f"Network set to '{name}'. Restarting Clydes...")
+                try:
+                    os.execv(sys.executable, [sys.executable, sys.argv[0], '--clydes'])
+                except Exception as e:
+                    print(f"Restart failed ({e}). Please run again: python main.py --clydes")
+                return  # Safety
+            else:
+                print(f"Invalid network '{name}'. Aborting.")
+                return
+
+        # Optional advanced path (hidden): enable with environment variables
+        # - CB_NETWORK: directly set a network and exit (user re-runs Clydes)
+        # - CB_ADVANCED=1: open interactive advanced prompt at startup
+        try:
+            env_net = os.environ.get('CB_NETWORK')
+            if env_net:
+                if self.logic.apply_network(env_net):
+                    print("Network updated via CB_NETWORK. Restarting Clydes...")
+                    try:
+                        os.execv(sys.executable, [sys.executable, sys.argv[0], '--clydes'])
+                    except Exception as e:
+                        print(f"Restart failed ({e}). Please run again: python main.py --clydes")
+                    return  # Safety
+                else:
+                    print("Failed to update network from CB_NETWORK. Proceeding with current settings.")
+
+            adv_flag = os.environ.get('CB_ADVANCED', '').lower() in ('1', 'true', 'yes')
+            if adv_flag:
+                new_name = self.safe_input("Advanced (optional): Enter network (leave blank to cancel): ").strip()
+                if new_name:
+                    if self.logic.apply_network(new_name):
+                        print("Network updated. Please re-run Clydes to apply changes.")
+                        return
+                    else:
+                        print("Failed to update network. Proceeding with current settings.")
+        except Exception as e:
+            print(f"Advanced settings skipped due to error: {e}")
+
+        # Start status printer once we're definitively proceeding
+        self._ensure_status_thread()
+
         if not self.load_existing_configurations():
             self.plex_manager.get_plex_creds()
             self.folder_manager.get_folders()
@@ -472,8 +530,14 @@ class ClydesApp:
         self.toonami_manager.create_toonami_channels()
         print("Clydes has finished running.")
 
-def main():
-    app = ClydesApp()
+def main(extra_args=None):
+    # Support passing a network string after '--' in main.py
+    network_override = None
+    if isinstance(extra_args, list) and len(extra_args) > 0:
+        # Remove stray separator tokens and join the rest
+        tokens = [t for t in extra_args if t and t != "--"]
+        network_override = " ".join(tokens).strip()
+    app = ClydesApp(network_override=network_override)
     app.run()
 
 if __name__ == "__main__":

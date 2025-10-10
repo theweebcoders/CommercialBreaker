@@ -215,8 +215,9 @@ class ShowScheduler:
         Return normalized show name using show_name_mapper,
         if it exists; otherwise, return the original show name.
         """
-        mapped_show = show_name_mapper.map(show, strategy='first')
-        return mapped_show
+        # Apply the same normalization as other modules: map all, then clean for matching
+        mapped = show_name_mapper.map(show, strategy='all')
+        return show_name_mapper.clean(mapped, mode='matching')
 
     def _group_shows(self):
         """
@@ -407,37 +408,42 @@ class ShowScheduler:
         show_name_1, show_name_2 = shows
         delete_intro = False
 
-        # Insert next block for show_name_2 if needed
-        if last_show_name != show_name_2:
-            next_block = self.get_next_episode_block(show_name_2)
-            if next_block is not None:
-                block_df = self.commercial_injector_df[
-                    self.commercial_injector_df["BLOCK_ID"] == next_block["BLOCK_ID"]
-                ]
-                final_df = pd.concat(
-                    [final_df, block_df[["FULL_FILE_PATH", "BLOCK_ID"]].assign(Code="")],
-                    ignore_index=True
-                )
-                last_show_name = show_name_2
+        # Compute availability of the required blocks first
+        block2 = self.get_next_episode_block(show_name_2) if last_show_name != show_name_2 else self.get_next_episode_block(show_name_2)
+        block1 = self.get_next_episode_block(show_name_1)
 
-        # Append the NS2 row
-        final_df = pd.concat(
-            [final_df, pd.DataFrame([row[["FULL_FILE_PATH", "Code"]].to_dict()])],
-            ignore_index=True
-        )
+        # If neither side has an episode to place, skip this NS2 row
+        if block1 is None and (block2 is None or last_show_name == show_name_2):
+            return final_df, last_show_name, delete_intro
 
-        # Next block for show_name_1, with possible intro deletion
-        delete_intro = True
-        next_block = self.get_next_episode_block(show_name_1)
-        if next_block is not None:
-            block_df = self.commercial_injector_df[
-                self.commercial_injector_df["BLOCK_ID"] == next_block["BLOCK_ID"]
+        # Insert next block for show_name_2 if needed and available (before the NS2 bump)
+        if last_show_name != show_name_2 and block2 is not None:
+            block_df2 = self.commercial_injector_df[
+                self.commercial_injector_df["BLOCK_ID"] == block2["BLOCK_ID"]
             ]
-            if delete_intro:
-                block_df = block_df.iloc[1:]
+            final_df = pd.concat(
+                [final_df, block_df2[["FULL_FILE_PATH", "BLOCK_ID"]].assign(Code="")],
+                ignore_index=True
+            )
+            last_show_name = show_name_2
+
+        # Only append the NS2 row if we can follow it with show_name_1's episode block
+        if block1 is not None:
+            final_df = pd.concat(
+                [final_df, pd.DataFrame([row[["FULL_FILE_PATH", "Code"]].to_dict()])],
+                ignore_index=True
+            )
+
+            # Next block for show_name_1, with possible intro deletion
+            delete_intro = True
+            block_df1 = self.commercial_injector_df[
+                self.commercial_injector_df["BLOCK_ID"] == block1["BLOCK_ID"]
+            ]
+            if delete_intro and not block_df1.empty:
+                block_df1 = block_df1.iloc[1:]
                 delete_intro = False
             final_df = pd.concat(
-                [final_df, block_df[["FULL_FILE_PATH", "BLOCK_ID"]].assign(Code="")],
+                [final_df, block_df1[["FULL_FILE_PATH", "BLOCK_ID"]].assign(Code="")],
                 ignore_index=True
             )
             last_show_name = show_name_1

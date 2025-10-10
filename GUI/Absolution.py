@@ -3,6 +3,7 @@ from API import LogicController
 import config
 import threading
 import os
+import sys
 import psutil
 import json
 import ToonamiTools
@@ -212,7 +213,8 @@ class Styles:
         'animation': 'grid-scroll 20s linear infinite',
         'color': '#a5f3fc',
         'font-family': 'Arial, sans-serif',
-        'overflow': 'auto'
+        'overflow-y': 'auto',
+        'overflow-x': 'hidden'
     }
     transparent_style = {
         'background': 'transparent',
@@ -356,6 +358,7 @@ class Styles:
         'justify-content': 'space-between',  # Changed to space-between to accommodate progress info
         'align-items': 'center',
         'clip-path': 'polygon(0 0, 100% 0, calc(100% - 15px) 100%, 15px 100%)',
+        'overflow-x': 'hidden'
     }
     
     status_label_style = {
@@ -365,7 +368,10 @@ class Styles:
         'text-shadow': '0 0 5px #00ccff',
         'padding': '5px',
         'text-align': 'center',
-        'flex-grow': '1'  # Changed to flex-grow instead of width
+        'flex-grow': '1',  # Changed to flex-grow instead of width
+        'white-space': 'nowrap',
+        'overflow': 'hidden',
+        'text-overflow': 'ellipsis'
     }
     
     status_idle_style = {
@@ -580,7 +586,8 @@ class BasePage(gui.Container):
             'box-shadow': 'none',
             'border': 'none',
             'flex-grow': '1',  # Added to allow container to grow and fill available space
-            'overflow-y': 'auto'  # Added to enable scrolling if content is too large
+            'overflow-y': 'auto',  # Added to enable scrolling if content is too large
+            'overflow-x': 'hidden'
         })
     
     def create_status_bar(self):
@@ -1510,8 +1517,8 @@ class Page1(BasePage):
         self.plex_anime_library_dropdown = self.add_dropdown(self.main_container, ["Select your Anime Library"], self.add_1_to_libraries_selected)
 
         # Toonami Library Dropdown
-        self.add_label(self.main_container, "Select your Toonami Library")
-        self.plex_library_dropdown = self.add_dropdown(self.main_container, ["Select your Toonami Library"], self.add_1_to_libraries_selected)
+        self.add_label(self.main_container, f"Select your {config.network} Library")
+        self.plex_library_dropdown = self.add_dropdown(self.main_container, [f"Select your {config.network} Library"], self.add_1_to_libraries_selected)
 
         # Platform Selection
         platform_container = gui.HBox(style={
@@ -1562,6 +1569,123 @@ class Page1(BasePage):
                 window.open(url, '_blank');
             }
         """)
+
+        # Advanced settings floating button (bottom-right, less prominent)
+        self.advanced_button = self.add_button_with_style(self.main_container, "Advanced", self.toggle_advanced, 'utility')
+        self.advanced_button.style.update({
+            'position': 'fixed',
+            'right': '20px',
+            'bottom': '90px',  # keep above status bar
+            'z-index': '2000',
+            'opacity': '0.8',
+            'max-width': '200px',
+            'white-space': 'nowrap',
+            'overflow': 'hidden',
+            'text-overflow': 'ellipsis'
+        })
+
+        # Advanced settings panel (fixed bottom-right overlay, initially hidden)
+        self.advanced_panel = self.build_advanced_panel()
+        self.advanced_panel.style.update({
+            'display': 'none',
+            'position': 'fixed',
+            'right': '20px',
+            'bottom': '140px',
+            'z-index': '2000',
+            'width': '360px',
+            'max-width': '90vw',
+            'max-height': '60vh',
+            'overflow-y': 'auto',
+            'overflow-x': 'hidden',
+            'box-sizing': 'border-box'
+        })
+        self.main_container.append(self.advanced_panel)
+
+    def toggle_advanced(self, widget=None):
+        visible = self.advanced_panel.style.get('display') != 'none'
+        self.advanced_panel.style['display'] = 'none' if visible else 'block'
+        self.app.refresh()
+
+    def build_advanced_panel(self):
+        panel = gui.VBox(width='60%', style={'margin': '10px', 'padding': '10px', 'border': '1px solid rgba(0,140,255,0.4)', 'background-color': 'rgba(0,20,40,0.4)'})
+        title = gui.Label("Advanced Settings", style=Styles.section_header_style)
+        panel.append(title)
+
+        net_label = self.add_label(panel, "Network (e.g., 'Toonami', 'Cartoon Network'):")
+        self.network_entry = self.add_input(panel, config.network)
+
+        btns = gui.HBox(style={'justify-content': 'space-between', 'gap': '10px', 'background': 'transparent', 'flex-wrap': 'nowrap', 'width': '100%'})
+        validate_btn = self.add_button_with_style(btns, "Validate", self.on_validate_network, 'secondary')
+        apply_btn = self.add_button_with_style(btns, "Apply & Restart", self.on_apply_network, 'primary')
+        reset_btn = self.add_button_with_style(btns, "Reset to Default", self.on_reset_network, 'utility')
+        panel.append(btns)
+
+        # Normalize Advanced buttons to consistent size/shape regardless of base style
+        common_btn_style = {
+            'clip-path': 'none',
+            'border-radius': '6px',
+            'padding': '8px 10px',
+            'font-size': '14px',
+            'width': 'calc((100% - 20px)/3)',  # three buttons with 10px gap between -> 20px total
+            'height': '60px',  # fixed height so wrap doesn’t misalign
+            'display': 'flex',
+            'align-items': 'center',
+            'justify-content': 'center',
+            'text-align': 'center',
+            'white-space': 'normal',  # allow wrapping for long labels
+            'line-height': '1.2',
+            'box-shadow': '0 0 10px rgba(0, 140, 255, 0.2)',
+            'border': '1px solid rgba(0, 140, 255, 0.4)'
+        }
+        for b in (validate_btn, apply_btn, reset_btn):
+            b.style.update(common_btn_style)
+        
+        hint = gui.Label("Note: A full restart is required for UI text and database to reflect the new network.", style={'font-size': '12px', 'opacity': '0.8', 'margin': '6px'})
+        panel.append(hint)
+        return panel
+
+    def on_validate_network(self, widget):
+        name = (self.network_entry.get_value() or '').strip()
+        if not name:
+            self.update_status_display("Validation failed: empty network name")
+            return
+        ok = self.logic.validate_network(name)
+        if ok:
+            self.update_status_display(f"Network valid: {name}")
+        else:
+            # Error is pushed through error bar already
+            self.update_status_display("Validation failed")
+
+    def on_apply_network(self, widget):
+        name = (self.network_entry.get_value() or '').strip()
+        if not name:
+            self.update_status_display("Apply failed: empty network name")
+            return
+        if self.logic.apply_network(name):
+            self.update_status_display("Network updated. Restarting...")
+            # Give the UI a moment to render the status update
+            def _restart():
+                try:
+                    time.sleep(0.5)
+                    os.execv(sys.executable, [sys.executable] + sys.argv)
+                except Exception as e:
+                    self.update_status_display(f"Restart failed: {e}. Please restart manually.")
+            threading.Thread(target=_restart, daemon=True).start()
+        else:
+            self.update_status_display("Failed to update network")
+
+    def on_reset_network(self, widget):
+        if self.logic.apply_network('Toonami'):
+            self.update_status_display("Network reset to 'Toonami'. Restarting...")
+            def _restart():
+                try:
+                    time.sleep(0.5)
+                    os.execv(sys.executable, [sys.executable] + sys.argv)
+                except Exception as e:
+                    self.update_status_display(f"Restart failed: {e}. Please restart manually.")
+            threading.Thread(target=_restart, daemon=True).start()
+        else:
+            self.update_status_display("Failed to reset network")
 
     def on_platform_change(self, platform):
         """Handle platform selection button clicks"""
@@ -1749,7 +1873,7 @@ class Page2(BasePage):
         self.plex_anime_library_entry = self.add_labeled_input(self.main_container, 'Plex Anime Library:', "e.g., Anime")
 
         # Plex Toonami Library Entry
-        self.plex_toonami_library_entry = self.add_labeled_input(self.main_container, 'Plex Toonami Library:', "e.g., Toonami")
+        self.plex_toonami_library_entry = self.add_labeled_input(self.main_container, f'Plex {config.network} Library:', f"e.g., {config.network}")
 
         # Platform Selection
         platform_container = gui.HBox(style={

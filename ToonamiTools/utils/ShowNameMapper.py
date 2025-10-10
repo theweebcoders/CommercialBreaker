@@ -55,13 +55,23 @@ class ShowNameMapper:
             return normalized
             
         elif mode == 'matching':
-            # For comparison (lineupprep style)
-            cleaned = self._non_alnum_pattern.sub('', text)
-            cleaned = self._whitespace_pattern.sub(' ', cleaned).strip()
-            return cleaned.lower()
+            # For comparison key used across DB joins and equality checks
+            # 1) Normalize unicode to ASCII (e.g., Pokémon -> Pokemon)
+            normalized = unidecode(text)
+            # 2) Treat common equivalences before stripping
+            #    - Ampersand should behave like the word 'and' so that
+            #      'Law & Order' matches 'Law and Order'
+            normalized = normalized.replace('&', ' and ')
+            # 3) Remove all non-alphanumeric except whitespace
+            cleaned = self._non_alnum_pattern.sub('', normalized)
+            # 4) Collapse whitespace and lowercase
+            cleaned = self._whitespace_pattern.sub(' ', cleaned).strip().lower()
+            return cleaned
             
         elif mode == 'display':
             # For display (proper capitalization)
+            # Keep basic punctuation like ampersands and apostrophes for display
+            # but normalize whitespace
             words = text.split()
             small_words = {'a', 'an', 'and', 'as', 'at', 'but', 'by', 'for', 
                           'if', 'in', 'nor', 'of', 'on', 'or', 'so', 'the', 
@@ -144,6 +154,8 @@ class ShowNameMapper:
         block_id = self._underscore_pattern.sub('_', block_id)
         
         return block_id
+
+    
     
     # ========== SPECIALIZED METHODS ==========
     

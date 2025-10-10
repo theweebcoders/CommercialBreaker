@@ -12,7 +12,8 @@ def main():
     group.add_argument('--combreakcli', action='store_true', help="Run the CLI interface for the Commercial Breaker")
     parser.add_argument('--docker', action='store_true', help="Do not use this unless you are running the application in a Docker container")
     parser.add_argument('--cutless', action='store_true', help="Enable Cutless Mode feature in the application")
-    args = parser.parse_args()
+    # Allow extra args to be forwarded (e.g., network name after -- for Clydes)
+    args, extra = parser.parse_known_args()
 
     # Set TOM as default if no other interface is specified
     if not any([args.clydes, args.combreak, args.webui, args.combreakcli]):
@@ -21,7 +22,11 @@ def main():
     if args.tom:
         TOM()
     elif args.clydes:
-        clydes()
+        # Pass through any extra args (e.g., network name after --)
+        if extra:
+            clydes(extra)
+        else:
+            clydes()
     elif args.combreak:
         CommercialBreaker()
     elif args.webui:

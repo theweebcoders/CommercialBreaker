@@ -12,6 +12,7 @@ CommercialBreaker & Toonami Tools automate a continuous Toonami marathon by inte
 - **Cutless Mode**: Preserve original files while adding virtual commercial breaks
 - **Toonami Tools**: Generate custom lineups with authentic bump integration
 - **Multiple Interfaces**: GUI (TOM), Web UI (Absolution), and CLI (Clydes)
+- **Multi‑Network Support**: Not just Toonami — switch the active network from the Advanced settings in TOM/Absolution or at Clydes startup
 - **Platform Support**: Works with DizqueTV and Tunarr for channel creation
 - **Plex Integration**: Seamless integration with your existing Plex library
 

@@ -47,7 +47,12 @@ class UncutEncoder:
             )
             raise Exception("No single-show bumps available")
             
-        self.bumps_df['SHOW_NAME_1'] = self.bumps_df['SHOW_NAME_1'].str.lower().apply(self.apply_show_name_mappings)
+        # Normalize bump show names for consistent matching against BLOCK_ID-derived names
+        self.bumps_df['SHOW_NAME_1'] = (
+            self.bumps_df['SHOW_NAME_1']
+            .apply(lambda s: show_name_mapper.map(str(s), strategy='all'))
+            .apply(lambda s: show_name_mapper.clean(s, mode='matching'))
+        )
         
         # Check for default/fallback bumps
         if default_bumps := self.bumps_df[
@@ -143,17 +148,16 @@ class UncutEncoder:
             if not block_id:  # Skip files that couldn't be parsed
                 continue
                 
-            show_name = block_id.split('_S')[0].lower()
-            show_name = show_name.replace('_', ' ')
-            show_name = re.sub(r'[^a-z0-9\s]', '', show_name)
-            show_name = re.sub(r'\s+', ' ', show_name).strip()
+            # Derive show_name from BLOCK_ID, then map+clean to the same DB key form
+            show_name = block_id.split('_S')[0].replace('_', ' ')
             mapped_name = show_name_mapper.map(show_name, strategy='all')
+            show_name = show_name_mapper.clean(mapped_name, mode='matching')
             
             intro_bump = None
             
             # Try to find intro bumps
             if intro_bumps := self.bumps_df[
-                (self.bumps_df['SHOW_NAME_1'].str.lower() == mapped_name)
+                (self.bumps_df['SHOW_NAME_1'] == show_name)
                 & (self.bumps_df['PLACEMENT_2'].str.contains('Intro', case=False))
             ]['FULL_FILE_PATH'].tolist():
                 if show_name not in self.intro_bump_cycle:
@@ -163,7 +167,7 @@ class UncutEncoder:
 
             # Try generic bumps if no intro found
             elif generic_bumps := self.bumps_df[
-                (self.bumps_df['SHOW_NAME_1'].str.lower() == mapped_name)
+                (self.bumps_df['SHOW_NAME_1'] == show_name)
                 & (
                     self.bumps_df['PLACEMENT_2'].str.contains(
                         'Generic', case=False

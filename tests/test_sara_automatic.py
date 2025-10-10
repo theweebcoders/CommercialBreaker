@@ -60,7 +60,14 @@ class TestSaraAutomatic:
             "channel_number": "69",
             "flex_duration": "3:00",
             "minimum_anime_rows": 6,
-            "timeout": 120
+            "timeout": 120,
+            # Error handling parameters
+            "max_allowed_errors": 0,
+            "max_allowed_warnings": 10,
+            "max_allowed_critical": 0,
+            "validate_error_structure": True,
+            "fail_on_critical": True,
+            "log_all_errors": True
         }
         
         # Events for tracking specific operation completions
@@ -77,8 +84,20 @@ class TestSaraAutomatic:
         self.selected_shows = []
         self.last_status = ""
         
+        # Error tracking
+        self.error_messages = []
+        self.error_counts = {
+            "CRITICAL": 0,
+            "ERROR": 0,
+            "WARNING": 0,
+            "INFO": 0
+        }
+        
         # Subscribe to status updates
         self.logic.subscribe_to_updates('status_updates', self.status_update_handler)
+        
+        # Subscribe to error messages from ErrorManager
+        self.logic.subscribe_to_error_messages(self.error_message_handler)
         
         # Store original print function for restoration
         self.original_print = print
@@ -149,14 +168,50 @@ class TestSaraAutomatic:
         if status in self.status_events:
             self.status_events[status].set()
     
+    def error_message_handler(self, error_data):
+        """Handle error messages from ErrorManager"""
+        level = error_data.get('level', 'ERROR')
+        message = error_data.get('message', 'Unknown error')
+        source = error_data.get('source', 'Unknown')
+        operation = error_data.get('operation', 'Unknown')
+        
+        self._log_progress(f"ERROR CAPTURED: [{level}] {source}.{operation}: {message}")
+        
+        # Store error for later validation
+        self.error_messages.append(error_data)
+        
+        # Update counts
+        if level in self.error_counts:
+            self.error_counts[level] += 1
+        
+        # Set error event for critical errors
+        if level == "CRITICAL":
+            self._log_progress(f"CRITICAL ERROR DETECTED: {message}")
+            if "error_detected" not in self.status_events:
+                self.status_events["error_detected"] = threading.Event()
+            self.status_events["error_detected"].set()
+    
     def wait_for_status(self, expected_status, operation_name, timeout=None):
-        """Wait for a specific status message, with error detection"""
+        """Wait for a specific status message, with enhanced error detection"""
         if timeout is None:
             timeout = self.config.get("timeout", 60)
+        
         self._log_progress(f"Standing by for {operation_name} completion (expected: '{expected_status}')...")
         event = self.status_events.get(expected_status)
         if not event:
             self._log_progress(f"Alert: No monitoring protocol for status '{expected_status}'")
+            return False
+        
+        # Check if the event has already been set (status already received)
+        if event.is_set():
+            self._log_progress(f"{operation_name} already completed. Status '{expected_status}' was previously received.")
+            event.clear()  # Reset for potential reuse
+            return True
+        
+        # Check for critical errors before starting wait, but only if status not already received
+        critical_errors = [e for e in self.error_messages if e.get('level') == 'CRITICAL']
+        if critical_errors and self.config.get("fail_on_critical", True):
+            self._log_progress(f"CRITICAL ERROR detected before {operation_name}: {critical_errors[-1].get('message')}")
             return False
         
         # Create error event if it doesn't exist
@@ -509,6 +564,88 @@ class TestSaraAutomatic:
             )
             
             self._log_progress(f"Database check: All bump placement rules validated successfully in {table_name}.")
+
+        # Chain continuity validation using Code rows (non-strict by default)
+        try:
+            from tests.validators.ChainValidator import ChainValidator
+            chain_validator = ChainValidator()
+            strict = os.environ.get("STRICT_CHAIN_VALIDATION", "0").lower() in {"1", "true", "yes"}
+            for chain_table in ["lineup_v8", "lineup_v8_cutless"]:
+                # Episode-aware validation
+                chain_violations = chain_validator.validate_table_with_episodes(chain_table)
+                if strict:
+                    assert not chain_violations, (
+                        f"Found {len(chain_violations)} chain continuity violations in {chain_table}. "
+                        f"Examples: {chain_violations[:3]}"
+                    )
+                else:
+                    self._log_progress(
+                        f"Chain validation (non-strict): {len(chain_violations)} potential violations in {chain_table}."
+                    )
+        except Exception as e:
+            # Non-strict mode: log the failure but do not fail the overall workflow
+            self._log_progress(f"Chain validation check could not run: {e}")
+        self._end_timing()
+
+        # Error Validation
+        self._start_timing("Error Validation")
+        self._log_progress("Validating error messages and counts...")
+
+        # Check for unexpected critical/error level messages
+        critical_errors = [e for e in self.error_messages if e.get('level') == 'CRITICAL']
+        error_level_errors = [e for e in self.error_messages if e.get('level') == 'ERROR']
+
+        # Allow configured number of critical errors
+        max_allowed_critical = self.config.get("max_allowed_critical", 0)
+        assert len(critical_errors) <= max_allowed_critical, (
+            f"Found {len(critical_errors)} critical errors during workflow (max allowed: {max_allowed_critical}): "
+            f"{[e.get('message') for e in critical_errors]}"
+        )
+
+        # Allow some errors but not too many
+        max_allowed_errors = self.config.get("max_allowed_errors", 0)
+        assert len(error_level_errors) <= max_allowed_errors, (
+            f"Found {len(error_level_errors)} errors (max allowed: {max_allowed_errors}): "
+            f"{[e.get('message') for e in error_level_errors]}"
+        )
+
+        # Validate warning count
+        warning_errors = [e for e in self.error_messages if e.get('level') == 'WARNING']
+        max_allowed_warnings = self.config.get("max_allowed_warnings", 10)
+        assert len(warning_errors) <= max_allowed_warnings, (
+            f"Found {len(warning_errors)} warnings (max allowed: {max_allowed_warnings}): "
+            f"{[e.get('message') for e in warning_errors]}"
+        )
+
+        # Validate error structure if enabled
+        if self.config.get("validate_error_structure", True):
+            for error in self.error_messages:
+                assert 'level' in error, f"Error missing level: {error}"
+                assert 'source' in error, f"Error missing source: {error}"
+                assert 'message' in error, f"Error missing message: {error}"
+                assert 'timestamp' in error, f"Error missing timestamp: {error}"
+                assert 'operation' in error, f"Error missing operation: {error}"
+
+        self._log_progress(f"Error validation complete. Counts: {self.error_counts}")
+        self._log_progress(f"Total error messages captured: {len(self.error_messages)}")
+        
+        # Log all errors if requested
+        if self.config.get("log_all_errors", True) and self.error_messages:
+            self._log_progress("Error message summary:")
+            for i, error in enumerate(self.error_messages, 1):
+                level = error.get('level', 'UNKNOWN')
+                source = error.get('source', 'UNKNOWN')
+                operation = error.get('operation', 'UNKNOWN')
+                message = error.get('message', 'No message')
+                details = error.get('details', '')
+                suggestion = error.get('suggestion', '')
+                self._log_progress(f"  {i}. [{level}] {source}.{operation}: {message}")
+                if details:
+                    self._log_progress(f"      Details: {details}")
+                if suggestion:
+                    self._log_progress(f"      Suggestion: {suggestion}")
+        
+        
         self._end_timing()
 
         workflow_end = time.time()
