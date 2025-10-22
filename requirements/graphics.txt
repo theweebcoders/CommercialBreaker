@@ -9,3 +9,6 @@ opencv-python>=3.4.13.47  ; python_version < '3.7' and python_version >= '3.6'  
 opencv-python>=3.1.0.2   ; python_version < '3.6' and python_version >= '3.5'    # Python 3.5
 opencv-python>=3.1.0.5   ; python_version < '3.5' and python_version >= '3.4'    # Python 3.4
 opencv-python>=3.1.0.0   ; python_version < '3.4' and python_version >= '2.7'    # Python 2.7
+
+# System tray support for ComBreakDirect background mode
+pystray>=0.19.0

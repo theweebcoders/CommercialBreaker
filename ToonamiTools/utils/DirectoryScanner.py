@@ -3,7 +3,7 @@ import re
 import time
 
 
-def fast_video_scan(folder_path, progress_callback=None):
+def fast_video_scan(folder_path, progress_callback=None, status_callback=None):
     """
     Optimized video file scanner for large directory trees on slow storage.
 
@@ -14,6 +14,8 @@ def fast_video_scan(folder_path, progress_callback=None):
         folder_path (str): Path to scan for video files
         progress_callback (callable, optional): Function to call with progress updates
                                               Should accept (current, total, message)
+        status_callback (callable, optional): Function to call with status messages
+                                              Should accept (message)
 
     Returns:
         tuple: (episode_files dict, total_file_count)
@@ -22,19 +24,31 @@ def fast_video_scan(folder_path, progress_callback=None):
     file_count = 0
 
     start_time = time.time()
-    print(f"Fast scanning directory: {folder_path}")
+
+    def _status(message):
+        print(message)
+        if status_callback:
+            try:
+                status_callback(message)
+            except Exception as exc:
+                print(f"Warning: status callback failed with error: {exc}")
+
+    _status(f"Fast scanning directory: {folder_path}")
 
     try:
         # Get top-level show directories first
         top_dirs = [d for d in os.listdir(folder_path) if os.path.isdir(os.path.join(folder_path, d))]
         total_dirs = len(top_dirs)
-        print(f"Found {total_dirs} show directories to scan")
+        _status(f"Found {total_dirs} show directories to scan")
 
         # Process each show directory individually (much faster on network/FUSE filesystems)
         for i, show_dir in enumerate(top_dirs):
             if i % 100 == 0 and i > 0:
                 elapsed = time.time() - start_time
-                print(f"Progress: {i}/{total_dirs} shows processed, {file_count} files found in {elapsed:.1f}s")
+                progress_message = (
+                    f"Progress: {i}/{total_dirs} shows processed, {file_count} files found in {elapsed:.1f}s"
+                )
+                _status(progress_message)
                 if progress_callback:
                     progress_callback(i, total_dirs, f"Processed {i} shows, {file_count} files")
 
@@ -60,16 +74,16 @@ def fast_video_scan(folder_path, progress_callback=None):
                                     else:
                                         episode_files[show_title] = [os.path.join(rel_path, episode)]
             except Exception as show_error:
-                print(f"Warning: Could not scan {show_dir}: {show_error}")
+                _status(f"Warning: Could not scan {show_dir}: {show_error}")
                 continue
 
         elapsed = time.time() - start_time
-        print(f"Finished scanning {total_dirs} shows in {elapsed:.1f} seconds")
+        _status(f"Finished scanning {total_dirs} shows in {elapsed:.1f} seconds")
         if progress_callback:
             progress_callback(total_dirs, total_dirs, f"Completed: {file_count} files found")
 
     except Exception as e:
-        print(f"Error during directory scan: {e}")
+        _status(f"Error during directory scan: {e}")
         raise
 
     return episode_files, file_count

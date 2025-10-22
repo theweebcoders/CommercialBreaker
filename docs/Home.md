@@ -10,11 +10,18 @@ CommercialBreaker & Toonami Tools automate a continuous Toonami marathon by inte
 
 - **CommercialBreaker**: Intelligently detects and creates commercial break points in anime episodes
 - **Cutless Mode**: Preserve original files while adding virtual commercial breaks
+- **ComBreakDirect**: Self-contained continuous MPEG-TS streaming server with beautiful WebUI - no DizqueTV or Tunarr required
+  - Studio → FIFO → Broadcast FFmpeg → BroadcastTower architecture for true broadcast streaming
+  - Truly continuous streams with seamless program transitions (Broadcast FFmpeg's `+genpts` prevents freezing)
+  - Multi-client support - watch on multiple devices simultaneously
+  - Toonami-themed web interface with setup instructions and copy-to-clipboard URLs
+  - Configurable audio track selection (defaults to English for Toonami dubs)
+  - HDHomeRun emulation for Plex & Jellyfin DVR integration
 - **Toonami Tools**: Generate custom lineups with authentic bump integration
 - **Multiple Interfaces**: GUI (TOM), Web UI (Absolution), and CLI (Clydes)
 - **Multi‑Network Support**: Not just Toonami — switch the active network from the Advanced settings in TOM/Absolution or at Clydes startup
-- **Platform Support**: Works with DizqueTV and Tunarr for channel creation
-- **Plex Integration**: Seamless integration with your existing Plex library
+- **Platform Support**: Works with DizqueTV, Tunarr, or self-hosted ComBreakDirect
+- **Plex Integration**: Seamless integration with your existing Plex library and HDHomeRun-style discovery
 
 ## Quick Start
 
@@ -28,6 +35,7 @@ CommercialBreaker & Toonami Tools automate a continuous Toonami marathon by inte
 - **[Installation Guide](Installation-Guide.md)** - Step-by-step setup instructions
 - **[User Guides](User-Guides.md)** - Interface-specific guides
 - **[Cutless Mode](Cutless.md)** - How to use virtual cuts instead of physical files
+- **[ComBreakDirect](ComBreakDirect.md)** - Self-hosted streaming server guide
 - **[File Naming Conventions](File-Naming-Conventions.md)** - Proper naming schemes
 - **[Troubleshooting](Troubleshooting.md)** - Common issues and solutions
 - **[FAQ](FAQ.md)** - Frequently asked questions
@@ -54,6 +62,11 @@ CommercialBreaker/
 ├── GUI/                    # Graphical User Interfaces (TOM, Absolution)
 ├── CLI/                    # Command-Line Interfaces (clydes)
 ├── ComBreak/               # Commercial detection and processing tools
+├── ComBreakDirect/         # Self-hosted continuous MPEG-TS streaming server
+│   ├── ComBreakDirectServer.py  # Flask application
+│   ├── docks/             # Core processing modules (Loading, Factory, Unloading)
+│   ├── utilities/         # BroadcastTower, audio selection, pre-rendering
+│   └── UI/                # WebUI with landing page
 ├── ToonamiTools/           # All the tools for Toonami channel creation: Plex integration, media/bump handling, lineup scheduling, and platform deployment
 └── ExtraTools/             # Case Use tools and utilities
 ```

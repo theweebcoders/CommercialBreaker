@@ -12,7 +12,31 @@ ffplay_path = tools_dir + "ffplay.exe"
 fpcalc_path = tools_dir + "fpcalc.exe"
 mkvmerge_path = tools_dir + "mkvmerge.exe"
 ENGLISH_VARIATIONS = ['eng', 'english', 'english dub', 'inglês', 'en', 'en-us', '英語', 'anglais']
+
+# Default language for audio track selection (can be 'english', 'japanese', 'spanish', etc.)
+DEFAULT_LANGUAGE = 'english'
+
+# Language variations for automatic audio track detection
+LANGUAGE_VARIATIONS = {
+    'english': ['eng', 'english', 'english dub', 'inglês', 'en', 'en-us', 'en-gb', '英語', 'anglais', 'en_US', 'en_GB'],
+    'japanese': ['jpn', 'japanese', 'jap', 'jp', 'ja', '日本語', 'japonais', 'japonês', 'ja_JP'],
+    'spanish': ['spa', 'spanish', 'español', 'esp', 'es', 'es-es', 'es-mx', 'espagnol', 'es_ES', 'es_MX'],
+    'french': ['fra', 'french', 'français', 'fre', 'fr', 'fr-fr', 'francês', 'fr_FR'],
+    'german': ['deu', 'german', 'deutsch', 'ger', 'de', 'de-de', 'allemand', 'alemão', 'de_DE'],
+    'portuguese': ['por', 'portuguese', 'português', 'pt', 'pt-pt', 'pt-br', 'portugais', 'pt_PT', 'pt_BR'],
+    'italian': ['ita', 'italian', 'italiano', 'it', 'it-it', 'italien', 'it_IT'],
+    'russian': ['rus', 'russian', 'русский', 'ru', 'ru-ru', 'russe', 'russo', 'ru_RU'],
+    'chinese': ['chi', 'chinese', '中文', 'zh', 'zh-cn', 'zh-tw', 'chinois', 'chinês', 'zh_CN', 'zh_TW'],
+    'korean': ['kor', 'korean', '한국어', 'ko', 'ko-kr', 'coréen', 'coreano', 'ko_KR']
+}
+
 cutless_mode = True
+
+CBDIRECT_HOST = os.environ.get("CBDIRECT_HOST", "0.0.0.0")
+CBDIRECT_PORT = int(os.environ.get("CBDIRECT_PORT", "8083"))
+CBDIRECT_BASE_URL = os.environ.get("CBDIRECT_BASE_URL", f"http://127.0.0.1:{CBDIRECT_PORT}")
+CBDIRECT_DATA_ROOT = os.environ.get("CBDIRECT_DATA_ROOT") or os.path.join(os.path.dirname(__file__), "combreak_direct_data")
+CBDIRECT_STORAGE_PATH = os.environ.get("CBDIRECT_STORAGE_PATH") or os.path.join(CBDIRECT_DATA_ROOT, "channels.json")
 
 DATABASE_DIR = os.environ.get("DB_DIR") or os.path.dirname(__file__)
 DATABASE_PATH = os.environ.get("DB_PATH") or os.path.join(DATABASE_DIR, f'{network}.db')
@@ -102,6 +126,19 @@ keywords = [
 
 colors = [
     "Blue", "Red", "Green", "Orange", "blue", "red", "green", "orange"
+]
+
+# Video quality terms to remove from episode titles (only at the very end)
+VIDEO_QUALITY_TERMS = [
+    'Bluray', 'BluRay', 'BD', 'BDRip', 'BDMV',
+    'WebDL', 'WEB-DL', 'WebRip', 'WEBRip', 'WEB',
+    'HDTV', 'SDTV', 'DVDRip', 'DVD', 'DVDR',
+    'HDDVD', 'HD-DVD', 'UHD', '4K',
+    'Remux', 'REMUX',
+    '2160p', '1080p', '1080i', '720p', '576p', '480p', '360p',
+    'x264', 'x265', 'h264', 'h265', 'HEVC', 'AVC',
+    'DTS', 'DTS-HD', 'TrueHD', 'Atmos', 'AC3', 'AAC',
+    'v2', 'v3', 'REPACK', 'PROPER', 'INTERNAL'
 ]
 
 show_name_mapping = {

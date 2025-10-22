@@ -64,7 +64,7 @@ All methods use thread-safe DatabaseManager operations internally.
 - `plex_token` - Authentication token
 - `selected_anime_library` - Source anime library name
 - `selected_toonami_library` - Target Toonami library name
-- `platform_type` - "dizquetv" or "tunarr"
+- `platform_type` - "dizquetv", "tunarr", or "combreakdirect"
 - `platform_url` - Platform server URL
 - `anime_folder` - Local anime directory path
 - `bump_folder` - Bump files directory path
@@ -446,14 +446,15 @@ def prepare_toonami_channel(self, start_from_last_episode: bool,
                             toonami_version: str) -> None:
     """Generate continuation tables before channel creation"""
 
-def create_toonami_channel(self, toonami_version: str, channel_number: str, 
+def create_toonami_channel(self, toonami_version: str, channel_number: str,
                           flex_duration: str, start_from_last_episode: bool = False) -> None:
     """
     Creates the final Toonami channel:
     1. Configures lineup parameters
-    2. Creates channel using PlexToDizqueTV or PlexToTunarr
+    2. Creates channel using PlexToDizqueTV, PlexToTunarr, or ComBreakToComBreakDirect
     3. Handles channel numbering and flex timing
     4. Manages episode continuation logic
+    5. Automatically starts ComBreakDirect server if platform is "combreakdirect"
     """
 
 def create_toonami_channel_cont(self, toonami_version: str,
@@ -465,6 +466,37 @@ def add_flex(self, channel_number: str, duration: str) -> None:
     Adds commercial break flex to DizqueTV channels:
     1. Injects flexible programming between segments
     2. Creates authentic commercial break experience
+    """
+```
+
+**ComBreakDirect Server Management**
+```python
+def _ensure_combreakdirect_server(self) -> None:
+    """
+    Ensures ComBreakDirect server is running:
+    1. Checks if server is already running via health check
+    2. If not running, starts server in background thread
+    3. Waits for server to become ready (max 30 seconds)
+    4. Raises exception if server fails to start
+    """
+
+def _is_combreakdirect_running(self) -> bool:
+    """
+    Checks if ComBreakDirect server is responding:
+    - Queries {CBDIRECT_BASE_URL}/status endpoint
+    - Returns True if server responds with status 200
+    - Returns False if connection fails or timeout
+    """
+
+def _wait_for_combreakdirect_server(self, timeout: int = 30) -> bool:
+    """
+    Waits for ComBreakDirect server to become ready:
+    - Polls server status endpoint every second
+    - Returns True if server becomes ready within timeout
+    - Returns False if timeout expires
+
+    Args:
+        timeout: Maximum seconds to wait (default: 30)
     """
 ```
 
@@ -615,16 +647,67 @@ class PlexToDizqueTV:
         """Create channel from lineup table"""
 ```
 
-### Tunarr Integration  
+### Tunarr Integration
 ```python
 class PlexToTunarr:
     def __init__(self, plex_url: str, plex_token: str, tunarr_url: str,
                  library_name: str):
         """Initialize Tunarr channel creator"""
-    
+
     def create_channel_with_flex(self, lineup_table: str, channel_number: str,
                                 flex_duration: str) -> None:
         """Create channel with integrated flex scheduling"""
+```
+
+### ComBreakDirect Integration
+```python
+class ComBreakToComBreakDirect:
+    def __init__(self, table: str, channel_number: int, flex_duration: int | str,
+                 network: str, base_url: str, commercial_folder: str):
+        """
+        Initialize ComBreakDirect channel creator
+
+        Args:
+            table: Cutless lineup table name (e.g., "lineup_v8_cutless")
+            channel_number: Channel number for the stream
+            flex_duration: Commercial break length (milliseconds or "MM:SS")
+            network: Network name (e.g., "Toonami")
+            base_url: ComBreakDirect server URL
+            commercial_folder: Path to commercial break video files
+        """
+
+    def run(self) -> None:
+        """
+        Push lineup to ComBreakDirect server:
+        1. Load cutless lineup from database
+        2. Parse flex duration
+        3. Build API payload with all lineup items
+        4. Check server health
+        5. POST payload to /channels endpoint
+        6. Log playlist and guide URLs
+        """
+
+    def _load_lineup_from_database(self) -> pd.DataFrame:
+        """Load and validate cutless lineup table"""
+
+    def _parse_flex_duration(self, flex_duration: int | str) -> int:
+        """
+        Convert flex duration to milliseconds
+        Accepts: 150000 (int) or "02:30" (string)
+        Returns: milliseconds (int)
+        """
+
+    def _build_payload(self, lineup_df: pd.DataFrame) -> dict:
+        """
+        Transform database rows to ComBreakDirect API format
+        Returns: {channel_number, network, lineup[], flex_duration, commercial_folder}
+        """
+
+    def _check_server_health(self, max_retries: int = 30) -> None:
+        """Check if ComBreakDirect server is ready (raises on failure)"""
+
+    def _push_to_server(self, payload: dict) -> dict:
+        """POST payload to ComBreakDirect and return response"""
 ```
 
 ## Configuration APIs

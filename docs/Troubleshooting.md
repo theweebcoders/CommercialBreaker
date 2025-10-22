@@ -31,6 +31,42 @@ This guide helps you resolve common issues with CommercialBreaker & Toonami Tool
 pip install -r requirements.txt
 ```
 
+### DizqueTV Package Installation Failure
+**Error**: `ModuleNotFoundError: No module named 'm3u8'` or `error: subprocess-exited-with-error` during `pip install`
+
+**Problem**: The dizquetv package (required for Cutless Mode) has a build-time import issue. Its `setup.py` imports code from the package itself (`from dizqueTV._info import __version__`), which triggers imports of the entire dizqueTV module. This module imports dependencies like `m3u8`, `PlexAPI`, `numpy`, and `objectrest` at the top level - but these dependencies aren't installed yet because pip is still trying to build the dizquetv package!
+
+**Solution**: Install dependencies in the correct order:
+
+```bash
+# Step 1: Install build tools
+pip install --no-cache-dir wheel setuptools
+
+# Step 2: Install pre-dependencies (m3u8, PlexAPI, numpy, objectrest)
+pip install -r requirements/pre_deps.txt
+
+# Step 3: Install dizquetv without build isolation
+pip install --no-build-isolation git+https://github.com/theweebcoders/dizquetv-python.git
+
+# Step 4: Install remaining requirements
+pip install -r requirements.txt
+```
+
+**Why `--no-build-isolation` works**: This flag allows the dizquetv setup.py to access already-installed packages (like m3u8) during the build process instead of creating an isolated environment.
+
+**Note**:
+- This issue only affects **manual desktop installations**
+- The automated setup script (`setup.sh.bat`) handles this automatically
+- Docker installations use a corrected installation order in the Dockerfile
+- Most users won't encounter this since they use Docker or the setup script
+
+**Alternative**: If the above doesn't work, try installing dizquetv separately first:
+```bash
+pip install -r requirements/pre_deps.txt
+pip install --no-build-isolation git+https://github.com/theweebcoders/dizquetv-python.git
+pip install -r requirements.txt
+```
+
 ---
 
 ## Configuration Issues

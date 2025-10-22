@@ -477,7 +477,7 @@ class BasePage(gui.Container):
         # Create the main content container
         self.main_container = self.create_main_container()
         self.append(self.main_container)
-        self.add_page_title(self.main_container, self.app.page_titles.get(title_key, ''))
+        self.page_title_label = self.add_page_title(self.main_container, self.app.page_titles.get(title_key, ''))
         
         # Create error bar but don't append it yet
         self.error_bar = self.create_error_bar()
@@ -574,6 +574,8 @@ class BasePage(gui.Container):
         # Add back the status bar if it exists
         if (status_bar):
             self.append(status_bar)
+
+        self.update_page_title_text()
 
     def create_main_container(self):
         return gui.VBox(width='80%', style={
@@ -686,6 +688,12 @@ class BasePage(gui.Container):
         page_title = gui.Label(title_text, style=Styles.title_label_style)
         page_title.add_class('main-title') 
         container.append(page_title)
+        return page_title
+
+    def update_page_title_text(self):
+        if hasattr(self, 'page_title_label'):
+            new_title = self.app.page_titles.get(self.title_key, '')
+            self.page_title_label.set_text(new_title)
 
     def add_label(self, container, text):
         label = gui.Label(text, style=Styles.default_label_style)
@@ -759,6 +767,122 @@ class BasePage(gui.Container):
         self.app.execute_javascript(hover_js)
         
         return button
+
+    def init_advanced_controls(self, container):
+        self.advanced_button = self.add_button_with_style(container, "Advanced", self.toggle_advanced, 'utility')
+        self.advanced_button.style.update({
+            'position': 'fixed',
+            'right': '20px',
+            'bottom': '90px',
+            'z-index': '2000',
+            'opacity': '0.8',
+            'max-width': '200px',
+            'white-space': 'nowrap',
+            'overflow': 'hidden',
+            'text-overflow': 'ellipsis'
+        })
+
+        self.advanced_panel = self.build_advanced_panel()
+        self.advanced_panel.style.update({
+            'display': 'none',
+            'position': 'fixed',
+            'right': '20px',
+            'bottom': '140px',
+            'z-index': '2000',
+            'width': '360px',
+            'max-width': '90vw',
+            'max-height': '60vh',
+            'overflow-y': 'auto',
+            'overflow-x': 'hidden',
+            'box-sizing': 'border-box'
+        })
+        container.append(self.advanced_panel)
+
+    def toggle_advanced(self, widget=None):
+        visible = getattr(self, 'advanced_panel', None) and self.advanced_panel.style.get('display') != 'none'
+        if getattr(self, 'advanced_panel', None):
+            self.advanced_panel.style['display'] = 'none' if visible else 'block'
+            self.app.refresh()
+
+    def build_advanced_panel(self):
+        panel = gui.VBox(width='60%', style={'margin': '10px', 'padding': '10px', 'border': '1px solid rgba(0,140,255,0.4)', 'background-color': 'rgba(0,20,40,0.4)'})
+        title = gui.Label("Advanced Settings", style=Styles.section_header_style)
+        panel.append(title)
+
+        self.add_label(panel, "Network (e.g., 'Toonami', 'Cartoon Network'):")
+        self.network_entry = self.add_input(panel, config.network)
+
+        btns = gui.HBox(style={'justify-content': 'space-between', 'gap': '10px', 'background': 'transparent', 'flex-wrap': 'nowrap', 'width': '100%'})
+        validate_btn = self.add_button_with_style(btns, "Validate", self.on_validate_network, 'secondary')
+        apply_btn = self.add_button_with_style(btns, "Apply & Restart", self.on_apply_network, 'primary')
+        reset_btn = self.add_button_with_style(btns, "Reset to Default", self.on_reset_network, 'utility')
+        panel.append(btns)
+
+        common_btn_style = {
+            'clip-path': 'none',
+            'border-radius': '6px',
+            'padding': '8px 10px',
+            'font-size': '14px',
+            'width': 'calc((100% - 20px)/3)',
+            'height': '60px',
+            'display': 'flex',
+            'align-items': 'center',
+            'justify-content': 'center',
+            'text-align': 'center',
+            'white-space': 'normal',
+            'line-height': '1.2',
+            'box-shadow': '0 0 10px rgba(0, 140, 255, 0.2)',
+            'border': '1px solid rgba(0, 140, 255, 0.4)'
+        }
+        for b in (validate_btn, apply_btn, reset_btn):
+            b.style.update(common_btn_style)
+
+        hint = gui.Label("Note: A full restart is required for UI text and database to reflect the new network.", style={'font-size': '12px', 'opacity': '0.8', 'margin': '6px'})
+        panel.append(hint)
+        return panel
+
+    def on_validate_network(self, widget):
+        value = self.network_entry.get_value()
+        name = value.strip() if isinstance(value, str) else ''
+        if not name:
+            self.update_status_display("Validation failed: empty network name")
+            return
+        ok = self.logic.validate_network(name)
+        if ok:
+            self.update_status_display(f"Network valid: {name}")
+        else:
+            self.update_status_display("Validation failed")
+
+    def on_apply_network(self, widget):
+        value = self.network_entry.get_value()
+        name = value.strip() if isinstance(value, str) else ''
+        if not name:
+            self.update_status_display("Apply failed: empty network name")
+            return
+        if self.logic.apply_network(name):
+            self.update_status_display("Network updated. Restarting...")
+            def _restart():
+                try:
+                    time.sleep(0.5)
+                    os.execv(sys.executable, [sys.executable] + sys.argv)
+                except Exception as e:
+                    self.update_status_display(f"Restart failed: {e}. Please restart manually.")
+            threading.Thread(target=_restart, daemon=True).start()
+        else:
+            self.update_status_display("Failed to update network")
+
+    def on_reset_network(self, widget):
+        if self.logic.apply_network('Toonami'):
+            self.update_status_display("Network reset to 'Toonami'. Restarting...")
+            def _restart():
+                try:
+                    time.sleep(0.5)
+                    os.execv(sys.executable, [sys.executable] + sys.argv)
+                except Exception as e:
+                    self.update_status_display(f"Restart failed: {e}. Please restart manually.")
+            threading.Thread(target=_restart, daemon=True).start()
+        else:
+            self.update_status_display("Failed to reset network")
 
     def add_dropdown(self, container, options, onchange_handler=None):
         dropdown = gui.DropDown(width='100%', style=Styles.default_input_style)
@@ -1260,7 +1384,7 @@ class BasePage(gui.Container):
     def _show_error_dialog(self, title, message):
         """Show a simple error dialog"""
         dialog = gui.GenericDialog(title, message)
-        
+
         # Optionally, you can add custom styles to the dialog
         dialog.style.update({
             'background-color': 'rgba(0, 20, 40, 0.9)',
@@ -1272,7 +1396,7 @@ class BasePage(gui.Container):
             'font-size': '14px',
             'text-shadow': '0 0 5px rgba(0, 204, 255, 0.7)'
         })
-        
+
         # Style the buttons (access them through children.values())
         for child in dialog.children.values():
             if hasattr(child, 'style'):
@@ -1289,8 +1413,44 @@ class BasePage(gui.Container):
                     'cursor': 'pointer',
                     'transition': 'all 0.3s ease'
                 })
-        
-        dialog.show(self)
+
+        dialog.show(self.app)
+        return dialog
+
+    def _show_info_dialog(self, title, message):
+        """Show a simple info dialog"""
+        dialog = gui.GenericDialog(title, message)
+
+        # Add custom styles to the dialog
+        dialog.style.update({
+            'background-color': 'rgba(0, 20, 40, 0.9)',
+            'border': '1px solid rgba(0, 140, 255, 0.6)',
+            'border-radius': '8px',
+            'padding': '15px',
+            'color': '#ffffff',
+            'font-family': 'Arial, sans-serif',
+            'font-size': '14px',
+            'text-shadow': '0 0 5px rgba(0, 204, 255, 0.7)'
+        })
+
+        # Style the buttons (access them through children.values())
+        for child in dialog.children.values():
+            if hasattr(child, 'style'):
+                child.style.update({
+                    'font-family': 'Rajdhani, sans-serif',
+                    'font-size': '14px',
+                    'font-weight': '500',
+                    'color': '#a5f3fc',
+                    'background': 'rgba(0, 140, 255, 0.4)',
+                    'border': '1px solid rgba(0, 255, 255, 0.6)',
+                    'border-radius': '4px',
+                    'padding': '8px 16px',
+                    'margin': '5px',
+                    'cursor': 'pointer',
+                    'transition': 'all 0.3s ease'
+                })
+
+        dialog.show(self.app)
         return dialog
 
 class NavigationBar(gui.Container):
@@ -1328,7 +1488,7 @@ class NavigationBar(gui.Container):
             'background': 'transparent',
             'background-color': 'transparent'
         })
-        
+
         # Home/Start Over button - using add_button instead of add_button_with_style
         home_button = self.add_button(right_container, "↻ Start Over", self.on_home_button_click)
         # Apply navigation style manually
@@ -1352,59 +1512,45 @@ class NavigationBar(gui.Container):
         self.append(right_container)
     
     def create_page_indicators(self, container):
-        # Use the app's visited_page2 flag to determine if we show Page2
-        show_page2 = self.current_page == 'Page2' or self.app.visited_page2
-        
-        # Define all pages in sequence with their titles and visual number
-        pages = []
-        
-        # Always add Page1
-        pages.append({
-            'id': 'Page1', 
-            'title': 'Login', 
-            'optional': False, 
-            'visual_num': 1
-        })
-        
-        # Only add Page2 if we're on it or have visited it
-        if show_page2:
-            pages.append({
-                'id': 'Page2', 
-                'title': 'Manual Setup', 
-                'optional': True, 
-                'visual_num': 2
-            })
-        
-        # Add remaining pages with dynamic visual numbers
-        offset = 1 if not show_page2 else 0
-        pages.append({
-            'id': 'Page3', 
-            'title': 'Content Prep', 
-            'optional': False, 
-            'visual_num': 3 - offset
-        })
-        pages.append({
-            'id': 'Page4', 
-            'title': 'Commercial Breaker', 
-            'optional': False, 
-            'visual_num': 4 - offset
-        })
-        pages.append({
-            'id': 'Page5', 
-            'title': 'Channel Creation', 
-            'optional': False, 
-            'visual_num': 5 - offset
-        })
-        pages.append({
-            'id': 'Page6', 
-            'title': 'Additional Channels', 
-            'optional': False, 
-            'visual_num': 6 - offset
-        })
-        
-        # Display page indicators
+        sentinel = object()
+        platform_type = getattr(self.app, 'current_platform_type', sentinel)
+        if platform_type is sentinel and hasattr(self.app, 'logic'):
+            platform_type = self.app.logic._get_data("platform_type") or None
+
+        manual_visible = (
+            platform_type not in (None, 'combreakdirect')
+            and (self.current_page == 'Page3' or self.app.visited_manual_setup)
+        )
+
+        if platform_type == 'combreakdirect':
+            pages = [
+                {'id': 'Page1', 'title': 'Choose Platform', 'optional': False, 'visual_num': 1},
+                {'id': 'Page4', 'title': 'Content Prep', 'optional': False, 'visual_num': 2},
+                {'id': 'Page5', 'title': 'Commercial Breaker', 'optional': False, 'visual_num': 3},
+                {'id': 'Page6', 'title': 'Channel Creation', 'optional': False, 'visual_num': 4},
+                {'id': 'Page7', 'title': 'Additional Channels', 'optional': False, 'visual_num': 5},
+            ]
+        elif platform_type is None:
+            pages = [
+                {'id': 'Page1', 'title': 'Choose Platform', 'optional': False, 'visual_num': 1},
+            ]
+        else:
+            pages = [
+                {'id': 'Page1', 'title': 'Choose Platform', 'optional': False, 'visual_num': 1},
+                {'id': 'Page2', 'title': 'Login to Plex', 'optional': False, 'visual_num': 2},
+            ]
+
+            if manual_visible:
+                pages.append({'id': 'Page3', 'title': 'Manual Setup', 'optional': True, 'visual_num': 2})
+
+            pages.extend([
+                {'id': 'Page4', 'title': 'Content Prep', 'optional': False, 'visual_num': 3},
+                {'id': 'Page5', 'title': 'Commercial Breaker', 'optional': False, 'visual_num': 4},
+                {'id': 'Page6', 'title': 'Channel Creation', 'optional': False, 'visual_num': 5},
+                {'id': 'Page7', 'title': 'Additional Channels', 'optional': False, 'visual_num': 6},
+            ])
+
         for i, page in enumerate(pages):
-            # Create indicator style based on current page
             is_current = (page['id'] == self.current_page)
             indicator_style = {
                 'width': '12px',
@@ -1415,8 +1561,6 @@ class NavigationBar(gui.Container):
                 'box-shadow': '0 0 8px rgba(0, 255, 255, 0.8)' if is_current else 'none',
                 'cursor': 'pointer'
             }
-            
-            # Create text style
             text_style = {
                 'font-size': '14px',
                 'color': '#0ff' if is_current else '#a5f3fc',
@@ -1424,40 +1568,30 @@ class NavigationBar(gui.Container):
                 'font-weight': 'bold' if is_current else 'normal',
                 'text-shadow': '0 0 5px #00ccff' if is_current else 'none'
             }
-            
-            # Create page indicator
             indicator_container = gui.HBox(style={
                 'align-items': 'center',
                 'margin': '0 8px',
                 'background': 'transparent',
                 'background-color': 'transparent'
             })
-            
-            # Add dot indicator
             dot = gui.Container(width=12, height=12, style=indicator_style)
             dot.attributes['page_id'] = page['id']
             dot.onclick.do(self.on_indicator_click)
             indicator_container.append(dot)
-            
-            # Add page number and title
+
             label_text = f"{page['visual_num']} - {page['title']}"
             if page['optional']:
                 label_text += " (Optional)"
-                
             label = gui.Label(label_text, style=text_style)
             indicator_container.append(label)
-            
-            # Add to container
+
             container.append(indicator_container)
-            
-            # Add separator if not the last page
             if i < len(pages) - 1:
                 separator = gui.Container(width=15, height=1, style={
                     'background-color': 'rgba(0, 140, 255, 0.4)',
                     'margin': '0 2px'
                 })
                 container.append(separator)
-    
     def on_back_button_click(self, widget):
         # Let the app handle the back navigation with its history tracking
         self.app.go_back()
@@ -1483,14 +1617,177 @@ class Page1(BasePage):
     def __init__(self, app, *args, **kwargs):
         super(Page1, self).__init__(app, 'Page1', *args, **kwargs)
         self.logic = LogicController()
-        
+
+        stored_platform = self.logic._get_data("platform_type") or 'dizquetv'
+        stored_url = self.logic._get_data("platform_url")
+        self.selected_platform = stored_platform
+
+        helper_text = gui.Label(
+            "Pick where Commercial Breaker should manage your channel before moving on to Plex setup.",
+            style={
+                'font-size': '14px',
+                'color': '#a5f3fc',
+                'text-align': 'center',
+                'margin': '10px 0 20px 0',
+                'background': 'transparent'
+            }
+        )
+        self.main_container.append(helper_text)
+
+        platform_buttons = gui.HBox(style={
+            'justify-content': 'center',
+            'gap': '20px',
+            'margin': '10px 0',
+            'background': 'transparent'
+        })
+        self.main_container.append(platform_buttons)
+
+        self.dizquetv_button = gui.Button("DizqueTV", width=150, height=40, style=Styles.unselected_button_style)
+        self.tunarr_button = gui.Button("Tunarr", width=150, height=40, style=Styles.unselected_button_style)
+        self.cbdirect_button = gui.Button("ComBreakDirect", width=180, height=40, style=Styles.unselected_button_style)
+
+        self.dizquetv_button.onclick.do(lambda w: self.on_platform_change('dizquetv'))
+        self.tunarr_button.onclick.do(lambda w: self.on_platform_change('tunarr'))
+        self.cbdirect_button.onclick.do(lambda w: self.on_platform_change('combreakdirect'))
+
+        platform_buttons.append([self.dizquetv_button, self.tunarr_button, self.cbdirect_button])
+
+        # ComBreakDirect controls (shown only when ComBreakDirect selected and not in Docker)
+        self.cbd_controls_container = gui.VBox(style={
+            'display': 'none',
+            'align-items': 'center',
+            'margin': '20px 0',
+            'background': 'transparent'
+        })
+        self.main_container.append(self.cbd_controls_container)
+
+        self.cbd_start_button = gui.Button("Start ComBreakDirect Server", width=250, height=40)
+        self.cbd_start_button.style.update(Styles.default_button_style)
+        self.cbd_start_button.onclick.do(self.start_combreakdirect)
+        self.cbd_controls_container.append(self.cbd_start_button)
+
+        self.cbd_info_label = gui.Label(
+            "ComBreakDirect needs to stay running to stream your channel. Keep Absolution open in your browser.",
+            style={
+                'color': '#a5f3fc',
+                'font-size': '14px',
+                'margin': '10px 20px',
+                'text-align': 'center',
+                'background': 'transparent'
+            }
+        )
+        self.cbd_controls_container.append(self.cbd_info_label)
+
+        self.cbd_server_running = False
+
+        self.platform_url_label = self.add_label(self.main_container, "Platform URL:")
+        self.platform_url_entry = self.add_input(self.main_container, "e.g., http://localhost:17685")
+
+        buttons_container = gui.HBox(style={
+            'justify-content': 'center',
+            'margin-top': '25px',
+            'background': 'transparent'
+        })
+        self.main_container.append(buttons_container)
+
+        self.continue_button = self.add_button_with_style(buttons_container, "Continue", self.on_continue_button_click, 'primary')
+
+        self.init_advanced_controls(self.main_container)
+
+        self.on_platform_change(self.selected_platform)
+        if stored_url and self.selected_platform not in ('combreakdirect', None):
+            self.platform_url_entry.set_value(stored_url)
+
+    def on_platform_change(self, platform):
+        """Handle platform selection button clicks"""
+        self.selected_platform = platform
+        cbdirect_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
+        if platform == 'dizquetv':
+            self.dizquetv_button.style.update(Styles.selected_button_style)
+            self.tunarr_button.style.update(Styles.unselected_button_style)
+            self.cbdirect_button.style.update(Styles.unselected_button_style)
+            self._set_platform_url_visibility(True)
+            self.platform_url_entry.attributes.pop('readonly', None)
+            self.platform_url_entry.set_value("e.g., http://localhost:17685")
+            # Hide ComBreakDirect controls
+            self.cbd_controls_container.style['display'] = 'none'
+        elif platform == 'tunarr':
+            self.dizquetv_button.style.update(Styles.unselected_button_style)
+            self.tunarr_button.style.update(Styles.selected_button_style)
+            self.cbdirect_button.style.update(Styles.unselected_button_style)
+            self._set_platform_url_visibility(True)
+            self.platform_url_entry.attributes.pop('readonly', None)
+            self.platform_url_entry.set_value("e.g., http://localhost:8000")
+            # Hide ComBreakDirect controls
+            self.cbd_controls_container.style['display'] = 'none'
+        else:  # combreakdirect
+            self.dizquetv_button.style.update(Styles.unselected_button_style)
+            self.tunarr_button.style.update(Styles.unselected_button_style)
+            self.cbdirect_button.style.update(Styles.selected_button_style)
+            self._set_platform_url_visibility(False)
+            self.platform_url_entry.set_value(cbdirect_url)
+            self.platform_url_entry.attributes['readonly'] = 'true'
+            # Show ComBreakDirect controls only if NOT in Docker
+            from API.utils.FlagManager import FlagManager
+            if not FlagManager.docker:
+                self.cbd_controls_container.style['display'] = 'flex'
+            else:
+                self.cbd_controls_container.style['display'] = 'none'
+
+    def start_combreakdirect(self, widget):
+        """Start the ComBreakDirect server"""
+        if self.cbd_server_running:
+            return
+
+        try:
+            self.logic.start_combreakdirect_server()
+            self.cbd_server_running = True
+            self.cbd_start_button.set_text("✓ Server Running")
+            self.cbd_start_button.attributes['disabled'] = 'true'
+
+            base_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
+            self.cbd_info_label.set_text(f"Server running at {base_url}. You can close this browser tab, but keep the Python terminal/process running to keep streaming.")
+        except Exception as e:
+            self.cbd_info_label.set_text(f"Error starting server: {str(e)}")
+            self.cbd_info_label.style['color'] = '#ff6666'
+
+    def _set_platform_url_visibility(self, visible: bool) -> None:
+        display = 'block' if visible else 'none'
+        self.platform_url_label.style['display'] = display
+        self.platform_url_entry.style['display'] = display
+
+    def on_continue_button_click(self, widget):
+        if self.selected_platform == 'combreakdirect':
+            platform_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
+        else:
+            platform_url = self.platform_url_entry.get_value()
+
+        self.logic._set_data("platform_type", self.selected_platform)
+        self.logic._set_data("platform_url", platform_url)
+
+        # Let the app know which platform is active so navigation can adjust
+        if hasattr(self.app, 'update_platform_type'):
+            self.app.update_platform_type(self.selected_platform)
+
+        if self.selected_platform == 'combreakdirect':
+            self.logic._broadcast_status_update("Idle")
+            self.app.visited_manual_setup = False
+            self.app.set_current_page('Page4')
+        else:
+            self.app.visited_manual_setup = False
+            self.app.set_current_page('Page2')
+class Page2(BasePage):
+    def __init__(self, app, *args, **kwargs):
+        super(Page2, self).__init__(app, 'Page2', *args, **kwargs)
+        self.logic = LogicController()
+
         # Define the JavaScript function for opening URLs early in initialization
         self.app.execute_javascript("""
             window.pywebview.api.open_plex_auth_url = function(url) {
                 window.open(url, '_blank');
             }
         """)
-        
+
         # Subscribe to updates using simplified interface
         self.logic.subscribe_to_status_updates(self.update_status_display)
         self.logic.subscribe_to_plex_servers(self.handle_plex_servers_update)
@@ -1498,421 +1795,256 @@ class Page1(BasePage):
         self.logic.subscribe_to_plex_auth_url(self.handle_plex_auth_url)
         self.logic.subscribe_to_server_choices(self.handle_new_server_choices)
         self.logic.subscribe_to_library_choices(self.handle_new_library_choices)
-        
-        # Initialize variables
+
+        # Track UI state
         self.libraries_selected = 0
         self.plex_servers = []
         self.plex_libraries = []
 
-        # Build the page using helper methods
+        stored_platform_type = self.logic._get_data("platform_type")
+        self.selected_platform = stored_platform_type or 'dizquetv'
+        stored_url = self.logic._get_data("platform_url")
+
+        # Platform summary
+        platform_names = {
+            'dizquetv': 'DizqueTV',
+            'tunarr': 'Tunarr',
+            'combreakdirect': 'ComBreakDirect'
+        }
+        pretty_platform = platform_names.get(self.selected_platform, self.selected_platform.title())
+        self.platform_summary_label = gui.Label(
+            f"Platform: {pretty_platform}",
+            style={
+                'font-size': '16px',
+                'color': '#a5f3fc',
+                'margin': '0 0 10px 0',
+                'background': 'transparent'
+            }
+        )
+        self.main_container.append(self.platform_summary_label)
+
+        # Platform URL summary (already captured in Step 1)
+        default_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
+        summary_url = default_url if self.selected_platform == 'combreakdirect' else stored_url
+        self.platform_url_summary = gui.Label(
+            f"Platform URL: {summary_url}",
+            style={
+                'font-size': '14px',
+                'color': '#a5f3fc',
+                'margin': '0 0 15px 0',
+                'background': 'transparent'
+            }
+        )
+        self.main_container.append(self.platform_url_summary)
+
+        # Build the Plex login workflow
         self.add_label(self.main_container, "Login with Plex")
         self.login_with_plex_button = self.add_button_with_style(self.main_container, "Login with Plex", self.login_to_plex, 'primary')
 
-        # Plex Servers Dropdown
         self.add_label(self.main_container, "Select a Plex Server")
-        self.plex_server_dropdown = self.add_dropdown(self.main_container, ["Select a Plex Server"], self.on_server_selected)
+        self.plex_server_dropdown = self.add_dropdown(self.main_container, ["Choose a server"], self.on_server_selected)
 
-        # Anime Library Dropdown
         self.add_label(self.main_container, "Select your Anime Library")
-        self.plex_anime_library_dropdown = self.add_dropdown(self.main_container, ["Select your Anime Library"], self.add_1_to_libraries_selected)
+        self.plex_anime_library_dropdown = self.add_dropdown(self.main_container, ["Choose a library"], self.add_1_to_libraries_selected)
 
-        # Toonami Library Dropdown
         self.add_label(self.main_container, f"Select your {config.network} Library")
-        self.plex_library_dropdown = self.add_dropdown(self.main_container, [f"Select your {config.network} Library"], self.add_1_to_libraries_selected)
+        self.plex_library_dropdown = self.add_dropdown(self.main_container, [f"Choose a {config.network} library"], self.add_1_to_libraries_selected)
 
-        # Platform Selection
-        platform_container = gui.HBox(style={
-            'justify-content': 'center',
-            'margin': '20px',
-            'gap': '20px',
-            'background': 'transparent',
-            'background-color': 'transparent'
-        })
-        self.add_label(platform_container, "Select Platform:")
-        
-        # Create platform selection buttons
-        self.dizquetv_button = gui.Button("DizqueTV", width=150, height=40, style=Styles.selected_button_style)
-        self.tunarr_button = gui.Button("Tunarr", width=150, height=40, style=Styles.unselected_button_style)
-        
-        self.dizquetv_button.onclick.do(lambda w: self.on_platform_change('dizquetv'))
-        self.tunarr_button.onclick.do(lambda w: self.on_platform_change('tunarr'))
-        
-        platform_container.append([self.dizquetv_button, self.tunarr_button])
-        
-        self.main_container.append(platform_container)
-        self.selected_platform = 'dizquetv'  # Default selection
-
-        # Platform URL Entry
-        self.url_label = self.add_label(self.main_container, "Platform URL:")
-        self.platform_url_entry = self.add_input(self.main_container, "e.g., http://localhost:17685")
-
-        # Remove individual status label since we now use the global one in BasePage
-
-        # Continue and Skip buttons
+        # Continue / Skip controls
         buttons_container = gui.HBox(style={
             'justify-content': 'center',
             'margin-top': '20px',
             'background': 'transparent',
-            'background-color': 'transparent'
+            'gap': '12px'
         })
-        self.continue_button = self.add_button_with_style(buttons_container, "Continue", self.on_continue_button_click, 'secondary')
-        self.continue_button.style['display'] = 'none'
-        buttons_container.append(self.continue_button)
-
-        self.skip_button = self.add_button_with_style(buttons_container, "Skip", self.on_skip_button_click, 'secondary')
-        buttons_container.append(self.skip_button)
-
         self.main_container.append(buttons_container)
 
-        self.app.execute_javascript("""
-            window.pywebview.api.open_plex_auth_url = function(url) {
-                window.open(url, '_blank');
-            }
-        """)
+        self.continue_button = self.add_button_with_style(buttons_container, "Continue", self.on_continue_button_click, 'secondary')
+        self.continue_button.style['display'] = 'none'
 
-        # Advanced settings floating button (bottom-right, less prominent)
-        self.advanced_button = self.add_button_with_style(self.main_container, "Advanced", self.toggle_advanced, 'utility')
-        self.advanced_button.style.update({
-            'position': 'fixed',
-            'right': '20px',
-            'bottom': '90px',  # keep above status bar
-            'z-index': '2000',
-            'opacity': '0.8',
-            'max-width': '200px',
-            'white-space': 'nowrap',
-            'overflow': 'hidden',
-            'text-overflow': 'ellipsis'
-        })
+        self.skip_button = self.add_button_with_style(buttons_container, "Skip", self.on_skip_button_click, 'secondary')
+        if self.selected_platform == 'combreakdirect':
+            self.skip_button.style['display'] = 'none'
 
-        # Advanced settings panel (fixed bottom-right overlay, initially hidden)
-        self.advanced_panel = self.build_advanced_panel()
-        self.advanced_panel.style.update({
-            'display': 'none',
-            'position': 'fixed',
-            'right': '20px',
-            'bottom': '140px',
-            'z-index': '2000',
-            'width': '360px',
-            'max-width': '90vw',
-            'max-height': '60vh',
-            'overflow-y': 'auto',
-            'overflow-x': 'hidden',
-            'box-sizing': 'border-box'
-        })
-        self.main_container.append(self.advanced_panel)
-
-    def toggle_advanced(self, widget=None):
-        visible = self.advanced_panel.style.get('display') != 'none'
-        self.advanced_panel.style['display'] = 'none' if visible else 'block'
-        self.app.refresh()
-
-    def build_advanced_panel(self):
-        panel = gui.VBox(width='60%', style={'margin': '10px', 'padding': '10px', 'border': '1px solid rgba(0,140,255,0.4)', 'background-color': 'rgba(0,20,40,0.4)'})
-        title = gui.Label("Advanced Settings", style=Styles.section_header_style)
-        panel.append(title)
-
-        net_label = self.add_label(panel, "Network (e.g., 'Toonami', 'Cartoon Network'):")
-        self.network_entry = self.add_input(panel, config.network)
-
-        btns = gui.HBox(style={'justify-content': 'space-between', 'gap': '10px', 'background': 'transparent', 'flex-wrap': 'nowrap', 'width': '100%'})
-        validate_btn = self.add_button_with_style(btns, "Validate", self.on_validate_network, 'secondary')
-        apply_btn = self.add_button_with_style(btns, "Apply & Restart", self.on_apply_network, 'primary')
-        reset_btn = self.add_button_with_style(btns, "Reset to Default", self.on_reset_network, 'utility')
-        panel.append(btns)
-
-        # Normalize Advanced buttons to consistent size/shape regardless of base style
-        common_btn_style = {
-            'clip-path': 'none',
-            'border-radius': '6px',
-            'padding': '8px 10px',
-            'font-size': '14px',
-            'width': 'calc((100% - 20px)/3)',  # three buttons with 10px gap between -> 20px total
-            'height': '60px',  # fixed height so wrap doesn’t misalign
-            'display': 'flex',
-            'align-items': 'center',
-            'justify-content': 'center',
-            'text-align': 'center',
-            'white-space': 'normal',  # allow wrapping for long labels
-            'line-height': '1.2',
-            'box-shadow': '0 0 10px rgba(0, 140, 255, 0.2)',
-            'border': '1px solid rgba(0, 140, 255, 0.4)'
-        }
-        for b in (validate_btn, apply_btn, reset_btn):
-            b.style.update(common_btn_style)
-        
-        hint = gui.Label("Note: A full restart is required for UI text and database to reflect the new network.", style={'font-size': '12px', 'opacity': '0.8', 'margin': '6px'})
-        panel.append(hint)
-        return panel
-
-    def on_validate_network(self, widget):
-        name = (self.network_entry.get_value() or '').strip()
-        if not name:
-            self.update_status_display("Validation failed: empty network name")
-            return
-        ok = self.logic.validate_network(name)
-        if ok:
-            self.update_status_display(f"Network valid: {name}")
-        else:
-            # Error is pushed through error bar already
-            self.update_status_display("Validation failed")
-
-    def on_apply_network(self, widget):
-        name = (self.network_entry.get_value() or '').strip()
-        if not name:
-            self.update_status_display("Apply failed: empty network name")
-            return
-        if self.logic.apply_network(name):
-            self.update_status_display("Network updated. Restarting...")
-            # Give the UI a moment to render the status update
-            def _restart():
-                try:
-                    time.sleep(0.5)
-                    os.execv(sys.executable, [sys.executable] + sys.argv)
-                except Exception as e:
-                    self.update_status_display(f"Restart failed: {e}. Please restart manually.")
-            threading.Thread(target=_restart, daemon=True).start()
-        else:
-            self.update_status_display("Failed to update network")
-
-    def on_reset_network(self, widget):
-        if self.logic.apply_network('Toonami'):
-            self.update_status_display("Network reset to 'Toonami'. Restarting...")
-            def _restart():
-                try:
-                    time.sleep(0.5)
-                    os.execv(sys.executable, [sys.executable] + sys.argv)
-                except Exception as e:
-                    self.update_status_display(f"Restart failed: {e}. Please restart manually.")
-            threading.Thread(target=_restart, daemon=True).start()
-        else:
-            self.update_status_display("Failed to reset network")
-
-    def on_platform_change(self, platform):
-        """Handle platform selection button clicks"""
-        self.selected_platform = platform
-        if platform == 'dizquetv':
-            self.dizquetv_button.style.update(Styles.selected_button_style)
-            self.tunarr_button.style.update(Styles.unselected_button_style)
-            self.platform_url_entry.set_value("e.g., http://localhost:17685")
-        else:
-            self.dizquetv_button.style.update(Styles.unselected_button_style)
-            self.tunarr_button.style.update(Styles.selected_button_style)
-            self.platform_url_entry.set_value("e.g., http://localhost:8000")
+        # Advanced settings moved to platform selection (Page1)
 
     def login_to_plex(self, widget):
-        print("You pressed the login button")
         self.logic.login_to_plex()
-        # With the message broker system, we don't need to wait or poll
-        # Messages will come via handle_message when available
         self.update_status_display("Logging into Plex...")
 
     def on_server_selected(self, widget, value):
         self.selected_server = self.plex_server_dropdown.get_value()
-        print(f"Selected server: {self.selected_server}")
-        # The broker will handle the delivery of libraries when ready
+        if self._is_placeholder(self.selected_server):
+            return
         self.logic.on_server_selected(self.selected_server)
         self.update_status_display(f"Fetching libraries from {self.selected_server}...")
 
     def add_1_to_libraries_selected(self, widget, value):
-        self.libraries_selected += 1
-        if self.libraries_selected == 2:
-            self.show_continue_button()
+        self._update_continue_state()
 
     def show_continue_button(self):
         self.continue_button.style['display'] = 'block'
-        self.skip_button.style['display'] = 'none'
+        if self.skip_button.style.get('display') != 'none':
+            self.skip_button.style['display'] = 'none'
 
     def update_server_dropdown(self, server_list):
-        """Update the server dropdown with the provided list of servers"""
-        # Clear existing items except for the first instruction item
-        first_item = self.plex_server_dropdown.children.get('0')
+        placeholder_text = "Choose a server"
         self.plex_server_dropdown.empty()
-        if (first_item):
-            self.plex_server_dropdown.append(first_item)
-        
-        # Add all servers from the provided list
-        if (server_list):
+        placeholder_item = gui.DropDownItem(placeholder_text)
+        placeholder_item.attributes['data-placeholder'] = 'true'
+        self.plex_server_dropdown.append(placeholder_item)
+        self.plex_server_dropdown.set_value(placeholder_text)
+        if server_list:
             for server in server_list:
                 self.plex_server_dropdown.append(gui.DropDownItem(server))
-            print(f"Updated server dropdown with {len(server_list)} servers")
-            
-            # Auto-select if there's only one server
-            if (len(server_list) == 1):
-                server_name = server_list[0]
-                print(f"Auto-selecting single server: {server_name}")
-                self.plex_server_dropdown.set_value(server_name)
-                self.selected_server = server_name
-                # Trigger the selection logic
-                self.logic.on_server_selected(server_name)
-                self.update_status_display(f"Fetching libraries from {server_name}...")
+        self._update_continue_state()
 
     def update_library_dropdowns(self, library_list):
-        """Update the library dropdowns with the provided list of libraries"""
-        # Clear existing items except for the first instruction item in each dropdown
-        first_anime_item = self.plex_anime_library_dropdown.children.get('0')
-        first_toonami_item = self.plex_library_dropdown.children.get('0')
-        
+        anime_placeholder_text = "Choose a library"
+        toonami_placeholder_text = f"Choose a {config.network} library"
         self.plex_anime_library_dropdown.empty()
         self.plex_library_dropdown.empty()
-        
-        # Add back the first instruction items
-        if (first_anime_item):
-            self.plex_anime_library_dropdown.append(first_anime_item)
-        if (first_toonami_item):
-            self.plex_library_dropdown.append(first_toonami_item)
-        
-        # Add all libraries to both dropdowns
-        if (library_list):
+
+        anime_placeholder = gui.DropDownItem(anime_placeholder_text)
+        anime_placeholder.attributes['data-placeholder'] = 'true'
+        self.plex_anime_library_dropdown.append(anime_placeholder)
+        self.plex_anime_library_dropdown.set_value(anime_placeholder_text)
+
+        toonami_placeholder = gui.DropDownItem(toonami_placeholder_text)
+        toonami_placeholder.attributes['data-placeholder'] = 'true'
+        self.plex_library_dropdown.append(toonami_placeholder)
+        self.plex_library_dropdown.set_value(toonami_placeholder_text)
+
+        if library_list:
             for library in library_list:
                 self.plex_anime_library_dropdown.append(gui.DropDownItem(library))
                 self.plex_library_dropdown.append(gui.DropDownItem(library))
-            print(f"Updated library dropdowns with {len(library_list)} libraries")
-            
-            # Reset libraries_selected counter since we're repopulating the dropdown
             self.libraries_selected = 0
+            self.update_status_display(f"Loaded {len(library_list)} libraries")
+        self._update_continue_state()
 
     def on_continue_button_click(self, widget):
         selected_anime_library = self.plex_anime_library_dropdown.get_value()
         selected_toonami_library = self.plex_library_dropdown.get_value()
-        platform_url = self.platform_url_entry.get_value()
-        
+        if self.selected_platform == 'combreakdirect':
+            platform_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
+        else:
+            platform_url = self.logic._get_data("platform_url")
+
         self.logic._set_data("selected_anime_library", selected_anime_library)
         self.logic._set_data("selected_toonami_library", selected_toonami_library)
         self.logic._set_data("platform_url", platform_url)
         self.logic._set_data("platform_type", self.selected_platform)
         self.logic.check_dizquetv_compatibility()
         self.logic._broadcast_status_update("Idle")
-        self.app.visited_page2 = False
-        self.app.set_current_page('Page3')
+        self.app.visited_manual_setup = False
+        self.app.set_current_page('Page4')
+
+    def refresh_platform_info(self):
+        # Reload current platform data and update summary/controls
+        stored_platform_type = self.logic._get_data("platform_type")
+        self.selected_platform = stored_platform_type or 'dizquetv'
+        stored_url = self.logic._get_data("platform_url")
+        default_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
+        summary_url = default_url if self.selected_platform == 'combreakdirect' else stored_url
+        platform_names = {
+            'dizquetv': 'DizqueTV',
+            'tunarr': 'Tunarr',
+            'combreakdirect': 'ComBreakDirect'
+        }
+        pretty_platform = platform_names.get(self.selected_platform, self.selected_platform.title())
+        self.platform_summary_label.set_text(f"Platform: {pretty_platform}")
+        self.platform_url_summary.set_text(f"Platform URL: {summary_url}")
+
+        if self.selected_platform == 'combreakdirect':
+            self.skip_button.style['display'] = 'none'
+        else:
+            if self.continue_button.style.get('display') == 'none':
+                self.skip_button.style['display'] = 'block'
 
     def handle_plex_auth_url(self, auth_url):
-        """Handle Plex authentication URL - open in browser"""
-        print(f"Received Plex auth URL: {auth_url}")
         self.app.execute_javascript(f"window.open('{auth_url}', '_blank')")
-        print(f"Opening Plex auth URL: {auth_url}")
-        
+
     def handle_new_server_choices(self, _):
-        """Handle notification about new server choices available"""
-        print("Received notification about new server choices")
-        # This is a notification that new servers are available
-        # The actual server data comes via handle_plex_servers_update
-        
+        pass
+
     def handle_new_library_choices(self, _):
-        """Handle notification about new library choices available"""
-        print("Received notification about new library choices")
-        # This is a notification that new libraries are available
-        # The actual library data comes via handle_plex_libraries_update
-        
+        pass
+
     def handle_plex_servers_update(self, server_list_json):
-        """Handle Plex servers list update"""
         try:
-            # Deserialize the JSON string to a Python list
             server_list = json.loads(server_list_json)
-            print(f"Received server list with {len(server_list)} items")
-            
-            # Store server list for reference
             self.plex_servers = server_list
-            
-            # Update server dropdown
             self.update_server_dropdown(server_list)
         except Exception as e:
             print(f"Error processing server list: {e}")
-            
+
     def handle_plex_libraries_update(self, library_list_json):
-        """Handle Plex libraries list update"""
         try:
-            # Deserialize the JSON string to a Python list
             library_list = json.loads(library_list_json)
-            print(f"Received library list with {len(library_list)} items")
-            
-            # Store library list for reference
             self.plex_libraries = library_list
-            
-            # Update library dropdowns
             self.update_library_dropdowns(library_list)
-            
-            # Update status
-            self.update_status_display(f"Loaded {len(library_list)} libraries")
         except Exception as e:
             print(f"Error processing library list: {e}")
-            
-                
+
     def update_dropdown(self, server_list):
-        """Update the server dropdown with the provided list of servers"""
         if hasattr(self, 'plex_server_dropdown'):
-            # Clear existing items except for the first instruction item
             first_item = self.plex_server_dropdown.children.get('0')
             self.plex_server_dropdown.empty()
             if first_item:
                 self.plex_server_dropdown.append(first_item)
-            
-            # Add all servers from the provided list
+                self.plex_server_dropdown.set_value(first_item.get_text())
             if server_list:
                 for server in server_list:
                     self.plex_server_dropdown.append(gui.DropDownItem(server))
-                print(f"Updated server dropdown with {len(server_list)} servers")
 
     def on_skip_button_click(self, widget):
-        # Skip button should take us to Manual Setup (Page2)
-        self.app.visited_page2 = True
-        self.app.set_current_page('Page2')
+        self.app.visited_manual_setup = True
+        self.app.set_current_page('Page3')
 
-class Page2(BasePage):
+    @staticmethod
+    def _is_placeholder(value: str | None) -> bool:
+        return not value or value.lower().startswith('choose')
+
+    def _update_continue_state(self) -> None:
+        anime_value = self.plex_anime_library_dropdown.get_value()
+        toonami_value = self.plex_library_dropdown.get_value()
+        if not self._is_placeholder(anime_value) and not self._is_placeholder(toonami_value):
+            self.show_continue_button()
+        else:
+            self.continue_button.style['display'] = 'none'
+            if self.selected_platform != 'combreakdirect':
+                self.skip_button.style['display'] = 'block'
+
+class Page3(BasePage):
     def __init__(self, app, *args, **kwargs):
-        super(Page2, self).__init__(app, 'Page2', *args, **kwargs)
+        super(Page3, self).__init__(app, 'Page3', *args, **kwargs)
         self.logic = LogicController()
-        self.selected_platform = 'dizquetv'  # Default selection
+        self.selected_platform = self.logic._get_data("platform_type") or 'dizquetv'
+        stored_url = self.logic._get_data("platform_url")
 
-        # Plex URL Entry
+        # Plex connection details entered manually
         self.plex_url_entry = self.add_labeled_input(self.main_container, 'Plex URL:', "e.g., http://localhost:32400")
-
-        # Plex Token Entry
         self.plex_token_entry = self.add_labeled_input(self.main_container, 'Plex Token:', "e.g., xxxxxxxxxxxxxx")
-
-        # Plex Anime Library Entry
         self.plex_anime_library_entry = self.add_labeled_input(self.main_container, 'Plex Anime Library:', "e.g., Anime")
-
-        # Plex Toonami Library Entry
         self.plex_toonami_library_entry = self.add_labeled_input(self.main_container, f'Plex {config.network} Library:', f"e.g., {config.network}")
 
-        # Platform Selection
-        platform_container = gui.HBox(style={
-            'justify-content': 'center',
-            'margin': '20px',
-            'gap': '20px',
-            'background': 'transparent',
-            'background-color': 'transparent'
-        })
-        self.add_label(platform_container, "Select Platform:")
-        
-        # Create platform selection buttons
-        self.dizquetv_button = gui.Button("DizqueTV", width=150, height=40, style=Styles.selected_button_style)
-        self.tunarr_button = gui.Button("Tunarr", width=150, height=40, style=Styles.unselected_button_style)
-        
-        self.dizquetv_button.onclick.do(lambda w: self.on_platform_change('dizquetv'))
-        self.tunarr_button.onclick.do(lambda w: self.on_platform_change('tunarr'))
-        
-        platform_container.append([self.dizquetv_button, self.tunarr_button])
-        
-        self.main_container.append(platform_container)
-
-        # Platform URL Entry
-        self.platform_url_entry = self.add_labeled_input(self.main_container, 'Platform URL:', "e.g., http://localhost:17685")
+        # Platform URL summary (captured in Step 1)
+        default_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
+        summary_url = default_url if self.selected_platform == 'combreakdirect' else stored_url
+        self.platform_url_summary = gui.Label(
+            f"Platform URL: {summary_url}",
+            style={
+                'font-size': '14px',
+                'color': '#a5f3fc',
+                'margin': '0 0 15px 0',
+                'background': 'transparent'
+            }
+        )
+        self.main_container.append(self.platform_url_summary)
 
         # Continue button
         self.continue_button = self.add_button_with_style(self.main_container, "Continue", self.on_continue_button_click, 'secondary')
-
-    def on_platform_change(self, platform):
-        """Handle platform selection button clicks"""
-        self.selected_platform = platform
-        if platform == 'dizquetv':
-            self.dizquetv_button.style.update(Styles.selected_button_style)
-            self.tunarr_button.style.update(Styles.unselected_button_style)
-            self.platform_url_entry.set_value("e.g., http://localhost:17685")
-        else:
-            self.dizquetv_button.style.update(Styles.unselected_button_style)
-            self.tunarr_button.style.update(Styles.selected_button_style)
-            self.platform_url_entry.set_value("e.g., http://localhost:8000")
 
     def on_continue_button_click(self, widget):
         self.logic = LogicController()
@@ -1920,15 +2052,24 @@ class Page2(BasePage):
         plex_token = self.plex_token_entry.get_value()
         plex_anime_library = self.plex_anime_library_entry.get_value()
         plex_toonami_library = self.plex_toonami_library_entry.get_value()
-        platform_url = self.platform_url_entry.get_value()
-        platform_type = self.selected_platform        
+        platform_type = self.selected_platform
+        if platform_type == 'combreakdirect':
+            platform_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
+        else:
+            platform_url = self.logic._get_data("platform_url")
         self.logic.on_continue_second(plex_url, plex_token, plex_anime_library, plex_toonami_library, platform_url, platform_type)
-        self.app.visited_page2 = True
-        self.app.set_current_page('Page3')
+        self.app.visited_manual_setup = True
+        self.app.set_current_page('Page4')
 
-class Page3(BasePage):
+    def refresh_platform_info(self):
+        self.selected_platform = self.logic._get_data("platform_type") or 'dizquetv'
+        stored_url = self.logic._get_data("platform_url")
+        default_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
+        summary_url = default_url if self.selected_platform == 'combreakdirect' else stored_url
+        self.platform_url_summary.set_text(f"Platform URL: {summary_url}")
+class Page4(BasePage):
     def __init__(self, app, *args, **kwargs):
-        super(Page3, self).__init__(app, 'Page3', *args, **kwargs)
+        super(Page4, self).__init__(app, 'Page4', *args, **kwargs)
         self.logic = LogicController()
         self.ToonamiChecker = ToonamiTools.ToonamiChecker
         
@@ -1946,7 +2087,7 @@ class Page3(BasePage):
         self.prepare_button = self.add_button_with_style(self.main_container, "Prepare Content", self.prepare_content, 'primary')
 
         # Get Plex Timestamps button
-        self.add_label(self.main_container, "Get Plex Timestamps")
+        self.get_plex_timestamps_label = self.add_label(self.main_container, "Get Plex Timestamps")
         self.get_plex_timestamps_button = self.add_button_with_style(self.main_container, "Get Plex Timestamps", self.get_plex_timestamps, 'primary')
 
         # Move Filtered Shows section with centered radio buttons
@@ -2001,6 +2142,7 @@ class Page3(BasePage):
 
         # Continue button
         self.continue_button = self.add_button_with_style(self.main_container, "Continue", self.on_continue_button_click, 'secondary')
+        self.refresh_platform_type()
     
     def set_filter_mode(self, mode):
         """Handle filter mode selection button clicks"""
@@ -2021,7 +2163,13 @@ class Page3(BasePage):
 
     def on_continue_button_click(self, widget):
         self.logic._broadcast_status_update("Idle")
-        self.app.set_current_page('Page4')
+        self.app.set_current_page('Page5')
+
+    def refresh_platform_type(self):
+        platform_type = self.logic._get_data("platform_type")
+        display = 'block' if platform_type != 'combreakdirect' else 'none'
+        self.get_plex_timestamps_label.style['display'] = display
+        self.get_plex_timestamps_button.style['display'] = display
 
     def prepare_content(self, widget):
         self.logic = LogicController()
@@ -2281,9 +2429,9 @@ class Page3(BasePage):
         for checkbox in self.checkboxes.values():
             checkbox.set_value(state)
 
-class Page4(BasePage):
+class Page5(BasePage):
     def __init__(self, app, *args, **kwargs):
-        super(Page4, self).__init__(app, 'Page4', *args, **kwargs)
+        super(Page5, self).__init__(app, 'Page5', *args, **kwargs)
         self.cblogic = CommercialBreakerLogic()
         self.logic = LogicController()
         
@@ -2531,7 +2679,7 @@ class Page4(BasePage):
 
     def on_continue_button_click(self, widget):
         self.logic._broadcast_status_update("Idle")
-        self.app.set_current_page('Page5')
+        self.app.set_current_page('Page6')
 
     # Checkbox event handlers
     def on_destructive_mode_changed(self, widget, value=None):
@@ -2829,9 +2977,9 @@ class Page4(BasePage):
             self.on_cutless_state_change(enabled)
         # If you want to add more UI logic for cutless mode, do it here.
 
-class Page5(BasePage):
+class Page6(BasePage):
     def __init__(self, app, *args, **kwargs):
-        super(Page5, self).__init__(app, 'Page5', *args, **kwargs)
+        super(Page6, self).__init__(app, 'Page6', *args, **kwargs)
         self.logic = LogicController()
         # Subscribe to status updates
         self.logic.subscribe_to_status_updates(self.update_status_display)
@@ -2858,7 +3006,7 @@ class Page5(BasePage):
         self.add_special_bumps_button = self.add_button_with_style(self.main_container, "Add Special Bumps to Sheet", self.add_special_bumps, 'primary')
 
         # Prepare Plex button
-        self.add_label(self.main_container, "Prepare Plex")
+        self.prepare_plex_label = self.add_label(self.main_container, "Prepare Plex")
         self.prepare_plex_button = self.add_button_with_style(self.main_container, "Prepare Plex", self.create_prepare_plex, 'primary')
 
         # Create Toonami Channel button
@@ -2893,6 +3041,15 @@ class Page5(BasePage):
                     if isinstance(child, gui.Label) and child.get_text() == "Add Flex":
                         child.style['display'] = 'none'
                         break
+        elif platform_type == "combreakdirect":
+            self.create_toonami_channel_button.set_text("Create ComBreakDirect Channel")
+            if hasattr(self, 'add_flex_button'):
+                self.add_flex_button.style['display'] = 'none'
+            if hasattr(self, 'main_container') and hasattr(self, 'add_flex_button'):
+                for child in self.main_container.children.values():
+                    if isinstance(child, gui.Label) and child.get_text() == "Add Flex":
+                        child.style['display'] = 'none'
+                        break
         else:
             # For DizqueTV (or any other platform), ensure regular button text
             self.create_toonami_channel_button.set_text("Create Toonami Channel")
@@ -2906,6 +3063,17 @@ class Page5(BasePage):
                     if isinstance(child, gui.Label) and child.get_text() == "Add Flex":
                         child.style['display'] = 'block'
                         break
+
+        show_plex_controls = platform_type != 'combreakdirect'
+        display_value = 'block' if show_plex_controls else 'none'
+        if hasattr(self, 'prepare_plex_label'):
+            self.prepare_plex_label.style['display'] = display_value
+        if hasattr(self, 'prepare_plex_button'):
+            self.prepare_plex_button.style['display'] = display_value
+        if hasattr(self, 'get_plex_timestamps_label'):
+            self.get_plex_timestamps_label.style['display'] = display_value
+        if hasattr(self, 'get_plex_timestamps_button'):
+            self.get_plex_timestamps_button.style['display'] = display_value
 
     #wrapper for the prepare_cut_anime method
     def prepare_cut_anime(self, widget):
@@ -2921,13 +3089,34 @@ class Page5(BasePage):
         
     def on_continue_button_click(self, widget):
         self.logic._broadcast_status_update("Idle")
-        self.app.set_current_page('Page6')
+        self.app.set_current_page('Page7')
 
     def create_toonami_channel(self, widget):
         toonami_version = self.toonami_version_dropdown.get_value()
         channel_number = self.channel_number_entry.get_value()
         flex_duration = self.flex_duration_entry.get_value()
         self.logic.create_toonami_channel(toonami_version, channel_number, flex_duration)
+
+        # Check if ComBreakDirect is selected and subscribe to completion
+        platform_type = self.logic._get_data("platform_type")
+        if platform_type == "combreakdirect":
+            self.check_for_completion()
+
+    def check_for_completion(self):
+        """Subscribe to status updates and watch for completion"""
+        def check_status(status):
+            if "Toonami channel created!" in status or "New Toonami channel created!" in status or "channel created" in status.lower():
+                # Show Web UI link after completion (for both Docker and non-Docker)
+                base_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
+                self.app.execute_javascript(f"""
+                    setTimeout(function() {{
+                        if (confirm('✓ Toonami Channel Created!\\n\\nYour ComBreakDirect channel is ready to stream.\\n\\nClick OK to open the Web UI in a new tab.')) {{
+                            window.open('{base_url}', '_blank');
+                        }}
+                    }}, 500);
+                """)
+
+        self.logic.subscribe_to_status_updates(check_status)
 
     def add_flex(self, widget):
         channel_number = self.channel_number_entry.get_value()
@@ -2944,9 +3133,9 @@ class Page5(BasePage):
             except Exception as e:
                 print(f"Error processing cutless state: {e}")
 
-class Page6(BasePage):
+class Page7(BasePage):
     def __init__(self, app, *args, **kwargs):
-        super(Page6, self).__init__(app, 'Page6', *args, **kwargs)
+        super(Page7, self).__init__(app, 'Page7', *args, **kwargs)
         self.logic = LogicController()
         self.logic._broadcast_status_update("Idle")
 
@@ -3001,6 +3190,15 @@ class Page6(BasePage):
                     if isinstance(child, gui.Label) and child.get_text() == "Add Flex":
                         child.style['display'] = 'none'
                         break
+        elif platform_type == "combreakdirect":
+            self.create_toonami_channel_button.set_text("Create ComBreakDirect Channel")
+            if hasattr(self, 'add_flex_button'):
+                self.add_flex_button.style['display'] = 'none'
+            if hasattr(self, 'main_container') and hasattr(self, 'add_flex_button'):
+                for child in self.main_container.children.values():
+                    if isinstance(child, gui.Label) and child.get_text() == "Add Flex":
+                        child.style['display'] = 'none'
+                        break
         else:
             # For DizqueTV (or any other platform), ensure regular button text
             self.create_toonami_channel_button.set_text("Create Toonami Channel")
@@ -3026,6 +3224,27 @@ class Page6(BasePage):
         flex_duration = self.flex_duration_entry.get_value()
         self.logic.create_toonami_channel(toonami_version, channel_number, flex_duration)
 
+        # Check if ComBreakDirect is selected and subscribe to completion
+        platform_type = self.logic._get_data("platform_type")
+        if platform_type == "combreakdirect":
+            self.check_for_completion()
+
+    def check_for_completion(self):
+        """Subscribe to status updates and watch for completion"""
+        def check_status(status):
+            if "Toonami channel created!" in status or "New Toonami channel created!" in status or "channel created" in status.lower():
+                # Show Web UI link after completion (for both Docker and non-Docker)
+                base_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
+                self.app.execute_javascript(f"""
+                    setTimeout(function() {{
+                        if (confirm('✓ Toonami Channel Created!\\n\\nYour ComBreakDirect channel is ready to stream.\\n\\nClick OK to open the Web UI in a new tab.')) {{
+                            window.open('{base_url}', '_blank');
+                        }}
+                    }}, 500);
+                """)
+
+        self.logic.subscribe_to_status_updates(check_status)
+
     def add_flex(self, widget):
         channel_number = self.channel_number_entry.get_value()
         flex_duration = self.flex_duration_entry.get_value()
@@ -3043,36 +3262,72 @@ class Page6(BasePage):
 
 class MainApp(App):
     def __init__(self, *args, **kwargs):
-        self.page_titles = {
-            "Page1": "Step 1 - Login to Plex - Welcome to the Absolution",
-            "Page2": "Step 1 - Enter Details - A Little Detour",
-            "Page3": "Step 2 - Prepare Content - Intruder Alert",
-            "Page4": "Step 3 - Commercial Breaker - Toonami Will Be Right Back",
-            "Page5": "Step 4 - Create your Toonami Channel - All aboard the Absolution",
-            "Page6": "Step 5 - Let's Make Another Channel! - Toonami's Back Bitches"
+        self.default_page_titles = {
+            "Page1": "Step 1 - Choose Your Platform - Welcome to the Absolution",
+            "Page2": "Step 2 - Login to Plex - Secure Docking",
+            "Page3": "Step 2 - Enter Details Manually - A Little Detour",
+            "Page4": "Step 3 - Prepare Content - Intruder Alert",
+            "Page5": "Step 4 - Commercial Breaker - Toonami Will Be Right Back",
+            "Page6": "Step 5 - Create your Toonami Channel - All aboard the Absolution",
+            "Page7": "Step 6 - Let's Make Another Channel! - Toonami's Back Bitches"
         }
+        self.page_titles = dict(self.default_page_titles)
         
-        # Track whether Page2 was ever visited
-        self.visited_page2 = False
+        # Track whether Page3 was ever visited
+        self.visited_manual_setup = False
         
         # Keep track of navigation history for proper back button behavior
         self.navigation_history = []
         
-        # Custom page flow to respect skipping of optional Page2
+        # Custom page flow to respect skipping of optional Page3
         self.page_flow = {
             'Page1': None,  # No previous page
             'Page2': 'Page1',
-            'Page3': 'Page1',  # Default if Page2 wasn't used
-            'Page4': 'Page3',
+            'Page3': 'Page2',
+            'Page4': 'Page2',  # Default if Page3 wasn't used
             'Page5': 'Page4',
-            'Page6': 'Page5'
+            'Page6': 'Page5',
+            'Page7': 'Page6'
         }
-        
+
         # Initialize the LogicController
         from API import LogicController
         self.logic = LogicController()
-        
+        stored_platform_type = self.logic._get_data("platform_type")
+        self.current_platform_type = stored_platform_type if stored_platform_type else 'combreakdirect'
+        if self.current_platform_type == 'combreakdirect':
+            self.page_flow['Page4'] = 'Page1'
+            self.page_titles['Page4'] = "Step 2 - Prepare Content - Intruder Alert"
+            self.page_titles['Page5'] = "Step 3 - Commercial Breaker - Toonami Will Be Right Back"
+            self.page_titles['Page6'] = "Step 4 - Create your Toonami Channel - All aboard the Absolution"
+            self.page_titles['Page7'] = "Step 5 - Let's Make Another Channel! - Toonami's Back Bitches"
+
         super(MainApp, self).__init__(*args, **kwargs)
+
+    def refresh_all_nav_bars(self):
+        if hasattr(self, 'pages'):
+            for page in self.pages.values():
+                if hasattr(page, 'refresh_nav_bar'):
+                    page.refresh_nav_bar()
+
+    def update_platform_type(self, platform_type: str | None) -> None:
+        self.current_platform_type = platform_type
+        self.visited_manual_setup = False
+        self.page_titles = dict(self.default_page_titles)
+
+        if platform_type and hasattr(self, 'logic'):
+            self.logic._set_data("platform_type", platform_type)
+
+        if platform_type == 'combreakdirect':
+            self.page_flow['Page4'] = 'Page1'
+            self.page_titles['Page4'] = "Step 2 - Prepare Content - Intruder Alert"
+            self.page_titles['Page5'] = "Step 3 - Commercial Breaker - Toonami Will Be Right Back"
+            self.page_titles['Page6'] = "Step 4 - Create your Toonami Channel - All aboard the Absolution"
+            self.page_titles['Page7'] = "Step 5 - Let's Make Another Channel! - Toonami's Back Bitches"
+        else:
+            self.page_flow['Page4'] = 'Page2'
+
+        self.refresh_all_nav_bars()
 
     def refresh(self):
         """Force UI refresh using JavaScript reflow"""
@@ -3133,33 +3388,43 @@ class MainApp(App):
             'Page4': Page4(self),
             'Page5': Page5(self),
             'Page6': Page6(self),
+            'Page7': Page7(self),
         }
         
         self.set_current_page('Page1')
         return self.container
 
-    def set_current_page(self, page_name):
+    def set_current_page(self, page_name, force_refresh: bool = False):
         if (page_name in self.pages):
-            # Mark Page2 as visited if we're going there
-            if page_name == 'Page2':
-                self.visited_page2 = True
+            if force_refresh:
+                page_obj = self.pages[page_name] = type(self.pages[page_name])(self)
+            else:
+                page_obj = self.pages[page_name]
+            if hasattr(page_obj, 'refresh_platform_info'):
+                page_obj.refresh_platform_info()
+
+            # Mark Page3 as visited if we're going there
+            if page_name == 'Page3':
+                self.visited_manual_setup = True
                 
                 # Refresh all navigation bars to reflect this change
-                for page_id, page in self.pages.items():
-                    if hasattr(page, 'refresh_nav_bar'):
-                        page.refresh_nav_bar()
+                self.refresh_all_nav_bars()
             
             # Add to navigation history
             self.navigation_history.append(page_name)
             
             # Clear the container and add the new page
             self.container.empty()
-            self.container.append(self.pages[page_name])
+            self.container.append(page_obj)
             
             # Important: Trigger platform type check for specific pages
-            if page_name in ['Page5', 'Page6'] and hasattr(self.pages[page_name], 'check_platform_type'):
+            if page_name in ['Page6', 'Page7'] and hasattr(self.pages[page_name], 'check_platform_type'):
                 # Call the check_platform_type method to update UI based on current platform
                 self.pages[page_name].check_platform_type()
+
+            # Allow pages to refresh platform-dependent UI
+            if hasattr(self.pages[page_name], 'refresh_platform_type'):
+                self.pages[page_name].refresh_platform_type()
             
             # Pass reference to the LogicController if page has it
             if hasattr(self.pages[page_name], 'logic'):
@@ -3173,6 +3438,8 @@ class MainApp(App):
                 # Update the status display in the current page
                 if hasattr(self.pages[page_name], 'update_status_display'):
                     self.pages[page_name].update_status_display(status_message)
+
+            self.refresh_all_nav_bars()
     
     def go_back(self):
         # Must have at least two pages in history to go back
@@ -3183,53 +3450,51 @@ class MainApp(App):
         current_page = self.navigation_history.pop()  
         previous_page = self.navigation_history[-1]  # Get the previous page
         
-        # Special handling for Page3 going back
-        if current_page == 'Page3' and previous_page == 'Page2' and not self.visited_page2:
-            # Skip back to Page1 if we never actually visited Page2
-            self.navigation_history.pop()  # Remove Page2 from history
-            previous_page = 'Page1'
+        # Special handling for Page4 going back
+        if current_page == 'Page4' and previous_page == 'Page3' and not self.visited_manual_setup:
+            # Skip the optional manual page if it was never completed
+            self.navigation_history.pop()  # Remove Page3 from history
+            previous_page = 'Page2'
             
-        # Reset filter mode if coming from Page4 back to Page3
-        if current_page == 'Page4' and previous_page == 'Page3':
-            if hasattr(self.pages['Page3'], 'set_filter_mode'):
+        # Reset filter mode if coming from Page5 back to Page4
+        if current_page == 'Page5' and previous_page == 'Page4':
+            if hasattr(self.pages['Page4'], 'set_filter_mode'):
                 # Reset to default move_files mode
-                self.pages['Page3'].set_filter_mode('move_files')
+                self.pages['Page4'].set_filter_mode('move_files')
                 
-        # Reset input mode if we're going back from/to Page4
-        if current_page == 'Page4' or previous_page == 'Page4':
-            if hasattr(self.pages['Page4'], 'cblogic') and hasattr(self.pages['Page4'], 'set_input_mode'):
+        # Reset input mode if we're going back from/to Page5
+        if current_page == 'Page5' or previous_page == 'Page5':
+            if hasattr(self.pages['Page5'], 'cblogic') and hasattr(self.pages['Page5'], 'set_input_mode'):
                 # Clear any files in the input handler
-                self.pages['Page4'].cblogic.input_handler.clear_all()
+                self.pages['Page5'].cblogic.input_handler.clear_all()
                 # Reset to default folder mode
-                self.pages['Page4'].set_input_mode('folder')
+                self.pages['Page5'].set_input_mode('folder')
             
         # Go to the previous page - we need to pop again since set_current_page will add it
         self.navigation_history.pop()
         self.set_current_page(previous_page)
     
     def start_over(self):
-        # Reset visited_page2 flag
-        self.visited_page2 = False
+        # Reset visited_manual_setup flag
+        self.visited_manual_setup = False
+        stored_platform_type = self.logic._get_data("platform_type") if hasattr(self, 'logic') else None
+        fallback_platform = stored_platform_type or 'combreakdirect'
+        self.update_platform_type(fallback_platform)
         
-        # Reset filter mode in Page3
-        if hasattr(self.pages['Page3'], 'set_filter_mode'):
-            self.pages['Page3'].set_filter_mode('move_files')
+        # Reset filter mode in Page4
+        if hasattr(self.pages['Page4'], 'set_filter_mode'):
+            self.pages['Page4'].set_filter_mode('move_files')
             
-        # Reset input mode in Page4
-        if hasattr(self.pages['Page4'], 'cblogic') and hasattr(self.pages['Page4'], 'set_input_mode'):
+        # Reset input mode in Page5
+        if hasattr(self.pages['Page5'], 'cblogic') and hasattr(self.pages['Page5'], 'set_input_mode'):
             # Clear any files in the input handler
-            self.pages['Page4'].cblogic.input_handler.clear_all()
+            self.pages['Page5'].cblogic.input_handler.clear_all()
             # Reset to default folder mode
-            self.pages['Page4'].set_input_mode('folder')
-        
-        # Refresh all navigation bars to reflect this change
-        for page_id, page in self.pages.items():
-            if hasattr(page, 'refresh_nav_bar'):
-                page.refresh_nav_bar()
+            self.pages['Page5'].set_input_mode('folder')
         
         # Clear history and go to Page1
         self.navigation_history = []
-        self.set_current_page('Page1')
+        self.set_current_page('Page1', force_refresh=True)
 
 def WebServer():
     # Starts the webserver

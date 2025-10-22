@@ -3,6 +3,7 @@ from tkinter import ttk, filedialog, messagebox
 import sv_ttk
 from ComBreak import CommercialBreakerLogic
 from API import LogicController
+from API.utils.FlagManager import FlagManager
 import config
 import threading
 import sys
@@ -11,172 +12,244 @@ import json
 import psutil # Added back psutil
 from datetime import datetime
 
+# System tray support for ComBreakDirect background mode
+try:
+    import pystray
+    from PIL import Image, ImageDraw
+    PYSTRAY_AVAILABLE = True
+except ImportError:
+    PYSTRAY_AVAILABLE = False
+
 
 class Page1(ttk.Frame):
     def __init__(self, parent, controller, logic):
         ttk.Frame.__init__(self, parent)
         self.controller = controller
         self.logic = logic
-        self.libraries_selected = 0
 
-        # Subscribe to updates via LogicController
-        self.logic.subscribe_to_updates('status_updates', self.update_status_label_handler)
-        self.logic.subscribe_to_updates('plex_servers', self.handle_plex_servers_update)
-        self.logic.subscribe_to_updates('plex_libraries', self.handle_plex_libraries_update)
-        self.logic.subscribe_to_updates('plex_auth_url', self.handle_plex_auth_url_update)
-        self.logic.subscribe_to_updates('new_server_choices', self.handle_new_server_choices_update)
-        self.logic.subscribe_to_updates('new_library_choices', self.handle_new_library_choices_update)
+        self.placeholder_map = {
+            "dizquetv": "eg. http://localhost:17685",
+            "tunarr": "eg. http://localhost:8000",
+        }
+        self.cached_urls = {}
+        self._current_platform = None
 
-        label = ttk.Label(self, text="Login with Plex", font=("Helvetica", 24))
-        label.pack(pady=10, padx=10)
+        title = ttk.Label(self, text="Choose Your Platform", font=("Helvetica", 24))
+        title.pack(pady=(20, 10))
 
-        login_with_plex_button = ttk.Button(self, text="Login with Plex",
-                                            command=self.logic.login_to_plex)
-        login_with_plex_button.pack(pady=3)
+        subtitle = ttk.Label(
+            self,
+            text="Select how you'll run Commercial Breaker. We'll ask for Plex details next unless you're using ComBreakDirect.",
+            wraplength=520,
+            justify="center",
+        )
+        subtitle.pack(pady=(0, 20), padx=20)
 
-        self.plex_server_name = tk.StringVar()
-        self.plex_server_name.set("Select a Plex Server")
-        self.plex_server_dropdown = ttk.Combobox(self)
-        self.plex_server_dropdown.bind("<<ComboboxSelected>>", lambda event: self.logic.on_server_selected(self.plex_server_dropdown.get()))
-        self.plex_server_dropdown.set("Select a Plex Server")
-        self.plex_server_dropdown.pack(pady=3)
+        self.platform_var = tk.StringVar()
 
-        self.plex_anime_library_name = tk.StringVar()
-        self.plex_anime_library_name.set("Select your Anime Library")
-        self.plex_anime_library_dropdown = ttk.Combobox(self, textvariable=self.plex_anime_library_name)
-        self.plex_anime_library_dropdown.bind("<<ComboboxSelected>>", self.add_1_to_libraries_selected)
-        self.plex_anime_library_dropdown.set("Select your Anime Library")
-        self.plex_anime_library_dropdown.pack(pady=3)
-
-        self.plex_library_name = tk.StringVar()
-        self.plex_library_name.set(f"Select your {config.network} Library")
-        self.plex_library_dropdown = ttk.Combobox(self, textvariable=self.plex_library_name)
-        self.plex_library_dropdown['values'] = (f"Select your {config.network} Library")
-        self.plex_library_dropdown.bind("<<ComboboxSelected>>", self.add_1_to_libraries_selected)
-        self.plex_library_dropdown.set(f"Select your {config.network} Library")
-        self.plex_library_dropdown.pack(pady=3)
-
-        # Platform Selection Frame
         platform_frame = ttk.Frame(self)
-        platform_frame.pack(pady=3)
-        
-        platform_label = ttk.Label(platform_frame, text="Select Platform:")
-        platform_label.pack(side="left", padx=5)
-        
-        self.platform_var = tk.StringVar(value="dizquetv")
-        dizquetv_radio = ttk.Radiobutton(platform_frame, text="DizqueTV", 
-                                        variable=self.platform_var, value="dizquetv",
-                                        command=self.update_url_placeholder)
-        dizquetv_radio.pack(side="left", padx=5)
-        
-        tunarr_radio = ttk.Radiobutton(platform_frame, text="Tunarr", 
-                                      variable=self.platform_var, value="tunarr",
-                                      command=self.update_url_placeholder)
-        tunarr_radio.pack(side="left", padx=5)
+        platform_frame.pack(pady=10)
 
-        # Platform URL
+        ttk.Radiobutton(
+            platform_frame,
+            text="DizqueTV",
+            variable=self.platform_var,
+            value="dizquetv",
+            command=self.on_platform_change,
+        ).pack(side="left", padx=10)
+        ttk.Radiobutton(
+            platform_frame,
+            text="Tunarr",
+            variable=self.platform_var,
+            value="tunarr",
+            command=self.on_platform_change,
+        ).pack(side="left", padx=10)
+        ttk.Radiobutton(
+            platform_frame,
+            text="ComBreakDirect",
+            variable=self.platform_var,
+            value="combreakdirect",
+            command=self.on_platform_change,
+        ).pack(side="left", padx=10)
+
+        # ComBreakDirect controls (shown only when ComBreakDirect selected and not in Docker)
+        self.cbd_controls_frame = ttk.Frame(self)
+
+        self.cbd_start_button = ttk.Button(
+            self.cbd_controls_frame,
+            text="Start ComBreakDirect Server",
+            command=self.start_combreakdirect
+        )
+        self.cbd_start_button.pack(pady=5)
+
+        self.cbd_background_var = tk.BooleanVar(value=True)  # Default to True
+        self.cbd_background_checkbox = ttk.Checkbutton(
+            self.cbd_controls_frame,
+            text="Run in background (minimize to system tray)",
+            variable=self.cbd_background_var
+        )
+        self.cbd_background_checkbox.pack(pady=5)
+
+        # Info label that changes based on platform
+        self.cbd_info_label = ttk.Label(
+            self.cbd_controls_frame,
+            text="",
+            wraplength=500,
+            justify="center",
+            foreground="gray"
+        )
+        self.cbd_info_label.pack(pady=5)
+
+        self.cbd_server_running = False  # Track server state
+
         self.url_label = ttk.Label(self, text="Platform URL:")
-        self.url_label.pack(pady=3)
         self.platform_url_entry = ttk.Entry(self)
-        self.platform_url_entry.insert(0, "eg. http://localhost:17685")
-        self.platform_url_entry.pack(pady=3)
-
-        self.status_label = tk.Label(self, text="Status: Idle",
-                                     foreground='darkgray',
-                                     font=('Arial', 16, 'bold'),
-                                     relief='flat')
-        self.status_label.pack(pady=10, padx=10, fill='x')
 
         button_frame = ttk.Frame(self)
-        button_frame.pack(side="bottom", anchor="se", fill="x")
+        button_frame.pack(side="bottom", anchor="se", fill="x", pady=10)
 
         toggle_button = ttk.Button(button_frame, text="Toggle Dark Mode", command=self.controller.toggle_theme)
-        toggle_button.pack(side="left", padx=5, pady=5)
+        toggle_button.pack(side="left", padx=5)
 
-        # Advanced settings (network change)
-        adv_button = ttk.Button(button_frame, text="Advanced",
-                                 command=self.open_advanced_settings)
-        adv_button.pack(side="left", padx=5, pady=5)
+        adv_button = ttk.Button(button_frame, text="Advanced", command=self.open_advanced_settings)
+        adv_button.pack(side="left", padx=5)
 
-        self.skip_button = ttk.Button(button_frame, text="Skip",
-                                        command=lambda: controller.show_frame("Page2"))
-        self.skip_button.pack(side="right", padx=5, pady=5)
+        continue_button = ttk.Button(button_frame, text="Continue", command=self.on_continue)
+        continue_button.pack(side="right", padx=5)
 
-        self.continue_button = ttk.Button(button_frame, text="Continue",
-                                        command=self.on_continue_button_click)
- 
-    def update_status_label_handler(self, status):
-        self.status_label.config(text=f"Status: {status}")
+        self.refresh_platform_fields()
 
-    def handle_plex_auth_url_update(self, data):
-        print(f"Page1: Received auth URL from LogicController - opening browser")
-        self.open_auth_url(data)
+    def _cache_current_url(self):
+        if self._current_platform in self.placeholder_map and self.platform_url_entry.winfo_manager():
+            value = self.platform_url_entry.get().strip()
+            if value and value != self.placeholder_map[self._current_platform]:
+                self.cached_urls[self._current_platform] = value
 
-    def handle_plex_servers_update(self, data):
-        print(f"Page1: Received plex_servers update: {data}")
-        try:
-            server_list = json.loads(data) if isinstance(data, str) else data
-            self.plex_server_dropdown['values'] = server_list
-            if server_list and len(server_list) > 0 and self.plex_server_dropdown.get() == "Select a Plex Server":
-                 pass
-        except json.JSONDecodeError as e:
-            print(f"Error decoding plex_servers JSON: {e}")
-            self.plex_server_dropdown['values'] = []
-        except Exception as e:
-            print(f"Error updating plex_servers dropdown: {e}")
-            self.plex_server_dropdown['values'] = []
-
-    def handle_plex_libraries_update(self, data):
-        print(f"Page1: Received plex_libraries update: {data}")
-        try:
-            library_list = json.loads(data) if isinstance(data, str) else data
-            self.plex_anime_library_dropdown['values'] = library_list
-            self.plex_library_dropdown['values'] = library_list
-        except json.JSONDecodeError as e:
-            print(f"Error decoding plex_libraries JSON: {e}")
-            self.plex_anime_library_dropdown['values'] = []
-            self.plex_library_dropdown['values'] = []
-        except Exception as e:
-            print(f"Error updating plex_libraries dropdown: {e}")
-            self.plex_anime_library_dropdown['values'] = []
-            self.plex_library_dropdown['values'] = []
-
-    def handle_new_server_choices_update(self, data):
-        print(f"Page1: Received new_server_choices update: {data}")
-
-    def handle_new_library_choices_update(self, data):
-        print(f"Page1: Received new_library_choices update: {data}")
-
-    def open_auth_url(self, auth_url):
-        self.logic.open_auth_url(auth_url)
-
-    def update_status_label(self, status):
-        self.status_label.config(text=f"Status: {status}")
-
-    def show_continue_button(self):
-        if self.libraries_selected == 2:
-            self.skip_button.pack_forget()
-            self.continue_button.pack(side="right", padx=5, pady=5)
-
-    def add_1_to_libraries_selected(self, event):
-        self.libraries_selected += 1
-        self.show_continue_button()
-
-    def update_url_placeholder(self):
+    def _set_entry_value(self, value: str):
+        self.platform_url_entry.config(state='normal')
         self.platform_url_entry.delete(0, tk.END)
-        if self.platform_var.get() == "dizquetv":
-            self.platform_url_entry.insert(0, "eg. http://localhost:17685")
-        else:
-            self.platform_url_entry.insert(0, "eg. http://localhost:8000")
+        self.platform_url_entry.insert(0, value)
 
-    def on_continue_button_click(self):
-        selected_anime_library = self.plex_anime_library_dropdown.get()
-        selected_toonami_library = self.plex_library_dropdown.get()
-        platform_url = self.platform_url_entry.get()
-        platform_type = self.platform_var.get()
-        self.logic.on_continue_first(selected_anime_library, selected_toonami_library, 
-                                   platform_url, platform_type)
-        self.controller.show_frame("Page3")
+    def on_platform_change(self):
+        self._cache_current_url()
+
+        platform = self.platform_var.get() or "dizquetv"
+        saved_platform = self.logic._get_data("platform_type")
+        saved_url = self.logic._get_data("platform_url") if saved_platform == platform else None
+
+        if platform == "combreakdirect":
+            # Hide URL entry for ComBreakDirect
+            if self.url_label.winfo_manager():
+                self.url_label.pack_forget()
+            if self.platform_url_entry.winfo_manager():
+                self.platform_url_entry.pack_forget()
+
+            # Show ComBreakDirect controls only if NOT in Docker
+            if not FlagManager.docker and not self.cbd_controls_frame.winfo_manager():
+                self.cbd_controls_frame.pack(pady=15)
+                # Update info label based on platform
+                tray_location = "menu bar" if sys.platform == "darwin" else "taskbar"
+                close_method = "clicking the close button (not Cmd+Q)" if sys.platform == "darwin" else "clicking the close button"
+
+                info_text = f"ComBreakDirect needs to stay running to stream your channel. "
+                info_text += f"An icon will appear in your {tray_location} when you start the server. "
+                info_text += f"Close TOM by {close_method}."
+                self.cbd_info_label.config(text=info_text)
+
+                # Update checkbox text with platform-specific language
+                self.cbd_background_checkbox.config(
+                    text=f"Run in background (adds icon to {tray_location})"
+                )
+        else:
+            # Hide ComBreakDirect controls
+            if self.cbd_controls_frame.winfo_manager():
+                self.cbd_controls_frame.pack_forget()
+
+            # Show URL entry for other platforms
+            if not self.url_label.winfo_manager():
+                self.url_label.pack(pady=(10, 3))
+            if not self.platform_url_entry.winfo_manager():
+                self.platform_url_entry.pack(pady=(0, 10), padx=40, fill="x")
+
+            cached = self.cached_urls.get(platform)
+            value = cached or saved_url or self.placeholder_map.get(platform, "")
+            self._set_entry_value(value)
+
+        self._current_platform = platform
+
+    def start_combreakdirect(self):
+        """Start the ComBreakDirect server"""
+        if self.cbd_server_running:
+            messagebox.showinfo("ComBreakDirect", "ComBreakDirect server is already running!")
+            return
+
+        try:
+            self.logic.start_combreakdirect_server()
+            self.cbd_server_running = True
+            self.cbd_start_button.config(text="✓ Server Running", state="disabled")
+
+            base_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
+            tray_location = "menu bar" if sys.platform == "darwin" else "taskbar"
+
+            if self.cbd_background_var.get():
+                message = f"ComBreakDirect server is now running at {base_url}\n\n"
+                message += f"An icon has been added to your {tray_location}. "
+                message += "When you close this window, the server will keep running in the background.\n\n"
+                if sys.platform == "darwin":
+                    message += "⚠️ Use the close button (not Cmd+Q) to keep the server running."
+                else:
+                    message += "⚠️ Use the close button (not Alt+F4) to keep the server running."
+            else:
+                message = f"ComBreakDirect server is now running at {base_url}"
+
+            messagebox.showinfo("ComBreakDirect Started", message)
+
+            # Create system tray icon AFTER showing the message
+            if self.cbd_background_var.get() and PYSTRAY_AVAILABLE:
+                # Use after() to create tray icon after message box is dismissed
+                self.after(100, self.controller.create_tray_icon)
+        except Exception as e:
+            messagebox.showerror("Error Starting ComBreakDirect", f"Failed to start server: {str(e)}")
+
+    def refresh_platform_fields(self):
+        saved_platform = self.logic._get_data("platform_type") or self.platform_var.get() or "dizquetv"
+        saved_url = self.logic._get_data("platform_url")
+
+        self.platform_var.set(saved_platform)
+        if saved_platform in self.placeholder_map and saved_url:
+            self.cached_urls[saved_platform] = saved_url
+
+        self.on_platform_change()
+
+    def on_continue(self):
+        platform = self.platform_var.get()
+        if not platform:
+            messagebox.showerror("Platform Selection", "Please choose a platform to continue.")
+            return
+
+        platform_url = None
+        if platform in self.placeholder_map:
+            if not self.platform_url_entry.winfo_manager():
+                self.on_platform_change()
+            value = self.platform_url_entry.get().strip()
+            if not value or value == self.placeholder_map[platform]:
+                messagebox.showerror("Platform URL", "Please enter the URL for your selected platform.")
+                return
+            platform_url = value
+        else:
+            platform_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
+
+        self.cached_urls[platform] = platform_url
+        self.logic._set_data("platform_type", platform)
+        self.logic._set_data("platform_url", platform_url)
+        FlagManager.evaluate_platform_compatibility(platform, platform_url)
+
+        self._current_platform = platform
+
+        if platform == "combreakdirect":
+            self.controller.show_frame("Page3")
+        else:
+            self.controller.show_frame("PlexDetailsPage")
 
     def open_advanced_settings(self):
         dialog = tk.Toplevel(self)
@@ -232,6 +305,175 @@ class Page1(ttk.Frame):
         ttk.Button(btns, text="Apply & Restart", command=do_apply).pack(side="left", padx=4)
         ttk.Button(btns, text="Reset to Default", command=do_reset).pack(side="left", padx=4)
 
+class PlexDetailsPage(ttk.Frame):
+    def __init__(self, parent, controller, logic):
+        ttk.Frame.__init__(self, parent)
+        self.controller = controller
+        self.logic = logic
+        self.libraries_selected = 0
+
+        self.logic.subscribe_to_updates('status_updates', self.update_status_label_handler)
+        self.logic.subscribe_to_updates('plex_servers', self.handle_plex_servers_update)
+        self.logic.subscribe_to_updates('plex_libraries', self.handle_plex_libraries_update)
+        self.logic.subscribe_to_updates('plex_auth_url', self.handle_plex_auth_url_update)
+        self.logic.subscribe_to_updates('new_server_choices', self.handle_new_server_choices_update)
+        self.logic.subscribe_to_updates('new_library_choices', self.handle_new_library_choices_update)
+
+        label = ttk.Label(self, text="Login with Plex", font=("Helvetica", 24))
+        label.pack(pady=10, padx=10)
+
+        self.platform_summary = ttk.Label(self, text="", wraplength=520, justify="center")
+        self.platform_summary.pack(pady=(0, 15), padx=20)
+
+        login_with_plex_button = ttk.Button(self, text="Login with Plex",
+                                            command=self.logic.login_to_plex)
+        login_with_plex_button.pack(pady=3)
+
+        self.plex_server_name = tk.StringVar()
+        self.plex_server_name.set("Select a Plex Server")
+        self.plex_server_dropdown = ttk.Combobox(self)
+        self.plex_server_dropdown.bind("<<ComboboxSelected>>", lambda event: self.logic.on_server_selected(self.plex_server_dropdown.get()))
+        self.plex_server_dropdown.set("Select a Plex Server")
+        self.plex_server_dropdown.pack(pady=3)
+
+        self.plex_anime_library_name = tk.StringVar()
+        self.plex_anime_library_name.set("Select your Anime Library")
+        self.plex_anime_library_dropdown = ttk.Combobox(self, textvariable=self.plex_anime_library_name)
+        self.plex_anime_library_dropdown.bind("<<ComboboxSelected>>", self.add_1_to_libraries_selected)
+        self.plex_anime_library_dropdown.set("Select your Anime Library")
+        self.plex_anime_library_dropdown.pack(pady=3)
+
+        self.plex_library_name = tk.StringVar()
+        self.plex_library_name.set(f"Select your {config.network} Library")
+        self.plex_library_dropdown = ttk.Combobox(self, textvariable=self.plex_library_name)
+        self.plex_library_dropdown['values'] = (f"Select your {config.network} Library")
+        self.plex_library_dropdown.bind("<<ComboboxSelected>>", self.add_1_to_libraries_selected)
+        self.plex_library_dropdown.set(f"Select your {config.network} Library")
+        self.plex_library_dropdown.pack(pady=3)
+
+        self.status_label = tk.Label(self, text="Status: Idle",
+                                     foreground='darkgray',
+                                     font=('Arial', 16, 'bold'),
+                                     relief='flat')
+        self.status_label.pack(pady=10, padx=10, fill='x')
+
+        button_frame = ttk.Frame(self)
+        button_frame.pack(side="bottom", anchor="se", fill="x")
+
+        back_button = ttk.Button(button_frame, text="Go Back",
+                                 command=lambda: controller.show_frame("Page1"))
+        back_button.pack(side="left", padx=5, pady=5)
+
+        toggle_button = ttk.Button(button_frame, text="Toggle Dark Mode", command=self.controller.toggle_theme)
+        toggle_button.pack(side="left", padx=5, pady=5)
+
+        adv_button = ttk.Button(button_frame, text="Advanced",
+                                 command=self.controller.frames["Page1"].open_advanced_settings)
+        adv_button.pack(side="left", padx=5, pady=5)
+
+        self.skip_button = ttk.Button(button_frame, text="Skip",
+                                        command=lambda: controller.show_frame("Page2"))
+        self.skip_button.pack(side="right", padx=5, pady=5)
+
+        self.continue_button = ttk.Button(button_frame, text="Continue",
+                                        command=self.on_continue_button_click)
+
+    def update_status_label_handler(self, status):
+        self.status_label.config(text=f"Status: {status}")
+
+    def handle_plex_auth_url_update(self, data):
+        print(f"PlexDetailsPage: Received auth URL from LogicController - opening browser")
+        self.open_auth_url(data)
+
+    def handle_plex_servers_update(self, data):
+        print(f"PlexDetailsPage: Received plex_servers update: {data}")
+        try:
+            server_list = json.loads(data) if isinstance(data, str) else data
+            self.plex_server_dropdown['values'] = server_list
+            if server_list and len(server_list) > 0 and self.plex_server_dropdown.get() == "Select a Plex Server":
+                 pass
+        except json.JSONDecodeError as e:
+            print(f"Error decoding plex_servers JSON: {e}")
+            self.plex_server_dropdown['values'] = []
+        except Exception as e:
+            print(f"Error updating plex_servers dropdown: {e}")
+            self.plex_server_dropdown['values'] = []
+
+    def handle_plex_libraries_update(self, data):
+        print(f"PlexDetailsPage: Received plex_libraries update: {data}")
+        try:
+            library_list = json.loads(data) if isinstance(data, str) else data
+            self.plex_anime_library_dropdown['values'] = library_list
+            self.plex_library_dropdown['values'] = library_list
+        except json.JSONDecodeError as e:
+            print(f"Error decoding plex_libraries JSON: {e}")
+            self.plex_anime_library_dropdown['values'] = []
+            self.plex_library_dropdown['values'] = []
+        except Exception as e:
+            print(f"Error updating plex_libraries dropdown: {e}")
+            self.plex_anime_library_dropdown['values'] = []
+            self.plex_library_dropdown['values'] = []
+
+    def handle_new_server_choices_update(self, data):
+        print(f"PlexDetailsPage: Received new_server_choices update: {data}")
+
+    def handle_new_library_choices_update(self, data):
+        print(f"PlexDetailsPage: Received new_library_choices update: {data}")
+
+    def open_auth_url(self, auth_url):
+        self.logic.open_auth_url(auth_url)
+
+    def update_status_label(self, status):
+        self.status_label.config(text=f"Status: {status}")
+
+    def show_continue_button(self):
+        if self.libraries_selected >= 2:
+            self.skip_button.pack_forget()
+            self.continue_button.pack(side="right", padx=5, pady=5)
+
+    def add_1_to_libraries_selected(self, event):
+        if self.libraries_selected < 2:
+            self.libraries_selected += 1
+        self.show_continue_button()
+
+    def refresh_platform_fields(self):
+        platform = self.logic._get_data("platform_type") or "dizquetv"
+        platform_url = self.logic._get_data("platform_url")
+        if platform == "combreakdirect":
+            summary = "ComBreakDirect - no Plex setup required."
+        elif platform_url:
+            summary = f"{platform.title()} - {platform_url}"
+        else:
+            summary = f"{platform.title()} - URL not set yet."
+        self.platform_summary.config(text=f"Selected Platform: {summary}")
+
+    def on_continue_button_click(self):
+        platform_type = self.logic._get_data("platform_type") or "dizquetv"
+        platform_url = self.logic._get_data("platform_url") or ""
+
+        selected_anime_library = self.plex_anime_library_dropdown.get()
+        selected_toonami_library = self.plex_library_dropdown.get()
+
+        if self.logic.on_continue_first(selected_anime_library, selected_toonami_library,
+                                         platform_url, platform_type):
+            self.controller.show_frame("Page3")
+
+    def tkraise(self):
+        self.libraries_selected = 0
+        if self.continue_button.winfo_manager():
+            self.continue_button.pack_forget()
+        if not self.skip_button.winfo_manager():
+            self.skip_button.pack(side="right", padx=5, pady=5)
+        if (
+            self.plex_anime_library_dropdown.get() != "Select your Anime Library"
+            and self.plex_library_dropdown.get() != f"Select your {config.network} Library"
+        ):
+            if self.skip_button.winfo_manager():
+                self.skip_button.pack_forget()
+            self.continue_button.pack(side="right", padx=5, pady=5)
+        super().tkraise()
+
+
 class Page2(ttk.Frame):
     def __init__(self, parent, controller, logic):
         ttk.Frame.__init__(self, parent)
@@ -242,6 +484,9 @@ class Page2(ttk.Frame):
 
         label = ttk.Label(self, text="Enter your details:", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
+
+        self.platform_summary = ttk.Label(self, text="", wraplength=520, justify="center")
+        self.platform_summary.pack(pady=(0, 15), padx=20)
 
         # Add status_label initialization
         self.status_label = tk.Label(self, text="Status: Idle",
@@ -274,20 +519,6 @@ class Page2(ttk.Frame):
         self.plex_library_name_entry.insert(0, f"eg. {config.network}")
         self.plex_library_name_entry.pack(pady=3)
 
-        dizquetv_url_label = ttk.Label(self, text="dizqueTV or tunarr URL:")
-        dizquetv_url_label.pack(pady=3)
-        self.dizquetv_url_entry = ttk.Entry(self)
-        self.dizquetv_url_entry.insert(0, "eg. http://localhost:17685")
-        self.dizquetv_url_entry.pack(pady=3)
-
-        platform_type_label = ttk.Label(self, text= "Platform Type:")
-        platform_type_label.pack(pady=3)
-        self.platform_type = tk.StringVar(value="dizquetv")
-        dizquetv_radio = ttk.Radiobutton(self, text="DizqueTV", variable=self.platform_type, value="dizquetv")
-        dizquetv_radio.pack(pady=3)
-        tunarr_radio = ttk.Radiobutton(self, text="Tunarr", variable=self.platform_type, value="tunarr")
-        tunarr_radio.pack(pady=3)
-
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
 
@@ -308,10 +539,58 @@ class Page2(ttk.Frame):
         plex_token = self.plex_token_entry.get()
         selected_anime_library = self.plex_anime_library_name_entry.get()
         selected_toonami_library = self.plex_library_name_entry.get()
-        dizquetv_url = self.dizquetv_url_entry.get()
-        platform_type = self.platform_type.get()
-        self.logic.on_continue_second(plex_url, plex_token, selected_anime_library, selected_toonami_library, dizquetv_url, platform_type)
+        platform_type = self.logic._get_data("platform_type") or "dizquetv"
+        platform_url = self.logic._get_data("platform_url") or ""
+
+        if platform_type == 'combreakdirect':
+            platform_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
+        elif not platform_url:
+            messagebox.showerror(
+                "Platform URL Missing",
+                "We couldn't find your platform URL. Head back to the platform page to enter it.",
+            )
+            return
+
+        self.logic.on_continue_second(
+            plex_url,
+            plex_token,
+            selected_anime_library,
+            selected_toonami_library,
+            platform_url,
+            platform_type,
+        )
         self.controller.show_frame("Page3")
+
+    def refresh_platform_fields(self):
+        self.status_label.config(text="Status: Idle")
+        platform_type = self.logic._get_data("platform_type") or "dizquetv"
+        platform_url = self.logic._get_data("platform_url") or ""
+        summary = f"Using {platform_type.title()}"
+        if platform_type != 'combreakdirect' and platform_url:
+            summary = f"Using {platform_type.title()} at {platform_url}"
+        elif platform_type == 'combreakdirect':
+            summary = "Using ComBreakDirect"
+        self.platform_summary.config(text=summary)
+
+        stored_plex_url = self.logic._get_data("plex_url")
+        if stored_plex_url:
+            self.plex_url_entry.delete(0, tk.END)
+            self.plex_url_entry.insert(0, stored_plex_url)
+
+        stored_plex_token = self.logic._get_data("plex_token")
+        if stored_plex_token:
+            self.plex_token_entry.delete(0, tk.END)
+            self.plex_token_entry.insert(0, stored_plex_token)
+
+        stored_anime_library = self.logic._get_data("selected_anime_library")
+        if stored_anime_library:
+            self.plex_anime_library_name_entry.delete(0, tk.END)
+            self.plex_anime_library_name_entry.insert(0, stored_anime_library)
+
+        stored_toonami_library = self.logic._get_data("selected_toonami_library")
+        if stored_toonami_library:
+            self.plex_library_name_entry.delete(0, tk.END)
+            self.plex_library_name_entry.insert(0, stored_toonami_library)
 
 
 class Page3(ttk.Frame):
@@ -356,6 +635,14 @@ class Page3(ttk.Frame):
                                    command=lambda: self.working_folder_entry.insert(0, filedialog.askdirectory()))
         working_button.pack(pady=3)
 
+        self.commercial_folder_label = ttk.Label(self, text="Commercials Folder:")
+        self.commercial_folder_entry = ttk.Entry(self)
+        self.commercial_folder_button = ttk.Button(
+            self,
+            text="Browse Commercials Folder",
+            command=lambda: self.commercial_folder_entry.delete(0, tk.END) or self.commercial_folder_entry.insert(0, filedialog.askdirectory()),
+        )
+
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
 
@@ -368,6 +655,8 @@ class Page3(ttk.Frame):
                                     command=self.on_continue_button_click)
         self.continue_button.pack(side="right", padx=5, pady=5)
 
+        self.refresh_platform_fields()
+
     def update_status_label_handler(self, status):
         self.status_label.config(text=f"Status: {status}")
 
@@ -376,8 +665,32 @@ class Page3(ttk.Frame):
         bump_folder = self.bump_folder_entry.get()
         special_bump_folder = self.special_bump_folder_entry.get()
         working_folder = self.working_folder_entry.get()
-        self.logic.on_continue_third(anime_folder, bump_folder, special_bump_folder, working_folder)
+        commercial_folder = self.commercial_folder_entry.get() if self.commercial_folder_entry.winfo_manager() else None
+        self.logic.on_continue_third(anime_folder, bump_folder, special_bump_folder, working_folder, commercial_folder)
         self.controller.show_frame("Page4")
+
+    def refresh_platform_fields(self):
+        platform_type = self.logic._get_data("platform_type")
+
+        if platform_type == 'combreakdirect':
+            if not self.commercial_folder_label.winfo_manager():
+                self.commercial_folder_label.pack(pady=3)
+            if not self.commercial_folder_entry.winfo_manager():
+                self.commercial_folder_entry.pack(pady=3)
+            if not self.commercial_folder_button.winfo_manager():
+                self.commercial_folder_button.pack(pady=3)
+            stored = self.logic._get_data("commercial_folder")
+            if stored:
+                self.commercial_folder_entry.delete(0, tk.END)
+                self.commercial_folder_entry.insert(0, stored)
+        else:
+            for widget in (
+                self.commercial_folder_label,
+                self.commercial_folder_entry,
+                self.commercial_folder_button,
+            ):
+                if widget.winfo_manager():
+                    widget.pack_forget()
 
 class Page4(ttk.Frame):
     def __init__(self, parent, controller, logic):
@@ -393,27 +706,34 @@ class Page4(ttk.Frame):
         label = ttk.Label(self, text="Prepare Your Content:", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
 
-        prepare_button = ttk.Button(self, text="Prepare my shows and bumps to be cut",
+        self.prepare_content_label = ttk.Label(self, text="Prepare my shows and bumps to be cut")
+        self.prepare_content_label.pack(pady=3)
+        self.prepare_button = ttk.Button(self, text="Prepare my shows and bumps to be cut",
                                     command=self.prepare_my_shows)
-        prepare_button.pack(pady=3)
+        self.prepare_button.pack(pady=3)
 
-        get_plex_timestamps_button = ttk.Button(self, text="Get Plex Timestamps",
-                                        command=self.logic.get_plex_timestamps)
-        get_plex_timestamps_button.pack(pady=3)
-        
-        filtered_action_frame = ttk.LabelFrame(self, text="Filtered Shows Action")
-        filtered_action_frame.pack(fill="x", padx=10, pady=5)
-        
+        self.get_plex_timestamps_label = ttk.Label(self, text="Get Plex Timestamps")
+        self.get_plex_timestamps_button = ttk.Button(
+            self,
+            text="Get Plex Timestamps",
+            command=self.logic.get_plex_timestamps,
+        )
+
+        self.filtered_action_frame = ttk.LabelFrame(self, text="Filtered Shows Action")
+        self.filtered_action_frame.pack(fill="x", padx=10, pady=5)
+        self._get_plex_label_pack_kwargs = {"pady": 3, "before": self.filtered_action_frame}
+        self._get_plex_button_pack_kwargs = {"pady": 3, "before": self.filtered_action_frame}
+
         move_files_radio = ttk.Radiobutton(
-            filtered_action_frame, 
+            self.filtered_action_frame, 
             text="Move Files (Legacy)", 
             variable=self.filtered_files_action, 
             value="move"
         )
         move_files_radio.pack(side="left", padx=5, pady=5)
-        
+
         prepopulate_radio = ttk.Radiobutton(
-            filtered_action_frame, 
+            self.filtered_action_frame, 
             text="Prepopulate Selection", 
             variable=self.filtered_files_action, 
             value="prepopulate"
@@ -442,6 +762,8 @@ class Page4(ttk.Frame):
                                     command=self.on_continue_button_click)
 
         self.continue_button.pack(side="right", padx=5, pady=5)
+
+        self.refresh_platform_fields()
         
     def process_filtered_shows(self):
         prepopulate = (self.filtered_files_action.get() == "prepopulate")
@@ -453,6 +775,21 @@ class Page4(ttk.Frame):
 
     def update_status_label(self, status):
         self.status_label.config(text=f"Status: {status}")
+
+    def refresh_platform_fields(self):
+        platform_type = self.logic._get_data("platform_type")
+        show_plex_controls = platform_type != 'combreakdirect'
+
+        if show_plex_controls:
+            if not self.get_plex_timestamps_label.winfo_manager():
+                self.get_plex_timestamps_label.pack(**self._get_plex_label_pack_kwargs)
+            if not self.get_plex_timestamps_button.winfo_manager():
+                self.get_plex_timestamps_button.pack(**self._get_plex_button_pack_kwargs)
+        else:
+            if self.get_plex_timestamps_label.winfo_manager():
+                self.get_plex_timestamps_label.pack_forget()
+            if self.get_plex_timestamps_button.winfo_manager():
+                self.get_plex_timestamps_button.pack_forget()
 
     def prepare_my_shows(self):
         self.logic.prepare_content(self.display_show_selection)
@@ -1038,10 +1375,6 @@ class Page6(ttk.Frame):
                                                 command=self.logic.add_special_bumps)
         add_special_bumps_button.pack(pady=3)
 
-        create_prepare_plex_button = ttk.Button(self, text="Prepare Plex",
-                                               command=self.logic.create_prepare_plex)
-        create_prepare_plex_button.pack(pady=3)
-
         self.create_toonami_channel_button_with_flex = ttk.Button(self, text=f"Create {config.network} Channel with Flex",
                                                                  command=self.create_toonami_channel)
         
@@ -1053,6 +1386,14 @@ class Page6(ttk.Frame):
 
         self.dynamic_buttons_frame = ttk.Frame(self)
         self.dynamic_buttons_frame.pack(pady=3)
+
+        self.create_prepare_plex_button = ttk.Button(
+            self,
+            text="Prepare Plex",
+            command=self.logic.create_prepare_plex,
+        )
+        self._prepare_plex_pack_kwargs = {"pady": 3, "before": self.dynamic_buttons_frame}
+        self.create_prepare_plex_button.pack(**self._prepare_plex_pack_kwargs)
 
         self.status_label = tk.Label(self, text="Status: Idle",
                                      foreground='darkgray',
@@ -1093,6 +1434,13 @@ class Page6(ttk.Frame):
                                              text="Add Flex",
                                              command=self.add_flex)
             self.add_flex_button.pack(pady=3)
+
+        if platform_type == 'combreakdirect':
+            if self.create_prepare_plex_button.winfo_manager():
+                self.create_prepare_plex_button.pack_forget()
+        else:
+            if not self.create_prepare_plex_button.winfo_manager():
+                self.create_prepare_plex_button.pack(**self._prepare_plex_pack_kwargs)
         
         super().tkraise()
 
@@ -1111,6 +1459,57 @@ class Page6(ttk.Frame):
         channel_number = self.channel_number_entry.get()
         flex_duration = self.flex_duration_entry.get()
         self.logic.create_toonami_channel(toonami_version, channel_number, flex_duration)
+
+        # Check if ComBreakDirect is selected and subscribe to completion
+        platform_type = self.logic._get_data("platform_type")
+        if platform_type == "combreakdirect":
+            self.check_for_completion()
+
+    def check_for_completion(self):
+        """Poll for channel creation completion"""
+        def check_status(status):
+            if "Toonami channel created!" in status or "channel created" in status.lower():
+                # Show popup after a short delay
+                self.after(500, self.show_combreakdirect_completion_popup)
+
+        # Subscribe temporarily to status updates
+        self.logic.subscribe_to_status_updates(check_status)
+
+    def show_combreakdirect_completion_popup(self):
+        """Show popup with Open Web UI button"""
+        dialog = tk.Toplevel(self)
+        dialog.title("Channel Created!")
+        dialog.transient(self)
+        dialog.grab_set()
+
+        # Center the dialog
+        dialog.geometry("450x180")
+
+        ttk.Label(
+            dialog,
+            text="✓ Toonami Channel Created!",
+            font=("Helvetica", 16, "bold")
+        ).pack(pady=20)
+
+        ttk.Label(
+            dialog,
+            text="Your ComBreakDirect channel is ready to stream.",
+            wraplength=400
+        ).pack(pady=10)
+
+        def open_webui_and_minimize():
+            import webbrowser
+            base_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
+            webbrowser.open(base_url)
+            dialog.destroy()
+            self.controller.minimize_to_tray()
+
+        tray_location = "menu bar" if sys.platform == "darwin" else "taskbar"
+        ttk.Button(
+            dialog,
+            text=f"Open Web UI & Move to {tray_location.title()}",
+            command=open_webui_and_minimize
+        ).pack(pady=15)
 
     def add_flex(self):
         channel_number = self.channel_number_entry.get()
@@ -1224,6 +1623,57 @@ class Page7(ttk.Frame):
         flex_duration = self.flex_duration_entry.get()
         self.logic.create_toonami_channel(toonami_version, channel_number, flex_duration)
 
+        # Check if ComBreakDirect is selected and subscribe to completion
+        platform_type = self.logic._get_data("platform_type")
+        if platform_type == "combreakdirect":
+            self.check_for_completion()
+
+    def check_for_completion(self):
+        """Poll for channel creation completion"""
+        def check_status(status):
+            if "Toonami channel created!" in status or "New Toonami channel created!" in status or "channel created" in status.lower():
+                # Show popup after a short delay
+                self.after(500, self.show_combreakdirect_completion_popup)
+
+        # Subscribe temporarily to status updates
+        self.logic.subscribe_to_status_updates(check_status)
+
+    def show_combreakdirect_completion_popup(self):
+        """Show popup with Open Web UI button"""
+        dialog = tk.Toplevel(self)
+        dialog.title("Channel Created!")
+        dialog.transient(self)
+        dialog.grab_set()
+
+        # Center the dialog
+        dialog.geometry("450x180")
+
+        ttk.Label(
+            dialog,
+            text="✓ Toonami Channel Created!",
+            font=("Helvetica", 16, "bold")
+        ).pack(pady=20)
+
+        ttk.Label(
+            dialog,
+            text="Your ComBreakDirect channel is ready to stream.",
+            wraplength=400
+        ).pack(pady=10)
+
+        def open_webui_and_minimize():
+            import webbrowser
+            base_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
+            webbrowser.open(base_url)
+            dialog.destroy()
+            self.controller.minimize_to_tray()
+
+        tray_location = "menu bar" if sys.platform == "darwin" else "taskbar"
+        ttk.Button(
+            dialog,
+            text=f"Open Web UI & Move to {tray_location.title()}",
+            command=open_webui_and_minimize
+        ).pack(pady=15)
+
     def add_flex(self):
         channel_number = self.channel_number_entry.get()
         flex_duration = self.flex_duration_entry.get()
@@ -1328,6 +1778,10 @@ class MainApplication(tk.Tk):
         self.dark_mode = True
         self.set_theme()
 
+        # System tray state
+        self.tray_icon = None
+        self.run_in_background = False
+
         container = ttk.Frame(self)
         container.pack(side="top", fill="both", expand=True)
         container.grid_rowconfigure(0, weight=1)
@@ -1336,7 +1790,7 @@ class MainApplication(tk.Tk):
         self.frames = {}
         self.logic = LogicController()
 
-        for F in (Page1, Page2, Page3, Page4, Page5, Page6, Page7):
+        for F in (Page1, PlexDetailsPage, Page2, Page3, Page4, Page5, Page6, Page7):
             page_name = F.__name__
             frame = F(parent=container, controller=self, logic=self.logic)
             self.frames[page_name] = frame
@@ -1344,9 +1798,12 @@ class MainApplication(tk.Tk):
 
         # Add error display at the bottom
         self.error_display = ErrorDisplay(self)
-        
+
         # Subscribe to error messages
         self.logic.subscribe_to_error_messages(self.error_display.add_error)
+
+        # Override window close handler for system tray support
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         self.show_frame("Page1")
 
@@ -1361,36 +1818,160 @@ class MainApplication(tk.Tk):
         self.set_theme()
 
     def show_frame(self, page_name):
-        frame_titles = {
-            "Page1": "Step 1 - Login to Plex - Welcome to the Absolution",
-            "Page2": "Step 1 - Enter Details - A Little Detour",
-            "Page3": "Step 2 - Select Folders - Deploy the Clydes",
-            "Page4": "Step 3 - Prepare Content - Intruder Alert",
-            "Page5": f"Step 4 - Commercial Breaker - {config.network} Will Be Right Back",
-            "Page6": f"Step 5 - Create your {config.network} Channel - All aboard the Absolution",
-            "Page7": f"Step 6 - Let's Make Another Channel! - {config.network}'s Back Bitches",
-        }
-
         frame = self.frames[page_name]
         frame.tkraise()
-        self.title(frame_titles[page_name])
+        platform_type = self.logic._get_data("platform_type") or "dizquetv"
+
+        frame_descriptions = {
+            "Page1": "Choose Platform - Plot Your Course",
+            "PlexDetailsPage": "Login to Plex - Welcome to the Absolution",
+            "Page2": "Enter Details - A Little Detour",
+            "Page3": "Select Folders - Deploy the Clydes",
+            "Page4": "Prepare Content - Intruder Alert",
+            "Page5": f"Commercial Breaker - {config.network} Will Be Right Back",
+            "Page6": f"Create your {config.network} Channel - All aboard the Absolution",
+            "Page7": f"Let's Make Another Channel! - {config.network}'s Back Bitches",
+        }
+
+        default_steps = {
+            "Page1": 1,
+            "PlexDetailsPage": 2,
+            "Page2": 2,
+            "Page3": 3,
+            "Page4": 4,
+            "Page5": 5,
+            "Page6": 6,
+            "Page7": 7,
+        }
+
+        cbdirect_steps = {
+            "Page1": 1,
+            "Page3": 2,
+            "Page4": 3,
+            "Page5": 4,
+            "Page6": 5,
+            "Page7": 6,
+        }
+
+        step_map = cbdirect_steps if platform_type == 'combreakdirect' else default_steps
+        step_number = step_map.get(page_name, default_steps.get(page_name, 1))
+        title_suffix = frame_descriptions.get(page_name, page_name)
+        self.title(f"Step {step_number} - {title_suffix}")
         self.current_page = page_name
+        if hasattr(frame, 'refresh_platform_fields'):
+            frame.refresh_platform_fields()
+
+    def create_tray_icon(self):
+        """Create a system tray icon for ComBreakDirect background mode"""
+        if not PYSTRAY_AVAILABLE:
+            print("pystray not available, cannot create tray icon")
+            return
+
+        if self.tray_icon is not None:
+            print("Tray icon already exists")
+            return
+
+        try:
+            # Create a simple icon image (cyan square with "CB" text)
+            def create_icon_image():
+                width = 64
+                height = 64
+                image = Image.new('RGB', (width, height), color=(0, 20, 40))
+                dc = ImageDraw.Draw(image)
+                # Draw border
+                dc.rectangle([(2, 2), (width-2, height-2)], outline=(0, 255, 255), width=3)
+                # Draw "CB" text (larger, centered better)
+                dc.text((16, 18), "CB", fill=(0, 255, 255))
+                return image
+
+            # Create tray menu
+            tray_location = "Menu Bar" if sys.platform == "darwin" else "Taskbar"
+            menu = pystray.Menu(
+                pystray.MenuItem("Show TOM", self.show_window),
+                pystray.MenuItem("Open Web UI", self.open_webui),
+                pystray.MenuItem("ComBreakDirect: Running", lambda: None, enabled=False),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Quit Application", self.quit_app)
+            )
+
+            self.tray_icon = pystray.Icon(
+                "ComBreakDirect",
+                create_icon_image(),
+                f"CommercialBreaker (running in {tray_location})",
+                menu
+            )
+
+            # Run tray icon in background thread
+            print(f"Starting tray icon in {tray_location}...")
+            threading.Thread(target=self.tray_icon.run, daemon=True).start()
+            print("Tray icon thread started")
+        except Exception as e:
+            print(f"Error creating tray icon: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def show_window(self, icon=None, item=None):
+        """Restore the main window from system tray"""
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+
+    def open_webui(self, icon=None, item=None):
+        """Open ComBreakDirect Web UI in default browser"""
+        import webbrowser
+        base_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
+        webbrowser.open(base_url)
+
+    def minimize_to_tray(self):
+        """Minimize window to system tray"""
+        self.withdraw()  # Hide window
+        if self.tray_icon is None:
+            self.create_tray_icon()
+
+    def quit_app(self, icon=None, item=None):
+        """Quit the application completely"""
+        if self.tray_icon:
+            self.tray_icon.stop()
+        self.quit()
+        self.destroy()
+
+    def on_closing(self):
+        """Handle window close event"""
+        # Check if ComBreakDirect is selected and background mode is enabled
+        platform_type = self.logic._get_data("platform_type")
+        page1_frame = self.frames.get("Page1")
+
+        if (platform_type == "combreakdirect" and
+            page1_frame and
+            hasattr(page1_frame, 'cbd_background_var') and
+            page1_frame.cbd_background_var.get() and
+            page1_frame.cbd_server_running):
+            # Minimize to tray instead of quitting
+            self.minimize_to_tray()
+        else:
+            # Normal quit
+            self.quit_app()
 
     def go_back(self):
         """Navigate to the previous page in the wizard."""
         # Define the previous page mapping
         previous_page_mapping = {
-            'Page2': 'Page1',
-            'Page3': 'Page2',
+            'PlexDetailsPage': 'Page1',
+            'Page2': 'PlexDetailsPage',
+            'Page3': 'PlexDetailsPage',
             'Page4': 'Page3',
             'Page5': 'Page4',
             'Page6': 'Page5',
             'Page7': 'Page6'
         }
-        
+
         current = getattr(self, 'current_page', None)
         if current and current in previous_page_mapping:
             previous_page = previous_page_mapping[current]
+            if current == 'Page3':
+                platform_type = self.logic._get_data('platform_type')
+                if platform_type == 'combreakdirect':
+                    previous_page = 'Page1'
             self.show_frame(previous_page)
 
 

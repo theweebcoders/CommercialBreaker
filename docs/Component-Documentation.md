@@ -7,10 +7,10 @@ This document provides detailed information about each tool and module in the Co
 The tools work together in a specific sequence to create your Toonami channel:
 
 ```plaintext
-1. LoginToPlex (Optional) → 2. FolderMaker → 3. ToonamiChecker → 4. LineupPrep → 5. BumpEncoder → 
-6. UncutEncoder → 7. Multilineup → 8. ShowScheduler (Merger) X4 → 9. EpisodeFilter (EpisodeFilter) → 10. GetPlexTimestamps (Optional) → 
-11. CommercialBreaker → 
-12. CommercialInjectorPrep → 13. CommercialInjector → 14. BlockMaker (BlockIDCreator) → 15. ShowScheduler (Merger) (again) X4 → 16. CutlessFinalizer (If using cutless mode) → 17. ExtraBumps (FileProcessor) (Optional) → 18. PlexAutoSplitter (Optional) → 19. PlexSplitRenamer (Optional) → 20. PlexToDizqueTV/PlexToTunarr → 21. DizqueTVManager (FlexInjector) (If using DizqueTV)
+1. LoginToPlex (Optional) → 2. FolderMaker → 3. ToonamiChecker → 4. LineupPrep → 5. BumpEncoder →
+6. UncutEncoder → 7. Multilineup → 8. ShowScheduler (Merger) X4 → 9. EpisodeFilter (EpisodeFilter) → 10. GetPlexTimestamps (Optional) →
+11. CommercialBreaker →
+12. CommercialInjectorPrep → 13. CommercialInjector → 14. BlockMaker (BlockIDCreator) → 15. ShowScheduler (Merger) (again) X4 → 16. CutlessFinalizer (If using cutless mode) → 16a. BumpCalculator (Optional) → 17. ExtraBumps (FileProcessor) (Optional) → 18. PlexAutoSplitter (Optional) → 19. PlexSplitRenamer (Optional) → 20. PlexToDizqueTV/PlexToTunarr/ComBreakToComBreakDirect → 21. DizqueTVManager (FlexInjector) (If using DizqueTV) OR ComBreakDirect Server (If using ComBreakDirect)
 ```
 
 ---
@@ -828,6 +828,516 @@ Plex's automatic matching can sometimes incorrectly merge multiple video files (
     -   Modifies the programming of an existing DizqueTV channel by inserting or updating flex/offline items.
 
 **Significance**: This tool provides a way to dynamically add simulated commercial breaks or transition fillers into a DizqueTV channel after its initial programming has been set up by `PlexToDizqueTV`. It allows for fine-tuning the pacing of the Toonami block.
+
+### ComBreakToComBreakDirect
+**File**: `ToonamiTools/ComBreakToComBreakDirect.py`
+**Class**: `ComBreakToComBreakDirect`
+**Purpose**: Pushes a curated cutless lineup from the database to the ComBreakDirect streaming server. This integration tool handles data transformation from the cutless database format to ComBreakDirect's expected API format.
+
+**Key Features & Process**:
+-   **Initialization**:
+    -   Takes database `table` name (cutless lineup table like `lineup_v8_cutless`), `channel_number`, `flex_duration` (commercial break length), `network` name, ComBreakDirect `base_url`, and `commercial_folder` path.
+    -   Validates that the specified cutless table exists in the database.
+    -   Automatically starts ComBreakDirect server if not already running.
+-   **Flex Duration Parsing (`_parse_flex_duration` method)**:
+    -   Accepts both string format ("MM:SS") and integer (milliseconds).
+    -   Converts "MM:SS" format to milliseconds for API compatibility.
+-   **Lineup Loading (`_load_lineup_from_database` method)**:
+    -   Reads the specified cutless table from the database.
+    -   Expected columns: `FULL_FILE_PATH`, `Code`, `startTime`, `endTime`, `duration` (optional), `BLOCK_ID`.
+    -   Converts all time values to milliseconds if needed.
+-   **Payload Construction (`_build_payload` method)**:
+    -   Transforms database rows into ComBreakDirect API format.
+    -   Each lineup item includes:
+        -   `file_path`: Full path to video file
+        -   `code`: Bump encoding code (from BumpEncoder)
+        -   `block_id`: Episode/show identifier (from BlockMaker)
+        -   `start_time`: Seek position in milliseconds
+        -   `end_time`: Stop position in milliseconds
+        -   `duration`: Total file duration in milliseconds
+    -   Constructs final payload with channel metadata:
+        -   `channel_number`, `network`, `lineup`, `flex_duration`, `commercial_folder`
+-   **Server Communication (`_push_to_server` method)**:
+    -   POSTs the payload to `{base_url}/channels` endpoint.
+    -   Handles HTTP errors and connection failures.
+    -   Logs the server response including playlist and guide URLs.
+-   **Health Check (`_check_server_health` method)**:
+    -   Queries `{base_url}/status` endpoint with retries.
+    -   Waits up to 30 seconds for server to become ready.
+    -   Raises exception if server doesn't respond.
+-   **Main Workflow (`run` method)**:
+    1.  Load lineup data from database
+    2.  Parse flex duration
+    3.  Build API payload
+    4.  Check server health
+    5.  Push lineup to server
+    6.  Log playlist and guide URLs
+-   **Inputs**:
+    -   Cutless lineup table name (e.g., `lineup_v8_cutless`)
+    -   Channel configuration (number, network, flex duration)
+    -   ComBreakDirect server URL
+    -   Commercial folder path
+-   **Outputs/Actions**:
+    -   Creates or updates a channel on ComBreakDirect server
+    -   Logs playlist URL and XMLTV guide URL for use with Plex
+
+**Significance**: This component is the bridge between CommercialBreaker's cutless pipeline and the ComBreakDirect streaming server. It eliminates the need for DizqueTV or Tunarr by pushing lineup data directly to a self-hosted streaming solution.
+
+### BumpCalculator
+**File**: `ToonamiTools/BumpCalculator.py`
+**Class**: `BumpCalculator`
+**Purpose**: Calculates and persists video durations for all bump files identified by LineupPrep. This ensures that duration information is available throughout the pipeline without requiring repeated ffprobe calls.
+
+**Key Features & Process**:
+-   **Initialization**:
+    -   Optionally takes a `status_callback` for progress updates.
+    -   Initializes `DurationManager` for efficient duration extraction.
+    -   Connects to database to access bump metadata.
+-   **Bump File Loading (`run` method)**:
+    -   Reads from the `nice_list` table (created by LineupPrep at step 4).
+    -   Extracts all unique `FULL_FILE_PATH` entries for bump files.
+    -   Deduplicates paths to avoid redundant processing.
+-   **Duration Calculation**:
+    -   Iterates through each unique bump file path.
+    -   Uses `DurationManager` to probe each video file with ffprobe.
+    -   Stores duration in milliseconds for each file.
+    -   Handles missing files gracefully with warnings.
+-   **Database Persistence**:
+    -   Creates a `bump_durations` table in the database.
+    -   Stores mapping of `FULL_FILE_PATH` to `duration` (in milliseconds).
+    -   Replaces existing table if present.
+-   **Progress Reporting**:
+    -   Calls `status_callback` after processing each file.
+    -   Reports progress as "[X/Total] Measuring duration for filename.mp4".
+    -   Provides user feedback during long-running operations.
+-   **Main Workflow (`run` method)**:
+    1.  Load bump file paths from `nice_list` table
+    2.  Deduplicate and normalize paths
+    3.  Calculate durations using DurationManager
+    4.  Store results in `bump_durations` table
+    5.  Report warnings for any missing files
+-   **Inputs**:
+    -   `nice_list` table from database (populated by LineupPrep)
+    -   Optional status callback function
+-   **Outputs**:
+    -   Creates `bump_durations` table with file paths and durations in milliseconds
+    -   Enables downstream tools to look up bump durations without probing files
+
+**Significance**: This tool runs during the `prepare_cut_anime()` workflow (step 16a, optional, when using cutless mode). By pre-calculating all bump durations once and storing them in the database, it provides fast duration lookups for CutlessFinalizer and other tools that need to know how long bumps are for timing calculations.
+
+### ComBreakDirect Server
+**Location**: `ComBreakDirect/` directory
+**Purpose**: Self-contained continuous MPEG-TS streaming server using Studio → FIFO → Broadcast FFmpeg → BroadcastTower architecture.
+
+**Modular Architecture**:
+```
+ComBreakDirect/
+├── ComBreakDirectServer.py    # Main Flask application
+├── docks/                      # Core processing modules
+│   ├── LoadingDock.py         # Lineup processing & ad injection
+│   ├── FactoryFloor.py        # Storage & M3U8/XMLTV generation
+│   └── UnloadingDock.py       # Broadcast streaming & multi-client management
+├── utilities/                  # Supporting modules
+│   ├── BroadcastTower.py      # Multi-client distribution engine
+│   ├── AudioTrackSelector.py  # Intelligent audio selection
+│   ├── CommercialBreakRenderer.py  # Pre-rendering system
+│   ├── CleanupManager.py      # Automatic file maintenance
+│   └── configuration.py       # Path resolution
+└── UI/                        # Web interface
+    └── WebUI.py              # Landing page
+```
+
+**Key Capabilities**:
+-   **Continuous MPEG-TS Streaming**: True broadcast-style streaming with seamless program transitions
+-   **BroadcastTower Architecture**: Multi-client support via Antenna pattern (one transcode, multiple viewers)
+-   **Broadcast FFmpeg Layer**: Uses `+genpts` to flatten program transitions and prevent Jellyfin/Plex freezing
+-   **WebUI**: Toonami-themed landing page with setup instructions
+-   **HDHomeRun Discovery**: Automatic Plex/Jellyfin integration via device discovery
+-   **Intelligent Audio Selection**: Configurable audio track selection (defaults to English for Toonami dubs)
+-   **Guide Generation**: XMLTV with full show metadata (season/episode/title)
+-   **Commercial Injection**: Server-side ad break pre-rendering and insertion
+-   **Auto Start/Stop**: Studio and broadcast FFmpeg only run when clients connected
+-   **Channel Timing**: Sophisticated timing algorithm for perfect sync across all clients
+-   **CommercialBreakRenderer Cache**: Predictively renders `_pre_rendered_breaks/*.ts` assets
+
+**Loading Dock Details**:
+- `process_lineup` maps incoming payloads (from `POST /channels`) into streaming-ready channel dictionaries.
+- Consecutive bumps trigger `_inject_commercials`, which reserves or renders commercial breaks through `CommercialBreakRenderer`.
+- `_format_for_streaming` normalizes timings, assigns `block_id` fallbacks, and produces the rolling channel timeline (`start`, `stop`, `duration`, seek offsets).
+
+**Factory Floor Details**:
+- `store_channel` persists the channel data in `channels.json`, guarded by a threading lock.
+- `generate_playlist` and `generate_xmltv` use helper methods (`_consolidate_programs_by_block_id`, `_extract_show_metadata_from_block_id`) to output user-facing metadata.
+- Storage location defaults to `CBDIRECT_DATA_ROOT` via `utilities.configuration.resolve_storage_path`.
+
+**Unloading Dock Details** (Broadcasting Architecture):
+-   **Studio Thread** (`build_stream`): Calculates current channel position, spawns FFmpeg per program with normalization (H.264 1080p 30fps, AAC stereo 48kHz, CBR 5.4 Mbps), writes MPEG-TS to FIFO
+-   **Broadcast FFmpeg** (`start_broadcast_ffmpeg`): Reads FIFO with `-fflags +genpts+discardcorrupt`, creates continuous stream, rate limits broadcasting (13ms per chunk)
+-   **BroadcastTower**: Receives continuous stream, distributes to all connected Antenna objects (one per client)
+-   **Antenna**: Per-client buffer (132 chunks, ~2 seconds) with rate-limited iteration to prevent buffering ahead
+-   **Lifecycle**: Auto start/stop - studio and broadcast FFmpeg only run when clients connected (detected via `broadcast_tower.has_antennas()`)
+-   **Output Wrapper**: Thin layer that calls FactoryFloor for playlists/guides (`get_master_playlist`, `get_xmltv_guide`, `get_lineup_json`)
+
+**API Endpoints**:
+-   **WebUI Routes**:
+    -   `GET /` - Landing page with setup instructions and copy-to-clipboard URLs
+-   **Continuous MPEG-TS Streaming**:
+    -   `GET /video/channel/{number}` - Continuous broadcast stream (HDHomeRun-compatible)
+-   **Channel Management**:
+    -   `POST /channels` - Create/update channel with lineup data
+    -   `GET /playlist.m3u8` - Master M3U8 playlist
+    -   `GET /api/xmltv.xml` - XMLTV guide
+-   **Plex/Jellyfin Discovery**:
+    -   `GET /discover.json` - HDHomeRun discovery
+    -   `GET /lineup.json` - Channel lineup
+    -   `GET /lineup_status.json` - Scan status
+    -   `GET /status` - Server health check
+    -   `POST /wipe` - Clear all data (channels, towers, pre-rendered breaks)
+
+**Technical Features**:
+-   **Studio → FIFO → Broadcast FFmpeg → BroadcastTower**: Four-layer architecture for continuous streaming
+-   **PTS Regeneration**: Broadcast FFmpeg's `+genpts` creates seamless transitions between programs
+-   **Multi-Client Distribution**: BroadcastTower broadcasts to multiple Antenna objects (one per client)
+-   **Rate Limiting**: 13ms per chunk (~5.4 Mbps CBR) prevents antenna buffer overflow
+-   **Auto Lifecycle**: Studio and broadcast FFmpeg start/stop based on client connections
+-   **Configurable Audio**: Automatic audio track selection based on DEFAULT_LANGUAGE config (defaults to English)
+-   **Commercial Pre-rendering**: Background thread maintains 1-hour window of pre-rendered breaks
+-   **Automatic Cleanup**: CleanupManager removes old pre-rendered breaks (4+ hours old)
+
+**Integration with Pipeline**:
+-   Called automatically by `LogicController._ensure_combreakdirect_server()`
+-   Receives lineup data via `ComBreakToComBreakDirect` REST API
+-   Provides playlist/guide URLs for Plex integration
+-   Runs in background during WebUI operation (Docker mode)
+-   WebUI accessible at `http://localhost:8083/` by default
+
+**For detailed ComBreakDirect documentation, see [ComBreakDirect.md](ComBreakDirect.md).**
+
+### BroadcastTower
+**File**: `ComBreakDirect/utilities/BroadcastTower.py`
+**Classes**: `BroadcastTower`, `Antenna`
+**Purpose**: Multi-client streaming distribution engine using the broadcast tower metaphor. Provides true broadcast-style streaming where a single source feeds multiple clients simultaneously.
+
+**Architecture Metaphor**:
+- **BroadcastTower**: Like a TV broadcast tower - receives signal from broadcast FFmpeg and transmits to all antennas
+- **Antenna**: Individual client receiver with minimal buffer for signal stability
+- **No Buffering at Tower**: Only transmits what's broadcasting RIGHT NOW (live signal only)
+
+**Key Features & Process**:
+
+**BroadcastTower Class**:
+-   **Initialization**: Creates empty antenna list, initializes stats tracking
+-   **`broadcast(chunk: bytes)`**: Sends MPEG-TS chunk to ALL connected antennas immediately
+    -   No buffering - chunk is immediately distributed and discarded
+    -   Calls `antenna.receive(chunk)` for each antenna
+    -   Updates broadcast statistics
+-   **`connect_antenna(client_id: str) -> Antenna`**: Creates new Antenna for connecting client
+    -   Antenna joins at LIVE position (no historical signal)
+    -   Returns Antenna object for client to iterate
+-   **`disconnect_antenna(antenna: Antenna)`**: Removes antenna from active list
+-   **`has_antennas() -> bool`**: Critical for lifecycle management
+    -   Broadcast FFmpeg checks this to determine if it should continue
+    -   When returns False, broadcast FFmpeg stops
+-   **`get_stats() -> dict`**: Returns active antenna count and broadcast totals
+
+**Antenna Class**:
+-   **Initialization**: Creates client-specific buffer (132 chunks, ~2 seconds at 66 chunks/sec)
+-   **`receive(chunk: bytes)`**: Called by BroadcastTower to add chunk to buffer
+    -   If buffer full, oldest chunk dropped (tracks as "signal lost")
+    -   Uses deque with maxlen for automatic overflow handling
+-   **`read_signal(timeout: float) -> Optional[bytes]`**: Blocking read with timeout
+    -   Waits for next chunk or timeout
+    -   Returns None on timeout or disconnect
+-   **`__iter__() -> Iterator[bytes]`**: Rate-limited iteration over signal
+    -   Yields chunks with 13ms interval (matches broadcast rate)
+    -   Prevents client from buffering ahead
+    -   Auto-disconnect detection via `active` flag
+-   **`disconnect()`**: Cleanup method
+    -   Sets `active = False` to stop iteration
+    -   Removes self from BroadcastTower
+    -   Logs statistics (chunks received, signal lost count)
+
+**Threading & Synchronization**:
+-   **BroadcastTower**: Uses `threading.Lock` and `threading.Condition` for thread-safe antenna management
+-   **Antenna**: Individual lock and condition per client for independent buffering
+-   **No Race Conditions**: Lock protects antenna list modifications, condition signals new chunks
+
+**Rate Limiting**:
+-   **Antenna Iteration**: 13ms per chunk (~75 chunks/second, ~5.4 Mbps for 9400-byte chunks)
+-   **Purpose**: Prevents clients from draining buffer faster than broadcast rate
+-   **Result**: Clients forced to consume at real-time rate, can't buffer way ahead
+
+**Signal Stability**:
+-   **Buffer Size**: 132 chunks (~2 seconds) provides network jitter tolerance
+-   **Signal Lost Tracking**: Counts when client can't keep up with broadcast rate
+-   **Auto-Disconnect**: Iteration stops cleanly when `active = False`
+
+**Integration with UnloadingDock**:
+-   Created by `UnloadingDock.create_broadcast_tower(channel_number)`
+-   Fed by broadcast FFmpeg via `broadcast(chunk)` calls
+-   Clients connect via `UnloadingDock.connect_client()` which returns Antenna
+-   Flask generator iterates Antenna: `for chunk in antenna: yield chunk`
+
+**Why This Architecture Works**:
+-   **Single Source**: Broadcast FFmpeg creates one continuous stream per channel
+-   **Unlimited Clients**: BroadcastTower distributes to unlimited antennas with minimal overhead
+-   **No Tower Buffering**: Prevents clients from reading ahead (only live signal broadcast)
+-   **Small Antenna Buffer**: Just enough for network stability (~2 seconds)
+-   **Rate Limiting**: Forces real-time consumption via 13ms iteration interval
+-   **Resource Efficient**: No per-client transcoding - single transcode distributed to all
+
+**Statistics & Monitoring**:
+-   **BroadcastTower**: Tracks total chunks broadcast, total MB broadcast, active antenna count
+-   **Antenna**: Tracks chunks received, signal lost count (buffer overflows)
+-   **Logging**: `[BROADCAST_TOWER]` and `[ANTENNA]` prefixes for debugging
+
+**Critical Role in Multi-Client Support**:
+The BroadcastTower is what enables multiple clients (VLC, Plex, Jellyfin) to watch the same channel simultaneously without conflicts or per-client transcoding overhead. Combined with broadcast FFmpeg's `+genpts` flag, it creates the truly continuous multi-client streaming experience.
+
+### AudioTrackSelector
+**File**: `ComBreakDirect/utilities/AudioTrackSelector.py`
+**Class**: `AudioTrackSelector`
+**Purpose**: Intelligent audio track selection for multi-audio video files. Automatically selects the appropriate audio track based on user preferences during streaming.
+
+**Problem Solved**:
+Anime often contains multiple audio tracks (Japanese original, English dubs, director commentary, etc.). Without intelligent selection, FFmpeg would default to the first track, which might not be the desired language. AudioTrackSelector analyzes available tracks and selects the best match based on configuration.
+
+**Configuration**:
+-   **DEFAULT_LANGUAGE**: Set in `config.py` (defaults to `'english'` for Toonami's English dub focus)
+-   **LANGUAGE_VARIATIONS**: Dictionary defining language tag variations
+    -   Example: `'english': ['eng', 'english', 'en', 'en-us', 'en-gb']`
+    -   Supports multiple languages: English, Japanese, Spanish, French, German, etc.
+
+**Key Methods**:
+-   **`find_best_audio_track(file_path, preferred_language)`**: Main selection method
+    -   Analyzes file using FFprobe to enumerate audio tracks
+    -   Searches for tracks matching preferred language
+    -   Returns audio track index (0-based)
+    -   Fallback: Returns 0 (first track) if no language match found
+-   **`get_audio_tracks(file_path)`**: Uses FFprobe to enumerate available audio tracks
+    -   Returns list of dicts with track metadata (index, language, title, codec)
+-   **`get_ffmpeg_audio_mapping(file_path)`**: Generates FFmpeg arguments for audio selection
+    -   Returns list like `['-map', '0:a:2']` to select specific audio track
+    -   Used by Studio thread when spawning FFmpeg for programs
+
+**Selection Logic**:
+1. **Configured Language Match**: Searches all audio tracks for configured DEFAULT_LANGUAGE
+2. **Language Tag Variations**: Checks all variations (e.g., 'eng', 'en', 'english')
+3. **Case Insensitive**: Matches regardless of capitalization
+4. **First Track Fallback**: If no language match, defaults to first audio track
+5. **Consistency**: Maintains same audio selection across all segments of an episode
+
+**Usage in ComBreakDirect**:
+-   Called by `UnloadingDock` Studio thread during program FFmpeg spawning
+-   Integrated with `CommercialBreakRenderer` for break rendering
+-   Respects user's language preference from config.py
+-   Ensures consistent audio across all content
+
+**Example Configuration**:
+```python
+# In config.py
+DEFAULT_LANGUAGE = 'english'  # or 'japanese', 'spanish', etc.
+LANGUAGE_VARIATIONS = {
+    'english': ['eng', 'english', 'en', 'en-us', 'en-gb'],
+    'japanese': ['jpn', 'japanese', 'jp', 'ja'],
+    'spanish': ['spa', 'spanish', 'es', 'es-es', 'es-mx']
+}
+```
+
+**Error Handling**:
+-   Gracefully handles files with missing audio metadata
+-   Returns first track (index 0) on any FFprobe errors
+-   Logs warnings for problematic files
+
+**Significance**: This component eliminates the need for manual audio track specification and ensures viewers always get the correct language track (English for Toonami dubs by default), even when source files contain multiple audio streams.
+
+### CommercialBreakRenderer
+**File**: `ComBreakDirect/utilities/CommercialBreakRenderer.py`
+**Class**: `CommercialBreakRenderer`
+**Purpose**: Pre-rendering system for commercial breaks. Eliminates startup delays by rendering commercial breaks ahead of time and maintaining a cache of ready-to-stream break files.
+
+**The Problem**:
+Originally, commercial breaks were rendered on-demand during streaming, causing:
+-   30+ second delays when starting channels
+-   Timeout issues with Plex/Jellyfin
+-   Poor user experience during first playback
+-   CPU spikes during streaming
+
+**The Solution**:
+Pre-rendering system that:
+-   Renders breaks ahead of time (1 hour window by default)
+-   Stores rendered breaks in `_pre_rendered_breaks/` folder
+-   Background thread maintains the break library
+-   Instant playback when commercial slots are needed
+
+**Key Methods**:
+-   **`plan_break(break_id, duration_ms)`**: Creates break plan without rendering
+    -   Generates unique break ID based on BLOCK_ID, network, marker, and duration
+    -   Reserves output file path: `_pre_rendered_breaks/<break_id>.ts`
+    -   Selects random commercials that fit duration (with tolerance)
+    -   Stores break plan in cache for later rendering
+-   **`get_or_build_break(break_id, duration_ms)`**: Gets cached break or renders it
+    -   Checks if break already rendered and cached
+    -   If missing, renders immediately using FFmpeg
+    -   Returns file path to rendered break
+-   **`pre_render_window(breaks, window_ms)`**: Renders breaks for upcoming time window
+    -   Takes list of all breaks in channel
+    -   Filters to breaks within window (e.g., next 1 hour)
+    -   Renders each break if not already cached
+    -   Called by LoadingDock after channel creation
+-   **`pre_render_upcoming_breaks(channel_data, hours_ahead)`**: Proactive rendering for channel
+    -   Analyzes channel timeline to find upcoming breaks
+    -   Renders breaks for specified hours ahead (default 1.0)
+    -   Used for initial pre-rendering when channel created
+-   **`start_background_renderer(channels_callback)`**: Continuous background maintenance
+    -   Spawns daemon thread that monitors all channels
+    -   Periodically scans for upcoming breaks (every 10 minutes)
+    -   Pre-renders breaks staying 1 hour ahead
+    -   Runs until server shutdown
+
+**Rendering Process**:
+1. **Commercial Selection**: Randomly selects commercials from folder that fit duration
+2. **FFmpeg Concatenation**: Uses concat demuxer to stitch commercials
+3. **Audio Track Selection**: Integrates with `AudioTrackSelector` for correct language
+4. **Normalization**: Renders to standard format (H.264 1080p 30fps, AAC stereo 48kHz)
+5. **Output**: Saves as MPEG-TS file in `_pre_rendered_breaks/`
+
+**Break Cache Structure**:
+-   **Key**: Break ID (unique per BLOCK_ID + network + marker + duration)
+-   **Value**: Dict with `id`, `path`, `duration_ms`, and `commercials` list
+-   **Persistence**: Cache maintained in memory (files on disk)
+
+**Integration Points**:
+-   **LoadingDock**: Calls `plan_break()` when injecting commercials, then `pre_render_window()` for initial rendering
+-   **UnloadingDock**: Studio thread plays pre-rendered breaks like any other program
+-   **Background Thread**: Started by ComBreakDirectServer on initialization
+
+**Performance Benefits**:
+-   **Cold Start**: First channel creation takes ~25-30s for pre-rendering (acceptable one-time cost)
+-   **Warm Start**: Subsequent breaks are instant (already rendered)
+-   **Background Rendering**: Maintains cache invisibly while channel running
+-   **No Stream Delays**: All breaks ready before they're needed
+
+**Configuration**:
+-   `commercial_folder`: Path to commercial library
+-   `temp_folder`: Location for `_pre_rendered_breaks/` (defaults to `CBDIRECT_DATA_ROOT`)
+-   `hours_ahead`: How far ahead to pre-render (default 1.0 hour)
+
+**Cleanup**:
+Rendered breaks are cleaned up by `CleanupManager` when older than 4 hours.
+
+**Significance**: This component is critical for providing a smooth, TV-like experience. Without pre-rendering, every commercial break would cause a 5-10 second pause while FFmpeg renders the break on-the-fly, destroying the illusion of watching live TV.
+
+### CleanupManager
+**File**: `ComBreakDirect/utilities/CleanupManager.py`
+**Class**: `CleanupManager`
+**Purpose**: Automatic maintenance system for temporary files. Periodically removes old pre-rendered commercial breaks to prevent disk space accumulation.
+
+**The Problem**:
+-   Pre-rendered commercial breaks accumulate in `_pre_rendered_breaks/` folder
+-   Each break is 50-150 MB depending on duration
+-   Without cleanup, disk space fills up over time
+-   Old breaks for past time slots are never needed again
+
+**The Solution**:
+Background cleanup thread that:
+-   Runs every 5 minutes by default
+-   Removes pre-rendered breaks older than 4 hours
+-   Minimal CPU/IO impact
+-   Fully automatic (no user intervention needed)
+
+**Key Methods**:
+-   **`__init__(temp_folder)`**: Initializes with path to `_pre_rendered_breaks/` folder
+-   **`start_cleanup_thread(break_max_age_hours, cleanup_interval_minutes)`**: Starts background cleanup
+    -   Spawns daemon thread for automatic cleanup
+    -   `break_max_age_hours`: How old breaks must be before deletion (default 4 hours)
+    -   `cleanup_interval_minutes`: How often to run cleanup (default 5 minutes)
+    -   Returns thread object
+-   **`_cleanup_old_breaks(max_age_hours)`**: Performs actual cleanup
+    -   Scans `_pre_rendered_breaks/` folder for `.ts` files
+    -   Checks file modification time
+    -   Deletes files older than threshold
+    -   Logs cleanup actions
+
+**Cleanup Logic**:
+1. **File Discovery**: Lists all `.ts` files in temp folder
+2. **Age Check**: Compares file modification time to current time
+3. **Threshold Comparison**: If `(now - mtime) > max_age_hours`, delete
+4. **Safe Deletion**: Catches and logs exceptions for locked/missing files
+
+**Integration**:
+-   **Started by**: `FactoryFloor` during initialization
+-   **Runs alongside**: CommercialBreakRenderer background thread
+-   **Coordinates with**: Pre-rendering system (cleans up after renderer)
+
+**Configuration**:
+```python
+# Default values
+break_max_age_hours = 4.0        # Delete breaks older than 4 hours
+cleanup_interval_minutes = 5.0   # Run cleanup every 5 minutes
+```
+
+**Performance Characteristics**:
+-   **CPU Impact**: Minimal (simple file stat checks)
+-   **IO Impact**: Low (only scans one folder)
+-   **Disk Space Savings**: Prevents unbounded growth
+-   **Frequency**: 5-minute interval balances cleanup vs overhead
+
+**Why 4 Hours?**:
+-   Pre-renderer maintains 1-hour ahead cache
+-   Provides 3-hour safety margin for already-rendered breaks
+-   Breaks older than 4 hours are guaranteed to be in the past
+-   Never deletes breaks that might still be needed
+
+**Thread Safety**:
+-   Daemon thread (dies with parent process)
+-   No coordination needed (file deletion is atomic)
+-   Cleanup runs independently of rendering
+
+**Logging**:
+-   Logs each cleanup run
+-   Reports number of files deleted
+-   Warns on deletion errors (file locked, permissions, etc.)
+
+**Significance**: CleanupManager is the "janitor" that keeps the server running smoothly long-term. Without it, a server running 24/7 would fill its disk with thousands of old commercial break files. With it, the system maintains a steady state with only recent/upcoming breaks stored.
+
+## Core System Components
+
+### DurationManager
+**File**: `ComBreak/DurationManager.py`
+**Class**: `DurationManager`
+**Purpose**: Centralized singleton manager for video duration extraction using ffprobe. Provides caching to avoid redundant file probing operations.
+
+**Key Features & Process**:
+-   **Singleton Pattern**:
+    -   Only one instance exists per application
+    -   Accessed via `get_duration_manager()` function
+    -   Thread-safe implementation
+-   **Duration Extraction (`get_duration` method)**:
+    -   Takes a file path and returns duration in seconds (float)
+    -   Uses ffprobe to query video metadata
+    -   Command: `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1`
+-   **Caching System**:
+    -   Internal cache stores `{file_path: duration}` mappings
+    -   Cache key includes file modification time to detect changes
+    -   Subsequent calls for same file return cached value
+    -   Significantly improves performance for repeated queries
+-   **Error Handling**:
+    -   Returns `0.0` if file doesn't exist
+    -   Returns `0.0` if ffprobe fails
+    -   Logs errors for debugging
+-   **Cache Management**:
+    -   `clear_cache()` - Clears all cached durations
+    -   Automatic invalidation on file modification
+-   **Usage Pattern**:
+```python
+from ComBreak.DurationManager import get_duration_manager
+
+duration_mgr = get_duration_manager()
+duration_seconds = duration_mgr.get_duration("/path/to/video.mkv")
+```
+
+**Significance**: Centralizes all duration queries throughout the application, preventing redundant ffprobe calls and improving performance. Used by BumpCalculator, CutlessFinalization, and other components that need video duration information.
 
 ## Extra Tools and Utilities
 

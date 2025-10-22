@@ -3,13 +3,15 @@ import os
 import pandas as pd
 import re
 import requests
+import socket
+from typing import Callable, Optional
+
 from unidecode import unidecode
 from bs4 import BeautifulSoup
 from .utils import show_name_mapper
 from .utils.DirectoryScanner import fast_video_scan
 from API.utils import get_db_manager
 from API.utils.ErrorManager import get_error_manager
-import socket
 
 class ToonamiShowsFetcher:
     def __init__(self):
@@ -240,10 +242,24 @@ class ToonamiShowsFetcher:
         return df
     
 class ToonamiChecker:
-    def __init__(self, anime_folder):
+    def __init__(self, anime_folder, status_callback: Optional[Callable[[str], None]] = None):
         self.anime_folder = anime_folder
         self.toonami_shows_fetcher = ToonamiShowsFetcher()
         self.error_manager = get_error_manager()
+        self.status_callback = status_callback
+
+    def _status(self, message: str, *, forward_only: bool = False) -> None:
+        if not forward_only:
+            print(message)
+        if self.status_callback:
+            try:
+                self.status_callback(message)
+            except Exception as exc:
+                # Keep execution going even if the UI callback fails
+                print(f"Warning: status callback failed with error: {exc}")
+
+    def _status_forward(self, message: str) -> None:
+        self._status(message, forward_only=True)
 
     def get_video_files(self):
         """
@@ -273,8 +289,13 @@ class ToonamiChecker:
             )
             raise PermissionError(f"No read access to: {folder_path}")
         
+        self._status(f"Scanning anime library at {folder_path}...")
+
         try:
-            episode_files, file_count = fast_video_scan(folder_path)
+            episode_files, file_count = fast_video_scan(
+                folder_path,
+                status_callback=self._status_forward
+            )
         except Exception as e:
             self.error_manager.send_error_level(
                 source="ToonamiChecker",
@@ -284,8 +305,8 @@ class ToonamiChecker:
                 suggestion="Check if the directory is accessible and not corrupted"
             )
             raise
-        
-        print(f"Processed {file_count} files.")
+
+        self._status(f"Processed {file_count} files.")
         
         if file_count == 0:
             self.error_manager.send_error_level(
@@ -305,7 +326,7 @@ class ToonamiChecker:
         """
         folder_path = self.anime_folder
 
-        print("Comparing Toonami shows data with video files in directory.")
+        self._status("Comparing Toonami shows data with video files in directory.")
         
         try:
             toonami_shows = self.toonami_shows_fetcher.get_toonami_shows()
@@ -324,8 +345,8 @@ class ToonamiChecker:
         # Use the show_name_mapper to normalize and map Toonami show titles
         normalized_toonami_shows = [show_name_mapper.normalize_and_map(x) for x in toonami_shows['Title']]
         
-        print(f"Found {len(normalized_toonami_shows)} shows from {config.network} Wikipedia page")
-        print(f"Found {len(video_files)} unique shows in your library")
+        self._status(f"Found {len(normalized_toonami_shows)} shows from {config.network} Wikipedia page")
+        self._status(f"Found {len(video_files)} unique shows in your library")
         
         # Show first few of each for debugging
         if normalized_toonami_shows:
@@ -343,7 +364,7 @@ class ToonamiChecker:
                     normalized_path = os.path.normpath(full_path)
                     toonami_episodes[(show, episode)] = normalized_path
 
-        print(f"Found matches for {len(toonami_episodes)} episodes.")
+        self._status(f"Found matches for {len(toonami_episodes)} episodes.")
         
         if len(toonami_episodes) == 0:
             self.error_manager.send_error_level(
@@ -357,7 +378,7 @@ class ToonamiChecker:
         return toonami_episodes
 
     def save_episodes_to_spreadsheet(self, toonami_episodes, db_path = config.DATABASE_PATH):
-        print(f"Writing episode data to SQLite database: {db_path}")
+        self._status(f"Writing episode data to SQLite database: {db_path}")
         db_manager = get_db_manager()
 
         # Check if table exists
@@ -385,10 +406,10 @@ class ToonamiChecker:
             else:
                 df.to_sql('Toonami_Episodes', conn, if_exists='replace', index=False)
 
-        print(f'Successfully wrote rows to {db_path}')
+        self._status(f'Successfully wrote rows to {db_path}')
 
     def save_show_names_to_spreadsheet(self, toonami_episodes, db_path = config.DATABASE_PATH):
-        print(f"Writing show names to SQLite database: {db_path}")
+        self._status(f"Writing show names to SQLite database: {db_path}")
         unique_show_names = {k[0] for k in toonami_episodes.keys()}
         db_manager = get_db_manager()
 
@@ -420,7 +441,7 @@ class ToonamiChecker:
             else:
                 df.to_sql('Toonami_Shows', conn, if_exists='replace', index=False)
 
-        print(f'Successfully wrote rows to {db_path}')
+        self._status(f'Successfully wrote rows to {db_path}')
 
     def prepare_episode_data(self):
         toonami_episodes = self.compare_shows()

@@ -1,8 +1,9 @@
 import pandas as pd
-import re 
-from pathlib import Path
+import re
 import config
+from pathlib import Path
 from API.utils import get_db_manager
+from ComBreak.DurationManager import get_duration_manager
 
 
 
@@ -40,7 +41,8 @@ class VirtualCut:
                         FULL_FILE_PATH TEXT,
                         ORIGINAL_FILE_PATH TEXT,
                         startTime INTEGER,
-                        endTime INTEGER
+                        endTime INTEGER,
+                        duration REAL
                     )
                     ''')
                 
@@ -80,6 +82,10 @@ class VirtualCut:
                         show_name = match.group(1).strip()
                         season_episode = match.group(2)
 
+                    # Get video duration using DurationManager
+                    duration_manager = get_duration_manager()
+                    video_duration = duration_manager.get_duration(input_file)
+
                     # Create a virtual entry for each segment
                     for part_number in range(1, segment_count + 1):
                         # Generate the virtual filename for this part
@@ -100,7 +106,8 @@ class VirtualCut:
                             virtual_full_path,  # Virtual path
                             input_file,         # Original path
                             start_time_ms,
-                            end_time_ms
+                            end_time_ms,
+                            video_duration
                         ])
 
                     if progress_callback:
@@ -117,8 +124,8 @@ class VirtualCut:
 
             # Create DataFrame
             df = pd.DataFrame(prep_data, columns=[
-                'SHOW_NAME_1', 'Season and Episode', 'Part Number', 
-                'FULL_FILE_PATH', 'ORIGINAL_FILE_PATH', 'startTime', 'endTime'
+                'SHOW_NAME_1', 'Season and Episode', 'Part Number',
+                'FULL_FILE_PATH', 'ORIGINAL_FILE_PATH', 'startTime', 'endTime', 'duration'
             ])
 
             # Save to commercial_injector_prep table

@@ -7,6 +7,7 @@ def auto_docker_folder():
     bump_folder = os.getenv("BUMP_FOLDER", "/app/bump")
     special_bump_folder = os.getenv("SPECIAL_BUMP_FOLDER", "/app/special_bump")
     working_folder = os.getenv("WORKING_FOLDER", "/app/working")
+    commercial_folder = os.getenv("COMMERCIAL_FOLDER", "/app/commercials")
     
     # Save the fetched data to the database
     logic = LogicController()
@@ -14,6 +15,7 @@ def auto_docker_folder():
     logic._set_data("bump_folder", bump_folder)
     logic._set_data("special_bump_folder", special_bump_folder)
     logic._set_data("working_folder", working_folder)
+    logic._set_data("commercial_folder", commercial_folder)
 
 # Run the folder setup when the script is executed
 auto_docker_folder()

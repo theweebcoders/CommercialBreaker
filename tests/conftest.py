@@ -2,6 +2,32 @@ import pytest
 from pathlib import Path, PurePosixPath
 import time
 import bisect # Added for optimized directory detection
+import re
+
+
+def sanitize_path_component(component: str) -> str:
+    """
+    Sanitize a path component to be Windows-compatible.
+    Replaces invalid characters with underscores.
+    """
+    # Windows invalid characters: < > : " / \ | ? *
+    # Also remove control characters
+    invalid_chars = r'[<>:"/\\|?*\x00-\x1f]'
+    sanitized = re.sub(invalid_chars, '_', component)
+    # Remove trailing dots and spaces (Windows doesn't allow these)
+    sanitized = sanitized.rstrip('. ')
+    return sanitized
+
+
+def sanitize_path(path_str: str) -> str:
+    """
+    Sanitize an entire path by sanitizing each component.
+    Preserves path separators.
+    """
+    # Split by forward slash (Unix-style paths in sample.txt)
+    parts = path_str.split('/')
+    sanitized_parts = [sanitize_path_component(part) for part in parts]
+    return '/'.join(sanitized_parts)
 
 
 @pytest.fixture(scope="session")
@@ -29,8 +55,10 @@ def fixture_dirs(tmp_path_factory):
         if not raw or raw == ".":                 # skip blanks and the root dot
             continue
         rel = raw[2:] if raw.startswith("./") else raw
+        # Sanitize the path for Windows compatibility
+        rel = sanitize_path(rel)
         rel_paths.append(rel)
-    
+
     print(f"Loaded {len(rel_paths)} paths from sample.txt")
 
     # --- detect which of them are directories -------------------------------

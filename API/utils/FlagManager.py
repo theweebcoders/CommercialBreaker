@@ -77,7 +77,7 @@ class FlagManager:
         Evaluate if cutless should be enabled based on platform compatibility
         
         Args:
-            platform_type (str): The type of platform ('tunarr' or 'dizquetv')
+            platform_type (str): The type of platform ('tunarr', 'dizquetv', or 'combreakdirect')
             platform_url (str, optional): The URL of the platform
             
         Returns:
@@ -93,7 +93,12 @@ class FlagManager:
             cls.set_cutless(False)
             print("Cutless mode disabled: Tunarr platform selected")
             return False
-            
+
+        if platform_type == 'combreakdirect':
+            cls.set_cutless(True)
+            print("Cutless mode enabled: ComBreakDirect always runs in cutless mode")
+            return True
+
         # For dizqueTV, run compatibility check
         elif platform_type == 'dizquetv' and platform_url:
             compatible = cls._check_dizquetv_advanced(platform_url)

@@ -35,18 +35,24 @@ class PlexManager:
             print("Choose the service you want to use:")
             print("1. DizqueTV")
             print("2. Tunarr")
+            print("3. ComBreakDirect")
             service_choice = self.app.safe_input("Enter the number of your choice: ").strip()
-            
+
             if service_choice == '1':
                 platform_type = 'dizquetv'
                 default_url = "http://localhost:17685"
-            else:
+                platform_url = self.app.safe_input(
+                    f"Enter the platform URL (default: {default_url}): "
+                ) or default_url
+            elif service_choice == '2':
                 platform_type = 'tunarr'
                 default_url = "http://localhost:8000"
-                
-            platform_url = self.app.safe_input(
-                f"Enter the platform URL (default: {default_url}): "
-            ) or default_url
+                platform_url = self.app.safe_input(
+                    f"Enter the platform URL (default: {default_url}): "
+                ) or default_url
+            else:
+                platform_type = 'combreakdirect'
+                platform_url = getattr(config, "CBDIRECT_BASE_URL", "http://127.0.0.1:8083")
 
             self.logic.on_continue_first(anime_library_name, toonami_library_name, platform_url, platform_type)
 
@@ -92,19 +98,25 @@ class PlexManager:
         print("Choose the service you want to use:")
         print("1. DizqueTV")
         print("2. Tunarr")
+        print("3. ComBreakDirect")
         service_choice = self.app.safe_input("Enter the number of your choice: ").strip()
-        
+
         if service_choice == '1':
             platform_type = 'dizquetv'
             default_url = "http://localhost:17685"
-        else:
+            platform_url = self.app.safe_input(
+                f"Enter the platform URL (default: {default_url}): "
+            ) or default_url
+        elif service_choice == '2':
             platform_type = 'tunarr'
             default_url = "http://localhost:8000"
-            
-        platform_url = self.app.safe_input(
-            f"Enter the platform URL (default: {default_url}): "
-        ) or default_url
-        
+            platform_url = self.app.safe_input(
+                f"Enter the platform URL (default: {default_url}): "
+            ) or default_url
+        else:
+            platform_type = 'combreakdirect'
+            platform_url = getattr(config, "CBDIRECT_BASE_URL", "http://127.0.0.1:8083")
+
         self.logic.on_continue_second(
             anime_library_name, 
             toonami_library_name, 
@@ -126,16 +138,21 @@ class FolderManager:
         bump_folder = self.app.safe_input("Enter the path to your Bump folder: ")
         special_bump_folder = self.app.safe_input("Enter the path to your Special Bump folder (optional): ") or None
         working_folder = self.app.safe_input("Enter the path to your Working folder: ")
-        self._confirm_paths(anime_folder, bump_folder, special_bump_folder, working_folder)
+        commercial_folder = None
+        if self.logic._get_data("platform_type") == 'combreakdirect':
+            commercial_folder = self.app.safe_input("Enter the path to your Commercials folder: ")
+        self._confirm_paths(anime_folder, bump_folder, special_bump_folder, working_folder, commercial_folder)
 
-        self.logic.on_continue_third(anime_folder, bump_folder, special_bump_folder, working_folder)
+        self.logic.on_continue_third(anime_folder, bump_folder, special_bump_folder, working_folder, commercial_folder)
         
-    def _confirm_paths(self, anime_folder, bump_folder, special_bump_folder, working_folder):
+    def _confirm_paths(self, anime_folder, bump_folder, special_bump_folder, working_folder, commercial_folder):
         print("\nYou have entered the following paths:")
         print(f"Anime Folder: {anime_folder}")
         print(f"Bump Folder: {bump_folder}")
         print(f"Special Bump Folder: {'Not specified' if not special_bump_folder else special_bump_folder}")
         print(f"Working Folder: {working_folder}")
+        if commercial_folder is not None:
+            print(f"Commercials Folder: {commercial_folder}")
         if self.app.safe_input("Are these paths correct? (y/n): ").strip().lower() != 'y':
             self.get_folders()
 

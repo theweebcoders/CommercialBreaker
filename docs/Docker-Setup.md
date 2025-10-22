@@ -7,11 +7,12 @@ Complete guide for running CommercialBreaker & Toonami Tools in Docker container
 ### Option 1: Pre-built Image (Recommended)
 
 ```bash
-docker run -p 8081:8081 \
+docker run -p 8081:8081 -p 8083:8083 \
   -v "/path/to/your/Anime:/app/anime" \
   -v "/path/to/your/Bumps:/app/bump" \
   -v "/path/to/your/SpecialBumps:/app/special_bump" \
   -v "/path/to/your/Working:/app/working" \
+  -v "/path/to/your/Commercials:/app/commercials" \
   --name commercialbreaker \
   tim000x3/commercial-breaker:latest
 ```
@@ -40,6 +41,7 @@ ANIME_FOLDER=/path/to/your/anime
 BUMPS_FOLDER=/path/to/your/bumps
 SPECIAL_BUMPS_FOLDER=/path/to/your/special_bumps
 WORKING_FOLDER=/path/to/your/working
+COMMERCIAL_FOLDER=/path/to/your/commercials  # For ComBreakDirect pre-rendered breaks
 ```
 
 ### Path Requirements
@@ -75,12 +77,14 @@ services:
     # image: tim000x3/commercial-breaker:latest
     container_name: commercialbreaker
     ports:
-      - "8081:8081"
+      - "8081:8081"                 # WebUI (Absolution)
+      - "8083:8083"                 # ComBreakDirect streaming server
     volumes:
       - "${ANIME_FOLDER}:/app/anime"
       - "${BUMPS_FOLDER}:/app/bump"
       - "${SPECIAL_BUMPS_FOLDER}:/app/special_bump"
       - "${WORKING_FOLDER}:/app/working"
+      - "${COMMERCIAL_FOLDER}:/app/commercials"  # Pre-rendered commercial breaks
       - "./data:/app/data"           # Database persistence
       - "./logs:/app/logs"           # Log persistence
     environment:
@@ -88,8 +92,11 @@ services:
       - BUMPS_FOLDER=/app/bump
       - SPECIAL_BUMPS_FOLDER=/app/special_bump
       - WORKING_FOLDER=/app/working
+      - COMMERCIAL_FOLDER=/app/commercials
       - DATABASE_PATH=/app/data/Toonami.db
       - LOG_LEVEL=INFO
+      - CBDIRECT_HOST=0.0.0.0       # ComBreakDirect bind address
+      - CBDIRECT_PORT=8083          # ComBreakDirect port
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081"]
@@ -202,6 +209,7 @@ volumes:
   - "${BUMPS_FOLDER}:/app/bump"         # Toonami bumps and transitions
   - "${SPECIAL_BUMPS_FOLDER}:/app/special_bump"  # Music videos, extras
   - "${WORKING_FOLDER}:/app/working"    # Processing workspace (read/write)
+  - "${COMMERCIAL_FOLDER}:/app/commercials"  # Pre-rendered commercial breaks (ComBreakDirect)
 ```
 
 ### Data Persistence
@@ -250,11 +258,35 @@ services:
 services:
   commercialbreaker:
     ports:
-      - "8081:8081"                     # Web interface
+      - "8081:8081"                     # Web interface (Absolution)
+      - "8083:8083"                     # ComBreakDirect streaming server
     # Or bind to specific interface:
     # ports:
     #   - "192.168.1.100:8081:8081"
+    #   - "192.168.1.100:8083:8083"
 ```
+
+### Accessing Services
+
+Once the container is running, access the following URLs:
+
+**Absolution WebUI** (Main Interface):
+- URL: `http://localhost:8081`
+- Purpose: Main application interface for managing Toonami channel creation
+
+**ComBreakDirect WebUI** (Quick Links):
+- Landing Page: `http://localhost:8083/`
+  - Setup instructions with copy buttons for tuner, playlist, and guide URLs
+  - Plex, Jellyfin, and direct streaming configuration notes
+
+**ComBreakDirect Streaming Endpoints**:
+- M3U8 Playlist: `http://localhost:8083/playlist.m3u8`
+- XMLTV Guide: `http://localhost:8083/api/xmltv.xml`
+- Continuous MPEG-TS Stream: `http://localhost:8083/video/channel/1` (replace `1` with channel number)
+- HDHomeRun Discovery: `http://localhost:8083/discover.json`
+
+**Network Access**:
+If accessing from other machines on the network, replace `localhost` with the Docker host's IP address (e.g., `http://192.168.1.100:8083/`).
 
 ---
 

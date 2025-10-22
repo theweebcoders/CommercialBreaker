@@ -64,6 +64,75 @@ CommercialBreaker/
 │   ├── commercialinjector.py # Bump insertion
 │   └── ...
 └── ExtraTools/             # Case use utilities
+
+### ComBreakDirect Streaming Architecture (Alpha)
+
+The ComBreakDirect stack uses **Studio → FIFO → Broadcast FFmpeg → BroadcastTower** architecture for continuous MPEG-TS streaming with multi-client support.
+
+- **ComBreakDirectServer.py**
+  - Flask entry point that wires REST endpoints.
+  - `/playlist.m3u8`, `/api/xmltv.xml` use FactoryFloor generators.
+  - `/video/channel/<number>` connects an Antenna to the BroadcastTower and streams chunks.
+
+- **docks/UnloadingDock.py**
+  - **Studio Thread** (`build_stream`): Calculates channel position, spawns FFmpeg per program with normalization (H.264 1080p 30fps, AAC stereo 48kHz, CBR 5.4 Mbps), writes MPEG-TS to FIFO (`/tmp/studio_ch{N}.fifo`)
+  - **Broadcast FFmpeg** (`start_broadcast_ffmpeg`): Reads FIFO with `-fflags +genpts+discardcorrupt`, creates continuous stream by regenerating PTS, rate limits broadcasting (13ms per chunk)
+  - **Lifecycle Management** (`ensure_channel_ready`): Creates FIFO, starts studio thread, starts broadcast FFmpeg, creates BroadcastTower
+  - **Client Connection** (`connect_client`): Creates Antenna for client, returns iterator yielding chunks
+
+- **utilities/BroadcastTower.py**
+  - `BroadcastTower.broadcast(chunk)`: Sends chunk to ALL connected antennas immediately (no tower buffering)
+  - `BroadcastTower.connect_antenna(client_id)`: Creates new Antenna with 132-chunk buffer
+  - `Antenna.__iter__()`: Yields chunks with 13ms rate limiting to prevent client buffering ahead
+  - `BroadcastTower.has_antennas()`: Used by broadcast FFmpeg to detect when no clients connected
+
+- **Concurrency & Efficiency**
+  - **Single studio FFmpeg** transcodes per channel (regardless of client count)
+  - **Single broadcast FFmpeg** creates continuous stream per channel
+  - **BroadcastTower distributes** to unlimited clients with minimal CPU overhead
+  - **Auto lifecycle**: Studio and broadcast FFmpeg only run when clients connected
+  - **Multi-client support**: Each client gets dedicated Antenna with independent buffer
+  - **Critical fix**: Broadcast FFmpeg's `+genpts` prevents transition freezing in Jellyfin/Plex
+
+### Channel Ingestion Pipeline (Loading Dock → Factory Floor → Streaming)
+
+1. **`POST /channels`** (Flask handler in `ComBreakDirectServer.py`)
+   - Validates payload, extracts metadata (`channel_number`, `flex_duration`, optional `commercial_folder`).
+   - Hands off to `LoadingDock.process_lineup`.
+2. **`LoadingDock.process_lineup`**
+   - Caches the current commercial folder; swaps libraries if a payload override is provided.
+   - `_inject_commercials` looks for consecutive bump items (based on network name or `/bump/` path) and reserves pre-rendered breaks via `CommercialBreakRenderer.plan_break`.
+   - `_prime_initial_breaks` calls `CommercialBreakRenderer.pre_render_window` to warm the cache for the first hour of upcoming breaks.
+   - `_format_for_streaming` normalises timelines, assigns fallback `block_id`s, and emits a channel dictionary with ISO timestamps.
+3. **`FactoryFloor.store_channel`**
+   - Writes the channel into `channels.json` (under `CBDIRECT_DATA_ROOT`), guarded by a threading lock.
+   - Successive `GET /playlist.m3u8` and `GET /api/xmltv.xml` calls read the cached data via `generate_playlist` / `generate_xmltv`.
+4. **Break Rendering (`utilities/CommercialBreakRenderer.py`)**
+   - `plan_break` reserves `_pre_rendered_breaks/<break_id>.ts`.
+   - `get_or_build_break` renders with ffmpeg, selecting audio tracks through `AudioTrackSelector`.
+   - `start_background_renderer` (invoked at server start if channels already exist) keeps the cache warm by scanning active channels.
+5. **Serving clients**
+   - Plex/Jellyfin hit `/video/channel/{N}` which connects an Antenna to the BroadcastTower
+   - Flask generator iterates Antenna chunks and yields to client
+   - Studio thread calculates position, starts FFmpeg, writes to FIFO
+   - Broadcast FFmpeg reads FIFO, creates continuous stream, broadcasts to tower
+   - BroadcastTower distributes to all Antennas simultaneously
+
+#### Debugging Tips
+
+- **Studio Thread**: Look for `[STUDIO]` prefix in logs - shows program transitions, FIFO writes, BrokenPipeError on disconnect
+- **Broadcast FFmpeg**: Look for `[BROADCAST_FFMPEG]` prefix - shows startup, broadcasting, stop on no clients
+- **BroadcastTower**: Look for `[BROADCAST_TOWER]` prefix - shows antenna connections/disconnections, active count
+- **Antenna**: Look for `[ANTENNA]` prefix - shows chunks received, "lost signal" when buffer overflows
+- **FIFO Issues**: Check `/tmp/studio_ch{N}.fifo` exists when streaming, verify both studio and broadcast FFmpeg running
+- **Transition Freezing**: Ensure broadcast FFmpeg has `+genpts` flag - critical for continuous stream
+- When editing the streaming stack, rebuild/restart the Docker container so the running server picks up changes:
+
+```bash
+docker compose build
+docker compose up -d
+docker compose logs -f
+```
 ```
 
 ## Database Operations

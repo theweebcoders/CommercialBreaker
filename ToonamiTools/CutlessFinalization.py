@@ -25,8 +25,24 @@ class CutlessFinalizer:
                 )
                 return None
                  
-            # Select only necessary columns
-            query = f"SELECT FULL_FILE_PATH, ORIGINAL_FILE_PATH, startTime, endTime FROM {mapping_table}"
+            # Check if duration column exists and select appropriate columns
+            with self.db_manager.transaction() as conn:
+                cursor = conn.cursor()
+                cursor.execute(f"PRAGMA table_info({mapping_table})")
+                columns_info = cursor.fetchall()
+                column_names = [col[1] for col in columns_info]
+
+                # Base columns we always need
+                select_columns = "FULL_FILE_PATH, ORIGINAL_FILE_PATH, startTime, endTime"
+
+                # Add duration if it exists (cutless mode)
+                if 'duration' in column_names:
+                    select_columns += ", duration"
+                    print("Duration column found in commercial_injector_prep - including in cutless finalization")
+                else:
+                    print("Duration column not found in commercial_injector_prep - proceeding without duration")
+
+            query = f"SELECT {select_columns} FROM {mapping_table}"
             with self.db_manager.transaction() as conn:
                 # First check if the table has ANY columns
                 test_df = pd.read_sql_query(f"SELECT * FROM {mapping_table} LIMIT 1", conn)
@@ -88,16 +104,15 @@ class CutlessFinalizer:
             bump_files = mapping_df[~anime_mask]
             
             if not anime_files.empty:
-                anime_null_starts = anime_files['startTime'].isna().sum()
-                anime_null_ends = anime_files['endTime'].isna().sum()
-                
-                # Only flag critical error if anime files are missing timestamps
-                if anime_null_starts > 0 and anime_null_ends > 0:
+                # Only flag critical error if anime files have BOTH startTime AND endTime null
+                anime_missing_both = anime_files[anime_files['startTime'].isna() & anime_files['endTime'].isna()]
+
+                if not anime_missing_both.empty:
                     self.error_manager.send_critical(
                         source="CutlessFinalizer",
                         operation="_get_cutless_mapping",
                         message=f"Anime files missing timestamp data",
-                        details=f"{anime_null_starts} anime files missing startTime, {anime_null_ends} anime files missing endTime out of {len(anime_files)} total anime files",
+                        details=f"{len(anime_missing_both)} anime files have no timestamp data (both startTime and endTime are null) out of {len(anime_files)} total anime files",
                         suggestion="Anime files need timestamps for cutless mode. This indicates commercial detection may have failed"
                     )
             
@@ -116,6 +131,61 @@ class CutlessFinalizer:
                 suggestion="There was an error accessing the virtual cut data. Try running Prepare Content again"
             )
             return None
+
+    def _get_bump_durations(self):
+        """Load pre-calculated bump durations for merging into lineup tables."""
+        table_name = 'bump_durations'
+
+        if not self.db_manager.table_exists(table_name):
+            self.error_manager.send_info(
+                source="CutlessFinalizer",
+                operation="_get_bump_durations",
+                message="Bump duration table not found",
+                details="Table 'bump_durations' does not exist",
+                suggestion="Run Prepare Toonami Channel to calculate bump durations before finalizing"
+            )
+            return pd.DataFrame(columns=['FULL_FILE_PATH', 'duration']).set_index('FULL_FILE_PATH')
+
+        try:
+            with self.db_manager.transaction() as conn:
+                bump_df = pd.read_sql_query(
+                    f"SELECT FULL_FILE_PATH, duration FROM {table_name}",
+                    conn
+                )
+        except Exception as e:
+            self.error_manager.send_warning(
+                source="CutlessFinalizer",
+                operation="_get_bump_durations",
+                message="Failed to load bump durations",
+                details=str(e),
+                suggestion="Check database integrity and rerun bump calculation if necessary"
+            )
+            return pd.DataFrame(columns=['FULL_FILE_PATH', 'duration']).set_index('FULL_FILE_PATH')
+
+        if bump_df.empty:
+            self.error_manager.send_info(
+                source="CutlessFinalizer",
+                operation="_get_bump_durations",
+                message="Bump duration table is empty",
+                details="No rows found in 'bump_durations'",
+                suggestion="Recalculate bump durations if lineup entries still need timing information"
+            )
+            return pd.DataFrame(columns=['FULL_FILE_PATH', 'duration']).set_index('FULL_FILE_PATH')
+
+        bump_df['FULL_FILE_PATH'] = bump_df['FULL_FILE_PATH'].astype(str).str.strip()
+        bump_df.dropna(subset=['FULL_FILE_PATH'], inplace=True)
+        bump_df['FULL_FILE_PATH'].replace('', pd.NA, inplace=True)
+        bump_df.dropna(subset=['FULL_FILE_PATH'], inplace=True)
+
+        bump_df['duration'] = pd.to_numeric(bump_df['duration'], errors='coerce')
+        bump_df.dropna(subset=['duration'], inplace=True)
+
+        if bump_df.empty:
+            return pd.DataFrame(columns=['FULL_FILE_PATH', 'duration']).set_index('FULL_FILE_PATH')
+
+        bump_df.drop_duplicates(subset=['FULL_FILE_PATH'], keep='last', inplace=True)
+        bump_df.set_index('FULL_FILE_PATH', inplace=True)
+        return bump_df
 
     def _get_lineup_tables(self):
         """Get a list of all lineup table names matching the expected patterns, excluding uncut tables."""
@@ -147,6 +217,7 @@ class CutlessFinalizer:
             )
             return []
 
+
     def _create_backup_table(self, table_name):
         """Create a backup of a table before modifying it, always using the current table version."""
         backup_table_name = f"{table_name}_pre_finalization"
@@ -166,7 +237,55 @@ class CutlessFinalizer:
                 suggestion="Proceeding without backup. The original table will be preserved"
             )
             return None
-        
+
+    def _validate_durations(self, df, table_name):
+        """Ensure all lineup rows contain duration data before writing output."""
+        if 'duration' not in df.columns:
+            self.error_manager.send_error_level(
+                source="CutlessFinalizer",
+                operation="run",
+                message="Finalized table missing duration column",
+                details=f"Table '{table_name}' does not contain a duration column after merging",
+                suggestion="Verify mapping data includes durations for anime files and rerun Prepare Cut Anime"
+            )
+            return False
+
+        duration_strings = df['duration'].astype(str).str.strip()
+        missing_mask = df['duration'].isna() | duration_strings.eq('')
+        if not missing_mask.any():
+            return True
+
+        network_token = str(getattr(config, 'network', '')).strip().lower()
+        file_paths = df['FULL_FILE_PATH'].astype(str).str.lower()
+        bump_mask = file_paths.str.contains(network_token, na=False) if network_token else pd.Series(False, index=df.index)
+
+        bump_missing = df[missing_mask & bump_mask]
+        anime_missing = df[missing_mask & ~bump_mask]
+
+        if not bump_missing.empty:
+            sample = ', '.join(bump_missing['FULL_FILE_PATH'].head(5))
+            details = f"Example bump rows missing duration: {sample}" if sample else ""
+            self.error_manager.send_error_level(
+                source="CutlessFinalizer",
+                operation="run",
+                message="Bump durations missing after finalization",
+                details=details,
+                suggestion="Run Prepare Cut Anime again after ensuring the Bump Calculator completed successfully"
+            )
+
+        if not anime_missing.empty:
+            sample = ', '.join(anime_missing['FULL_FILE_PATH'].head(5))
+            details = f"Example anime rows missing duration: {sample}" if sample else ""
+            self.error_manager.send_error_level(
+                source="CutlessFinalizer",
+                operation="run",
+                message="Anime durations missing after finalization",
+                details=details,
+                suggestion="Verify commercial mapping includes duration values and rerun Prepare Cut Anime"
+            )
+
+        return False
+
     def run(self):
         """Process all lineup tables to replace virtual paths with original paths and timestamps.
         Creates new tables with '_cutless' suffix instead of modifying original tables."""
@@ -188,6 +307,20 @@ class CutlessFinalizer:
             if mapping_df is None:
                 print("Aborting finalization due to missing or invalid mapping data.")
                 return
+
+            bump_duration_df = self._get_bump_durations()
+            if bump_duration_df.empty:
+                self.error_manager.send_error_level(
+                    source="CutlessFinalizer",
+                    operation="run",
+                    message="Bump durations unavailable",
+                    details="The bump_durations table is missing or empty",
+                    suggestion="Run Prepare Cut Anime to populate bump durations before finalizing"
+                )
+                print("Aborting finalization because bump durations were not found.")
+                return
+
+            bump_duration_df = bump_duration_df.rename(columns={'duration': 'bump_duration'})
 
             lineup_tables = self._get_lineup_tables()
             if not lineup_tables:
@@ -215,16 +348,25 @@ class CutlessFinalizer:
                         )
                         continue
                         
-                    # Remove any existing timestamp columns before merging to avoid conflicts
+                    # Remove any existing timestamp and duration columns before merging to avoid conflicts
                     if 'startTime' in lineup_df.columns:
                         lineup_df.drop(columns=['startTime'], inplace=True, errors='ignore')
                     if 'endTime' in lineup_df.columns:
                         lineup_df.drop(columns=['endTime'], inplace=True, errors='ignore')
+                    if 'duration' in lineup_df.columns:
+                        lineup_df.drop(columns=['duration'], inplace=True, errors='ignore')
                     
                     # Merge lineup data with mapping data
                     # Use left merge to keep all lineup entries, even if mapping is missing
                     merged_df = lineup_df.merge(mapping_df, left_on='FULL_FILE_PATH', right_index=True, 
                                            how='left', suffixes=('', '_map'))
+
+                    merged_df = merged_df.merge(
+                        bump_duration_df,
+                        left_on='FULL_FILE_PATH',
+                        right_index=True,
+                        how='left'
+                    )
 
                     # Identify rows where mapping was successful (ORIGINAL_FILE_PATH is not NaN)
                     mapped_rows = merged_df['ORIGINAL_FILE_PATH'].notna()
@@ -236,6 +378,11 @@ class CutlessFinalizer:
                     # Add empty timestamp columns if they don't exist
                     if 'startTime' not in merged_df.columns: merged_df['startTime'] = None
                     if 'endTime' not in merged_df.columns: merged_df['endTime'] = None
+
+                    # Add empty duration column if it exists in mapping data but not in merged data
+                    has_duration_in_mapping = 'duration' in mapping_df.columns
+                    if has_duration_in_mapping and 'duration' not in merged_df.columns:
+                        merged_df['duration'] = None
                     
                     # We need to handle the case where mapping columns might have different names
                     if 'startTime_map' in merged_df.columns:
@@ -247,7 +394,20 @@ class CutlessFinalizer:
                         # Copy endTime from mapping where mapping exists
                         merged_df.loc[mapped_rows, 'endTime'] = merged_df.loc[mapped_rows, 'endTime_map']
                         merged_df.drop(columns=['endTime_map'], inplace=True, errors='ignore')
-                    
+
+                    # Handle duration mapping if it exists
+                    if 'duration_map' in merged_df.columns:
+                        # Copy duration from mapping where mapping exists
+                        merged_df.loc[mapped_rows, 'duration'] = merged_df.loc[mapped_rows, 'duration_map']
+                        merged_df.drop(columns=['duration_map'], inplace=True, errors='ignore')
+
+                    if 'bump_duration' in merged_df.columns:
+                        if 'duration' in merged_df.columns:
+                            merged_df['duration'] = merged_df['duration'].fillna(merged_df['bump_duration'])
+                        else:
+                            merged_df['duration'] = merged_df['bump_duration']
+                        merged_df.drop(columns=['bump_duration'], inplace=True, errors='ignore')
+
                     # Drop the ORIGINAL_FILE_PATH column which we no longer need
                     if 'ORIGINAL_FILE_PATH' in merged_df.columns:
                         merged_df.drop(columns=['ORIGINAL_FILE_PATH'], inplace=True, errors='ignore')
@@ -257,6 +417,10 @@ class CutlessFinalizer:
                     if map_columns:
                         print(f"Removing extra mapping columns: {map_columns}")
                         merged_df.drop(columns=map_columns, inplace=True, errors='ignore')
+
+                    if not self._validate_durations(merged_df, cutless_table_name):
+                        print(f"Skipping table {table_name} due to missing durations.")
+                        continue
 
                     # Convert timestamp columns to appropriate type - CONVERTING TO INT
                     if 'startTime' in merged_df.columns:
@@ -268,6 +432,22 @@ class CutlessFinalizer:
                         # Convert timestamps to integers to avoid decimal issues
                         merged_df['endTime'] = merged_df['endTime'].apply(
                             lambda x: int(float(x)) if pd.notnull(x) else None
+                        )
+                    if 'duration' in merged_df.columns:
+                        # Convert duration to integers to match timestamp format
+                        merged_df['duration'] = merged_df['duration'].apply(
+                            lambda x: int(float(x)) if pd.notnull(x) else None
+                        )
+
+                    # Warn if any lineup entries still lack duration after processing
+                    if 'duration' in merged_df.columns and merged_df['duration'].isna().any():
+                        missing_count = int(merged_df['duration'].isna().sum())
+                        self.error_manager.send_warning(
+                            source="CutlessFinalizer",
+                            operation="run",
+                            message=f"{missing_count} lineup entries missing duration after finalization",
+                            details=f"Table '{cutless_table_name}' still has rows without duration",
+                            suggestion="Confirm mapping data includes durations or update assets manually"
                         )
 
                     # Write the result to a new table with _cutless suffix

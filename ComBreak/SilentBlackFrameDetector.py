@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 from ComBreak.VideoLoader import VideoLoader
 from ComBreak.utils import get_executable_path
+from ComBreak.DurationManager import get_duration_manager
 
 
 class SilentBlackFrameDetector:
@@ -272,20 +273,12 @@ class SilentBlackFrameOrchestrator:
                 # 2.4 Get video duration for filtering
                 video_duration = None
                 try:
-                    # Try to get duration from the original file
-                    import subprocess
-                    cmd = [
-                        get_executable_path("ffprobe", config.ffprobe_path),
-                        "-v", "error",
-                        "-show_entries", "format=duration",
-                        "-of", "default=noprint_wrappers=1:nokey=1",
-                        str(original_file)
-                    ]
-                    result = subprocess.run(cmd, capture_output=True, text=True)
-                    if result.returncode == 0 and result.stdout.strip():
-                        video_duration = float(result.stdout.strip())
-                        if status_callback:
-                            status_callback(f"Video duration: {video_duration:.1f} seconds")
+                    # Use DurationManager to get duration (returns milliseconds, convert to seconds for reducer)
+                    duration_manager = get_duration_manager()
+                    video_duration_ms = duration_manager.get_duration(str(original_file))
+                    video_duration = video_duration_ms / 1000  # Convert to seconds for TimestampReducer
+                    if status_callback:
+                        status_callback(f"Video duration: {video_duration:.1f} seconds")
                 except Exception as e:
                     if status_callback:
                         status_callback(f"Could not get video duration: {e}")

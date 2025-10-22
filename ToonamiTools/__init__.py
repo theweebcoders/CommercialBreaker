@@ -18,3 +18,5 @@ from .LoginToPlex import PlexServerList, PlexLibraryManager, PlexLibraryFetcher
 from .FlexInjector import DizqueTVManager
 from .PlexToTunarr import PlexToTunarr
 from .CutlessFinalization import CutlessFinalizer
+from .ComBreakToComBreakDirect import ComBreakToComBreakDirect
+from .BumpCalculator import BumpCalculator

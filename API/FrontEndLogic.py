@@ -15,6 +15,9 @@ from .utils.MessageBroker import get_message_broker
 from .utils.ErrorManager import get_error_manager, ErrorLevel
 from .utils.NetworkManager import validate_network_name, update_config_network
 import os
+import requests
+
+import run_server as cbd_run_server
 
 class LogicController():
     docker = FlagManager.docker
@@ -26,6 +29,8 @@ class LogicController():
         self._setup_database()
         self.docker = FlagManager.docker
         self.cutless = FlagManager.cutless
+        self._cbd_server_thread: threading.Thread | None = None
+        self._cbd_server_lock = threading.Lock()
         
         # Check platform compatibility if needed - let FlagManager handle this
         if self.cutless:
@@ -477,12 +482,56 @@ class LogicController():
     def _broadcast_status_update(self, message):
         """
         Publish a status update to the 'status_updates' channel.
-        
+
         Args:
             message: Status message
         """
         # Publish to the broker
         self.message_broker.publish('status_updates', message)
+
+    def _combreakdirect_base_url(self) -> str:
+        return getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083').rstrip('/')
+
+    def _is_combreakdirect_running(self, base_url: str) -> bool:
+        try:
+            response = requests.get(f"{base_url}/status", timeout=1.5)
+            return response.status_code == 200
+        except requests.RequestException:
+            return False
+
+    def _wait_for_combreakdirect_server(self, base_url: str, retries: int = 30, delay: float = 1.0) -> bool:
+        for _ in range(retries):
+            if self._is_combreakdirect_running(base_url):
+                return True
+            time.sleep(delay)
+        return False
+
+    def _ensure_combreakdirect_server(self):
+        base_url = self._combreakdirect_base_url()
+        if self._is_combreakdirect_running(base_url):
+            return
+
+        with self._cbd_server_lock:
+            if self._is_combreakdirect_running(base_url):
+                return
+            self._broadcast_status_update("Starting ComBreakDirect server...")
+            thread = threading.Thread(
+                target=cbd_run_server.start_server,
+                kwargs={'status_callback': self._broadcast_status_update},
+                daemon=True,
+                name="ComBreakDirectServer",
+            )
+            thread.start()
+            self._cbd_server_thread = thread
+
+        if not self._wait_for_combreakdirect_server(base_url):
+            raise RuntimeError("ComBreakDirect server failed to start")
+
+        self._broadcast_status_update("ComBreakDirect server ready to receive lineup")
+
+    def start_combreakdirect_server(self):
+        """Public method to start ComBreakDirect server (for GUI use)"""
+        return self._ensure_combreakdirect_server()
 
     def publish_plex_servers(self):
         """Publish server list via message broker"""
@@ -651,7 +700,9 @@ class LogicController():
                 missing_fields.append("Toonami Library")
             selected_toonami_library = existing_toonami_library
 
-        if platform_url.startswith("eg. ") or not platform_url:
+        if platform_type == 'combreakdirect':
+            platform_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
+        elif platform_url.startswith("eg. ") or not platform_url:
             existing_platform_url = self._get_data("platform_url")
             if not existing_platform_url or existing_platform_url.startswith("eg. "):
                 missing_fields.append("Platform URL")
@@ -719,7 +770,9 @@ class LogicController():
                 missing_fields.append("Plex Token")
             plex_token = existing_plex_token
             
-        if platform_url.startswith("eg. ") or not platform_url:
+        if platform_type == 'combreakdirect':
+            platform_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
+        elif platform_url.startswith("eg. ") or not platform_url:
             existing_platform_url = self._get_data("platform_url")
             if not existing_platform_url or existing_platform_url.startswith("eg. "):
                 missing_fields.append("Platform URL")
@@ -750,15 +803,16 @@ class LogicController():
         # Sync our instance and class variable with FlagManager
         self.cutless = FlagManager.cutless
         LogicController.cutless = FlagManager.cutless
+        self._set_data("cutless_mode_used", 'True' if FlagManager.cutless else 'False')
 
         # Optional: Print values for verification
         print(selected_anime_library, selected_toonami_library, plex_url, plex_token, platform_url, platform_type)
         self._broadcast_status_update("Idle")
 
-    def on_continue_third(self, anime_folder, bump_folder, special_bump_folder, working_folder):
+    def on_continue_third(self, anime_folder, bump_folder, special_bump_folder, working_folder, commercial_folder=None):
         # Validate required fields before processing (special_bump_folder is optional)
         missing_fields = []
-        
+
         # Check each widget value, if it's blank, fetch the value from the database
         if not anime_folder:
             existing_anime_folder = self._get_data("anime_folder")
@@ -782,6 +836,14 @@ class LogicController():
                 missing_fields.append("Working Folder")
             working_folder = existing_working_folder
 
+        platform_type = self._get_data("platform_type")
+        if platform_type == 'combreakdirect':
+            if not commercial_folder:
+                existing_commercial_folder = self._get_data("commercial_folder")
+                if not existing_commercial_folder:
+                    missing_fields.append("Commercial Folder")
+                commercial_folder = existing_commercial_folder
+
         # Send error if required fields are missing
         if missing_fields:
             self.error_manager.send_error_level(
@@ -798,9 +860,11 @@ class LogicController():
         self._set_data("bump_folder", bump_folder)
         self._set_data("special_bump_folder", special_bump_folder)
         self._set_data("working_folder", working_folder)
+        if commercial_folder:
+            self._set_data("commercial_folder", commercial_folder)
 
         # Optional: Print values for verification
-        print(anime_folder, bump_folder, special_bump_folder, working_folder)
+        print(anime_folder, bump_folder, special_bump_folder, working_folder, commercial_folder)
         self._broadcast_status_update("Idle")
         return True
 
@@ -835,7 +899,10 @@ class LogicController():
                 
                 uncut_encoder_out = 'uncut_encoded_data'
                 fmaker = ToonamiTools.FolderMaker(working_folder)
-                easy_checker = ToonamiTools.ToonamiChecker(anime_folder)
+                easy_checker = ToonamiTools.ToonamiChecker(
+                    anime_folder,
+                    status_callback=self._broadcast_status_update
+                )
                 lineup_prep = ToonamiTools.MediaProcessor(bump_folder)
                 easy_encoder = ToonamiTools.ToonamiEncoder()
                 uncutencoder = ToonamiTools.UncutEncoder()
@@ -998,7 +1065,7 @@ class LogicController():
                         versions_processed += 1
                     else:
                         print(f"Skipping {config['input']} - table does not exist")
-                
+
                 if versions_processed == 0:
                     self.error_manager.send_critical(
                         source="FrontEndLogic",
@@ -1008,8 +1075,12 @@ class LogicController():
                         suggestion="This indicates no multi-show bumps were found in your bump collection. Please add multi-show bumps and try again."
                     )
                     raise RuntimeError("No multibump tables available for lineup creation")
-                
+
                 if cutless_enabled:
+                    self._broadcast_status_update("Calculating bump durations...")
+                    bump_calculator = ToonamiTools.BumpCalculator(status_callback=self._broadcast_status_update)
+                    bump_calculator.run()
+
                     self._broadcast_status_update("Cutless Mode: Finalizing lineup tables...")
                     finalizer = ToonamiTools.CutlessFinalizer()
                     finalizer.run()
@@ -1152,6 +1223,7 @@ class LogicController():
                 platform_type = self._get_data("platform_type")
                 cutless_mode_used = self._get_data("cutless_mode_used")
                 cutless_enabled = cutless_mode_used == 'True'
+                commercial_folder = self._get_data("commercial_folder")
                 toon_config = config.TOONAMI_CONFIG.get(toonami_version, {})
                 table = toon_config["table"]
                 
@@ -1172,12 +1244,27 @@ class LogicController():
                         cutless_mode=cutless_enabled
                     )
                     ptod.run()
-                else:  # tunarr
+                elif platform_type == 'tunarr':
                     ptot = ToonamiTools.PlexToTunarr(
                         plex_url, plex_token, toonami_library, table,
                         platform_url, int(channel_number), flex_duration
                     )
                     ptot.run()
+                elif platform_type == 'combreakdirect':
+                    self._ensure_combreakdirect_server()
+                    self._broadcast_status_update("Sending lineup to ComBreakDirect...")
+                    p2c = ToonamiTools.ComBreakToComBreakDirect(
+                        table=table,
+                        channel_number=int(channel_number),
+                        flex_duration=flex_duration,
+                        network=config.network,
+                        commercial_folder=commercial_folder,
+                    )
+                    self._broadcast_status_update("Pre-rendering commercials...")
+                    p2c.run()
+                    self._broadcast_status_update("ComBreakDirect channel ready")
+                else:
+                    raise ValueError(f"Unsupported platform type: {platform_type}")
 
                 self._broadcast_status_update("Toonami channel created!")
                 self.filter_complete_event.set()
@@ -1196,6 +1283,7 @@ class LogicController():
 
         def prepare_toonami_channel_thread():
             try:
+
                 self._broadcast_status_update("Preparing Toonami channel...")
                 cont_config = config.TOONAMI_CONFIG_CONT.get(toonami_version, {})
                 cutless_mode_used = self._get_data("cutless_mode_used")
@@ -1204,7 +1292,7 @@ class LogicController():
                 merger_out = cont_config["merger_out"]
                 encoder_in = cont_config["encoder_in"]
                 uncut = cont_config["uncut"]
-
+                
                 merger = ToonamiTools.ShowScheduler(reuse_episode_blocks=True, continue_from_last_used_episode_block=start_from_last_episode, uncut=uncut)
                 merger.run(merger_bump_list, encoder_in, merger_out)
                 if cutless_enabled:
@@ -1329,12 +1417,27 @@ class LogicController():
                 cutless_mode=cutless_enabled
             )
             ptod.run()
-        else:  # tunarr
+        elif platform_type == 'tunarr':
             ptot = ToonamiTools.PlexToTunarr(
                 plex_url, plex_token, toonami_library, table,
                 platform_url, int(channel_number), flex_duration
             )
             ptot.run()
+        elif platform_type == 'combreakdirect':
+            self._ensure_combreakdirect_server()
+            self._broadcast_status_update("Sending lineup to ComBreakDirect...")
+            p2c = ToonamiTools.ComBreakToComBreakDirect(
+                table=table,
+                channel_number=int(channel_number),
+                flex_duration=flex_duration,
+                network=config.network,
+                commercial_folder=self._get_data("commercial_folder"),
+            )
+            self._broadcast_status_update("Pre-rendering commercials...")
+            p2c.run()
+            self._broadcast_status_update("ComBreakDirect channel ready")
+        else:
+            raise ValueError(f"Unsupported platform type: {platform_type}")
             
         self._broadcast_status_update("New Toonami channel created!")
         self.filter_complete_event.set()

@@ -83,17 +83,17 @@ CommercialBreaker & Toonami Tools is a modular Python application designed to au
    └─────────────────┴─────────────────┴─────────────────────────┘
                            │
                            ▼
-┌───────────────────────────────────────┐
-│      Platform Integration Layer       │
-├─────────────────┬─────────────────────┤
-│   Plex API      │   Platform APIs     │
-│                 │                     │
-│ • Authentication│ • DizqueTV REST     │
-│ • Library Scan  │ • Tunarr Integration│
-│ • Timestamps    │                     │
-│ • File Paths    │                     │
-└─────────────────┴─────────────────────┘
-
+┌───────────────────────────────────────────────────────────────┐
+│              Platform Integration Layer                       │
+├─────────────────┬─────────────────────┬───────────────────────┤
+│   Plex API      │   Platform APIs     │  ComBreakDirect       │
+│                 │                     │                       │
+│ • Authentication│ • External REST     │ • Self-contained      │
+│ • Library Scan  │ • Channel Creation  │ • Direct streaming    │
+│ • Timestamps    │                     │ • M3U/XMLTV gen       │
+│ • File Paths    │                     │ • Plex discovery      │
+└─────────────────┴─────────────────────┴───────────────────────┘
+```
 ---
 
 ## In-Memory Message Broker
@@ -151,6 +151,103 @@ Episode Selection → Commercial Detection → File Processing → Metadata Gene
 Lineup Generation → Platform Channel Creation → Playback Optimization
 ```
 
+**Platform Options**:
+- **External Platforms**: Traditional platform integration via REST APIs
+- **ComBreakDirect**: Self-contained streaming server (new)
+
+### 5. ComBreakDirect Streaming Phase (Optional)
+
+```
+ComBreakToComBreakDirect → ComBreakDirect Server → Live MPEG-TS Stream → Plex/Clients
+```
+
 ---
 
-This architecture supports the system's goals of modularity, reliability, and extensibility while maintaining the performance necessary for processing large media libraries efficiently.
+## ComBreakDirect Architecture
+
+ComBreakDirect is an optional self-contained streaming server using Studio → FIFO → Broadcast FFmpeg → BroadcastTower architecture. It provides:
+
+- **Continuous MPEG-TS Streaming**: True broadcast-style streaming with seamless program transitions
+- **BroadcastTower Multi-Client**: Efficient distribution to multiple simultaneous viewers
+- **WebUI**: Toonami-themed landing page with setup instructions
+- **M3U8 Generation**: Dynamic playlist creation for Plex/Jellyfin
+- **XMLTV Guides**: Full EPG data with show metadata
+- **Plex/Jellyfin Discovery**: HDHomeRun-style auto-discovery
+- **Commercial Injection**: Server-side ad break management with pre-rendering
+- **Intelligent Audio Selection**: Configurable audio track selection (defaults to English for Toonami)
+- **Auto Lifecycle**: Studio and broadcast FFmpeg start/stop based on client connections
+
+### ComBreakDirect Components
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│   ComBreakDirect Server (Flask + Studio + BroadcastTower)       │
+│                        Port 8083                                 │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │                    WebUI (UI/)                           │   │
+│  │  • Landing page (setup instructions, copy-to-clipboard) │   │
+│  └──────────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────────┘
+                              │
+            ┌─────────────────┼─────────────────┐
+            ▼                 ▼                 ▼
+  ┌──────────────────┐ ┌──────────────┐ ┌──────────────────┐
+  │  Loading Dock    │ │Factory Floor │ │ Unloading Dock   │
+  │   (docks/)       │ │  (docks/)    │ │   (docks/)       │
+  │                  │ │              │ │                  │
+  │ • Process lineup │ │ • Store data │ │ • Studio thread  │
+  │ • Inject ads     │ │ • Generate   │ │ • Broadcast      │
+  │ • Pre-render     │ │   M3U8/XMLTV │ │   FFmpeg         │
+  │   breaks         │ │ • Persist    │ │ • BroadcastTower │
+  │                  │ │   channels   │ │ • Multi-client   │
+  └──────────────────┘ └──────────────┘ └──────────────────┘
+           │
+           ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │          Supporting Utilities (utilities/)                  │
+  │  • BroadcastTower - Multi-client streaming engine          │
+  │  • AudioTrackSelector - Intelligent audio selection        │
+  │  • CommercialBreakRenderer - Pre-rendering system          │
+  │  • CleanupManager - Automatic file maintenance             │
+  │  • configuration - Path resolution                         │
+  └─────────────────────────────────────────────────────────────┘
+
+  Broadcasting Architecture (Unloading Dock):
+
+  Studio Thread → FIFO → Broadcast FFmpeg → BroadcastTower → Antennas
+     (full tape,     (pipe)   (+genpts,        (distributes    (per-client
+      normalizes              continuous)       to all)         buffers)
+      programs)
+```
+
+**Key Features**:
+- **Loading Dock** (`docks/LoadingDock.py`): Processes cutless lineup data, injects commercials between bumps, pre-renders breaks
+- **Factory Floor** (`docks/FactoryFloor.py`): Generates M3U8 playlists and XMLTV guides, stores channel configurations
+- **Unloading Dock** (`docks/UnloadingDock.py`): Manages studio threads, broadcast FFmpeg processes, and BroadcastTower distribution
+- **BroadcastTower** (`utilities/BroadcastTower.py`): Multi-client streaming engine with Antenna pattern
+- **WebUI** (`UI/WebUI.py`): Landing page with setup instructions and copy-to-clipboard buttons
+- **Audio Selector** (`utilities/AudioTrackSelector.py`): Configurable audio track selection (defaults to English)
+- **Commercial Renderer** (`utilities/CommercialBreakRenderer.py`): Pre-renders breaks to eliminate startup delays
+- **Cleanup Manager** (`utilities/CleanupManager.py`): Automatically removes old pre-rendered breaks
+
+**Technical Architecture**:
+- **Studio Thread**: Calculates channel position, spawns FFmpeg per program with normalization, writes to FIFO
+- **Broadcast FFmpeg**: Reads FIFO with `+genpts`, creates continuous stream, rate limits broadcasting
+- **BroadcastTower**: Receives stream, distributes to all Antenna objects (one per client)
+- **Antenna Buffer**: Per-client 132-chunk buffer (~2 seconds) with rate limiting
+- **Auto Lifecycle**: Studio and broadcast FFmpeg only run when clients connected
+- **Real-time Sync**: All clients synchronized to same channel position
+
+**Integration Points**:
+- `ComBreakToComBreakDirect` - Pushes cutless lineup to server via REST API
+- `LogicController._ensure_combreakdirect_server()` - Auto-starts server
+- Flask REST API for channel management and streaming
+- HDHomeRun discovery for Plex DVR integration
+- WebUI served at root path for easy access
+
+For detailed ComBreakDirect documentation, see [ComBreakDirect.md](ComBreakDirect.md).
+
+---
+
+This architecture supports the system's goals of modularity, reliability, and extensibility while maintaining the performance necessary for processing large media libraries efficiently. The addition of ComBreakDirect provides an alternative deployment model that eliminates external platform dependencies.
