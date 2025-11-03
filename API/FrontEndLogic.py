@@ -31,7 +31,12 @@ class LogicController():
         self.cutless = FlagManager.cutless
         self._cbd_server_thread: threading.Thread | None = None
         self._cbd_server_lock = threading.Lock()
-        
+
+        # If running in Docker, ensure folder paths are populated from environment variables
+        # This handles both initial startup AND restarts after network changes
+        if self.docker or FlagManager.docker:
+            self._ensure_docker_folders_populated()
+
         # Check platform compatibility if needed - let FlagManager handle this
         if self.cutless:
             platform_type = self._get_data("platform_type")
@@ -455,6 +460,41 @@ class LogicController():
             "app_data",
             "key TEXT PRIMARY KEY, value TEXT"
         )
+
+    def _ensure_docker_folders_populated(self):
+        """
+        Ensure folder paths are populated from environment variables in Docker mode.
+        This is called on every LogicController initialization to handle:
+        1. Initial container startup
+        2. Web UI restarts after network changes (which create new databases)
+
+        Only populates if folders are missing from the database.
+        """
+        try:
+            # Check if folders are already populated
+            anime_folder_db = self._get_data("anime_folder")
+
+            # If anime_folder is missing or None, populate all folders from environment
+            if not anime_folder_db:
+                anime_folder = os.getenv("ANIME_FOLDER", "/app/anime")
+                bump_folder = os.getenv("BUMP_FOLDER", "/app/bump")
+                special_bump_folder = os.getenv("SPECIAL_BUMP_FOLDER", "/app/special_bump")
+                working_folder = os.getenv("WORKING_FOLDER", "/app/working")
+                commercial_folder = os.getenv("COMMERCIAL_FOLDER", "/app/commercials")
+
+                self._set_data("anime_folder", anime_folder)
+                self._set_data("bump_folder", bump_folder)
+                self._set_data("special_bump_folder", special_bump_folder)
+                self._set_data("working_folder", working_folder)
+                self._set_data("commercial_folder", commercial_folder)
+
+                # Set platform type to combreakdirect for Docker environments
+                self._set_data("platform_type", "combreakdirect")
+
+                print(f"[DOCKER] Populated folder paths from environment variables")
+        except Exception as e:
+            print(f"[DOCKER] ERROR: Failed to populate folder paths: {e}", file=sys.stderr)
+            traceback.print_exc()
 
     def _set_data(self, key, value):
         self.db_manager.insert_or_replace("app_data", {"key": key, "value": value})
