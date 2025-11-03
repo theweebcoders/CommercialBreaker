@@ -134,7 +134,8 @@ The tools work together in a specific sequence to create your Toonami channel:
     -   Removes special characters and handles underscores using `unidecode` and regex.
     -   Applies custom name mappings defined in `config.show_name_mapping` to handle variations or alternative titles (e.g., "fmab" to "fullmetal alchemist brotherhood").
 -   **Comparison (`compare_shows` method)**:
-    -   Fetches Toonami shows using `ToonamiShowsFetcher`.
+    -   **Networkless Mode**: If `config.network.lower() == "networkless"`, Wikipedia validation is bypassed entirely. All shows in the video library are included without filtering, allowing use of any custom content collection.
+    -   **Standard Mode**: Fetches Toonami shows using `ToonamiShowsFetcher`.
     -   Gets local video files using `get_video_files`.
     -   Normalizes both the Wikipedia show titles and the local file show titles using `normalize_and_map`.
     -   Compares the normalized lists to find matches.
@@ -454,7 +455,12 @@ All table names are typically sourced from `config.TOONAMI_CONFIG` based on the 
 
 **Filtering Logic**:
 - An input table (e.g., `uncut_encoded_data` or `lineup_v8_uncut`) is read from the database. This table represents a lineup that includes both episode files and bump files.
-- The core filter `~df['FULL_FILE_PATH'].str.lower().str.contains(config.network.lower(), na=False)` is applied:
+- **Networkless Mode** (`config.network.lower() == "networkless"`):
+    - Uses folder-based filtering instead of network name matching.
+    - Filters out files with `/bump`, `\bump`, `/special`, or `\special` in their paths.
+    - This prevents issues with the network name "Networkless" appearing in file paths while still excluding bump files.
+- **Standard Mode** (any other network):
+    - The core filter `~df['FULL_FILE_PATH'].str.lower().str.contains(config.network.lower(), na=False)` is applied.
     - Bump files (e.g., "Toonami 3.0 Fullmetal Alchemist To Ads.mp4") will match `config.network.lower()` and thus be *excluded* by the `~` (NOT operator).
     - Episode files (e.g., "/path/to/Fullmetal Alchemist/Season 1/Fullmetal Alchemist - S01E01.mkv") typically will *not* match `config.network.lower()` in their path and thus be *included*.
 - The `Code` and `BLOCK_ID` columns are dropped from the filtered data, as the focus is on the episode file paths themselves.

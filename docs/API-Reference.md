@@ -811,6 +811,8 @@ This unified API design allows multiple user interfaces to provide identical fun
 
 Runtime network switching is supported across TOM, Absolution, and Clydes. The active network changes UI labels and the database file name (`<network>.db`). Validation checks Wikipedia for a broadcast list page.
 
+**Networkless Mode**: Setting `network = "Networkless"` bypasses Wikipedia validation entirely, allowing use of any custom content collection without requiring a Wikipedia broadcast list page. When using Networkless mode, all bump files must be named with the "Networkless" prefix (e.g., `Networkless 2 0 ShowName back 4 red.mp4`).
+
 ### LogicController additions
 
 ```python
@@ -833,7 +835,10 @@ def reset_network(self) -> bool:
 def validate_network_name(network_name: str) -> tuple[bool, str]:
     """Return (is_valid, message) by probing Wikipedia with a custom User-Agent.
 
-    Tries these page patterns:
+    Special case: "Networkless" (case-insensitive) bypasses Wikipedia validation
+    and returns True immediately, allowing use of all shows in the library.
+
+    Tries these page patterns for standard networks:
     - List_of_programs_broadcast_by_<Network>
     - List_of_programs_broadcast_on_<Network>
     """
@@ -845,4 +850,5 @@ def update_config_network(config_path: str, new_network: str) -> None:
 Implementation notes:
 - Uses urllib (HEAD with fallback to GET) with a custom `User-Agent` to avoid 403s.
 - Multi-word names are supported (spaces converted to underscores only for page probing).
+- **Networkless mode**: When `network_name.lower() == "networkless"`, validation is skipped and returns success immediately.
 - If offline, callers can skip validation in CLI flows; UIs default to validation-first.

@@ -37,10 +37,23 @@ class FilterAndMove:
                     suggestion="Your lineup appears to be empty. Check that your episode and bump processing completed successfully"
                 )
                 raise Exception("No lineup data to filter")
-                
-            # Filter out the rows
-            df_filtered = df[~df['FULL_FILE_PATH'].str.lower().str.contains(config.network.lower(), na=False)]
-            
+
+            # Filter out bump files
+            # In Networkless mode, use folder-based filtering instead of network name matching
+            if config.network.lower() == "networkless":
+                # Networkless mode: Filter by detecting bump folder paths
+                # Bumps are typically in folders containing "bump" or "special" in the path
+                df_filtered = df[
+                    ~df['FULL_FILE_PATH'].str.lower().str.contains('/bump', na=False) &
+                    ~df['FULL_FILE_PATH'].str.lower().str.contains('\\bump', na=False) &
+                    ~df['FULL_FILE_PATH'].str.lower().str.contains('/special', na=False) &
+                    ~df['FULL_FILE_PATH'].str.lower().str.contains('\\special', na=False)
+                ]
+                print("Networkless mode: Filtered bumps using folder-based detection")
+            else:
+                # Normal mode: Filter by network name in path (traditional method)
+                df_filtered = df[~df['FULL_FILE_PATH'].str.lower().str.contains(config.network.lower(), na=False)]
+
             if df_filtered.empty:
                 self.error_manager.send_error_level(
                     source="EpisodeFilter",

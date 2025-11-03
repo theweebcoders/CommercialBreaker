@@ -186,7 +186,38 @@ Clydes provides a question-based command-line interface for users who prefer ter
 
 #### Advanced Option (Change Network)
 - On launch, Clydes offers an advanced prompt to change the active network.
-- Enter a network (e.g., “Cartoon Network”) and confirm. Clydes will persist the setting and ask you to re‑run.
+- Enter a network (e.g., "Cartoon Network") and confirm. Clydes will persist the setting and ask you to re‑run.
+
+#### Using Networkless Mode
+
+**Networkless mode** bypasses Wikipedia validation entirely, allowing you to create custom channels with any content collection—perfect for fansubs, non-broadcast anime, or custom compilations.
+
+**Setup Steps**:
+
+1. **Set network to "Networkless"**:
+   - Via Clydes advanced prompt: Enter `Networkless` when asked for network name
+   - Via config.py: Set `network = "Networkless"`
+   - Via TOM/Absolution: Use Advanced Settings to change network to `Networkless`
+
+2. **Rename your bumps**:
+   - All bump files must use the "Networkless" prefix
+   - Example: `Networkless 2 0 ShowName back 4 red.mp4`
+   - See [File Naming Conventions](File-Naming-Conventions.md) for complete naming patterns
+
+3. **Process content normally**:
+   - Run ToonamiChecker - it will skip Wikipedia and use ALL shows in your library
+   - Continue with the normal workflow
+   - All shows in your anime folder will be included without filtering
+
+**Requirements**:
+- Bump files MUST be named with "Networkless" prefix
+- Bumps should be in folders containing "bump" or "special" in the path for proper filtering
+
+**When to use Networkless mode**:
+- Custom content that didn't air on broadcast networks
+- Fansubs or unofficial releases
+- Creating themed channels without network restrictions
+- Testing with limited content collections
 
 ### When to Use Clydes
 

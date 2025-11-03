@@ -2094,7 +2094,7 @@ class Page4(BasePage):
         self.add_label(self.main_container, "Process Filtered Shows")
         
         # Create a container for the radio buttons with centered layout
-        filter_mode_container = gui.Container(style={
+        self.filter_mode_container = gui.Container(style={
             'width': '100%',
             'display': 'flex',
             'justify-content': 'center',
@@ -2125,11 +2125,11 @@ class Page4(BasePage):
         buttons_row.append(self.prepopulate_button)
         
         # Add row to the container
-        filter_mode_container.append(buttons_row)
-        self.main_container.append(filter_mode_container)
+        self.filter_mode_container.append(buttons_row)
+        self.main_container.append(self.filter_mode_container)
         
         # Process Filtered Shows button
-        process_button_container = gui.Container(style={
+        self.process_button_container = gui.Container(style={
             'width': '100%',
             'display': 'flex',
             'justify-content': 'center', 
@@ -2137,8 +2137,8 @@ class Page4(BasePage):
             'background': 'transparent'
         })
         
-        self.move_filtered_shows_button = self.add_button_with_style(process_button_container, "Process Filtered Shows", self.move_filtered, 'primary')
-        self.main_container.append(process_button_container)
+        self.move_filtered_shows_button = self.add_button_with_style(self.process_button_container, "Process Filtered Shows", self.move_filtered, 'primary')
+        self.main_container.append(self.process_button_container)
 
         # Continue button
         self.continue_button = self.add_button_with_style(self.main_container, "Continue", self.on_continue_button_click, 'secondary')
@@ -2162,6 +2162,9 @@ class Page4(BasePage):
         self.logic.move_filtered(self.filter_mode == "prepopulate")
 
     def on_continue_button_click(self, widget):
+        if self.logic._get_data("platform_type") == 'combreakdirect':
+            self.filter_mode = "prepopulate"
+            self.logic.move_filtered(True)
         self.logic._broadcast_status_update("Idle")
         self.app.set_current_page('Page5')
 
@@ -2170,6 +2173,19 @@ class Page4(BasePage):
         display = 'block' if platform_type != 'combreakdirect' else 'none'
         self.get_plex_timestamps_label.style['display'] = display
         self.get_plex_timestamps_button.style['display'] = display
+        if platform_type == 'combreakdirect':
+            self.filter_mode = "prepopulate"
+            if hasattr(self, 'prepopulate_button'):
+                self.set_filter_mode("prepopulate")
+            if hasattr(self, 'filter_mode_container'):
+                self.filter_mode_container.style['display'] = 'none'
+            if hasattr(self, 'process_button_container'):
+                self.process_button_container.style['display'] = 'none'
+        else:
+            if hasattr(self, 'filter_mode_container'):
+                self.filter_mode_container.style['display'] = 'flex'
+            if hasattr(self, 'process_button_container'):
+                self.process_button_container.style['display'] = 'flex'
 
     def prepare_content(self, widget):
         self.logic = LogicController()
@@ -2554,6 +2570,15 @@ class Page5(BasePage):
             self.cutless_container.style['display'] = 'none'
         self.cutless_checkbox.onchange.do(self.on_cutless_mode_changed)
 
+        self.cutless_required_label = gui.Label("Cutless Mode (Required)", style={
+            **Styles.default_label_style,
+            'margin': '5px 10px',
+            'display': 'none'
+        })
+        checkbox_container.append(self.cutless_required_label)
+        self.cutless_checkbox.set_value(self.cutless)
+        self.cutless_mode = self.cutless_checkbox.get_value()
+
         self.main_container.append(checkbox_container)
 
         # Progress bar container with updated styling
@@ -2584,18 +2609,22 @@ class Page5(BasePage):
         self.main_container.append(progress_container)
 
         # Action buttons
-        buttons_container = gui.HBox(style={
+        self.buttons_container = gui.HBox(style={
             'justify-content': 'center',
             'margin-top': '20px',
             'background': 'transparent',
             'background-color': 'transparent'
         })
 
-        detect_button = self.add_button_with_style(buttons_container, "Detect", self.detect_commercials, 'primary')
-        cut_button = self.add_button_with_style(buttons_container, "Cut", self.cut_videos, 'primary')
-        delete_button = self.add_button_with_style(buttons_container, "Delete", self.delete_txt_files, 'primary')
+        self.detect_button = self.add_button_with_style(self.buttons_container, "Detect", self.detect_commercials, 'primary')
+        self.cut_button = self.add_button_with_style(self.buttons_container, "Cut", self.cut_videos, 'primary')
+        self.create_cutless_button = self.add_button_with_style(self.buttons_container, "Create Cutless Data", self.create_cutless_data, 'primary')
+        self.create_cutless_button.style['display'] = 'none'
+        self.delete_button = self.add_button_with_style(self.buttons_container, "Delete", self.delete_txt_files, 'primary')
 
-        self.main_container.append(buttons_container)
+        self.main_container.append(self.buttons_container)
+        self.update_action_buttons()
+        self.apply_platform_constraints()
 
         # Continue button to go to the next page
         self.next_button = self.add_button_with_style(self.main_container, "Continue", self.on_continue_button_click, 'secondary')
@@ -2624,6 +2653,8 @@ class Page5(BasePage):
     
     def set_input_mode(self, mode):
         """Switch between folder mode and file selection mode without UI changes"""
+        if self.logic._get_data("platform_type") == 'combreakdirect':
+            mode = 'file'
         self.input_mode = mode
         
         if mode == 'folder':
@@ -2635,6 +2666,92 @@ class Page5(BasePage):
         else:  # file mode
             self.folder_mode_container.style['display'] = 'none'
             self.file_mode_container.style['display'] = 'flex'
+
+    def update_action_buttons(self):
+        """Toggle between legacy buttons and cutless pipeline."""
+        if not hasattr(self, 'detect_button'):
+            return
+        if self.cutless_mode:
+            self.detect_button.style['display'] = 'none'
+            self.cut_button.style['display'] = 'none'
+            self.create_cutless_button.style['display'] = 'inline-block'
+        else:
+            self.detect_button.style['display'] = 'inline-block'
+            self.cut_button.style['display'] = 'inline-block'
+            self.create_cutless_button.style['display'] = 'none'
+
+    def create_cutless_data(self, widget):
+        """Run detection and virtual cut generation sequentially."""
+        if not self.validate_input_output_dirs():
+            return
+
+        # Ensure destructive mode is disabled
+        if self.destructive_mode:
+            self.destructive_checkbox.set_value(False)
+            self.destructive_mode = False
+
+        if not self.cutless_mode:
+            self.cutless_checkbox.set_value(True)
+            self.cutless_mode = True
+
+        def pipeline():
+            noop = lambda *_: None
+            self.create_cutless_button.set_enabled(False)
+            try:
+                self._run_and_notify(
+                    self.cblogic.detect_commercials,
+                    noop,
+                    "Detect Black Frames",
+                    False,
+                    False,
+                    self.low_power_mode,
+                    self.fast_mode,
+                    self.reset_progress_bar
+                )
+                self._run_and_notify(
+                    self.cblogic.cut_videos,
+                    noop,
+                    "Cut Video",
+                    False,
+                    True
+                )
+                self.update_status("Cutless data ready!")
+            finally:
+                self.create_cutless_button.set_enabled(True)
+
+        threading.Thread(target=pipeline, daemon=True).start()
+
+    def is_combreakdirect(self):
+        return self.logic._get_data("platform_type") == 'combreakdirect'
+
+    def apply_platform_constraints(self):
+        """Adjust UI based on the selected platform."""
+        is_cbdirect = self.is_combreakdirect()
+
+        if is_cbdirect:
+            self.set_input_mode('file')
+            self.folder_mode_container.style['display'] = 'none'
+            self.file_mode_container.style['display'] = 'flex'
+            self.destructive_checkbox.wrapper.style['display'] = 'none'
+            if self.destructive_checkbox.get_value():
+                self.destructive_checkbox.set_value(False)
+            self.destructive_mode = False
+            self.cutless_container.style['display'] = 'none'
+            self.cutless_required_label.style['display'] = 'inline-block'
+            self.cutless = True
+            if not self.cutless_mode:
+                self.cutless_checkbox.set_value(True)
+                self.cutless_mode = True
+            self.update_action_buttons()
+        else:
+            self.folder_mode_container.style['display'] = 'flex'
+            self.destructive_checkbox.wrapper.style['display'] = 'flex'
+            self.cutless_required_label.style['display'] = 'none'
+            if self.cutless:
+                self.cutless_container.style['display'] = 'flex'
+            else:
+                self.cutless_container.style['display'] = 'none'
+            self.update_action_buttons()
 
     def update_file_list(self):
         """Update the file list display with paths from the input handler"""
@@ -2686,6 +2803,11 @@ class Page5(BasePage):
         """Handle when destructive mode is toggled"""
         self.destructive_mode = widget.get_value()
         
+        if self.is_combreakdirect() and self.destructive_mode:
+            self.destructive_checkbox.set_value(False)
+            self.destructive_mode = False
+            return
+        
         # If Destructive Mode is turned on, turn off Cutless Mode
         if self.destructive_mode and hasattr(self, 'cutless_checkbox') and self.cutless_checkbox.get_value():
             self.cutless_checkbox.set_value(False)
@@ -2713,10 +2835,17 @@ class Page5(BasePage):
         """Handle when cutless mode is toggled"""
         self.cutless_mode = widget.get_value()
         
+        if self.is_combreakdirect() and not self.cutless_mode:
+            self.cutless_checkbox.set_value(True)
+            self.cutless_mode = True
+            return
+        
         # If Cutless Mode is turned on, turn off Destructive Mode
         if self.cutless_mode and hasattr(self, 'destructive_checkbox') and self.destructive_checkbox.get_value():
             self.destructive_checkbox.set_value(False)
             self.destructive_mode = False
+        
+        self.update_action_buttons()
 
     # Methods for action buttons
     def detect_commercials(self, widget):
@@ -2907,12 +3036,18 @@ class Page5(BasePage):
 
     def update_cutless_checkbox(self, enabled: bool):
         """Show / hide the Cutless-mode checkbox depending on flag state."""
+        if self.is_combreakdirect():
+            self.cutless_container.style['display'] = 'none'
+            self.cutless_required_label.style['display'] = 'inline-block'
+            return
+        self.cutless_required_label.style['display'] = 'none'
         if enabled:
             self.cutless_container.style['display'] = 'flex'
         else:
             self.cutless_container.style['display'] = 'none'
             self.cutless_checkbox.set_value(False)
             self.cutless_mode = False
+        self.update_action_buttons()
 
     # Pub-sub callback
     def on_cutless_state_change(self, enabled: bool):
@@ -2925,6 +3060,7 @@ class Page5(BasePage):
             filtered_files = json.loads(filtered_files_json)
             if filtered_files:
                 # Add files to the input handler
+                self.cblogic.input_handler.clear_all()
                 self.cblogic.input_handler.add_files(filtered_files)
                 
                 # Switch to file mode and update the list
@@ -2941,6 +3077,8 @@ class Page5(BasePage):
         except Exception as e:
             print(f"Error processing filtered files: {e}")
             self.update_status_display("An unexpected error occurred while processing filtered files.")
+        finally:
+            self.apply_platform_constraints()
             
     def handle_plex_servers_update(self, server_list):
         """Handle Plex servers list update"""
@@ -2973,9 +3111,15 @@ class Page5(BasePage):
 
     def handle_cutless_state_update(self, enabled):
         """Handle cutless state updates from LogicController."""
+        is_enabled = enabled if isinstance(enabled, bool) else str(enabled).lower() == 'true'
         if hasattr(self, 'on_cutless_state_change'):
-            self.on_cutless_state_change(enabled)
-        # If you want to add more UI logic for cutless mode, do it here.
+            self.on_cutless_state_change(is_enabled)
+        if self.cutless_checkbox.get_value() != is_enabled:
+            self.cutless_checkbox.set_value(is_enabled)
+        self.cutless_mode = self.cutless_checkbox.get_value()
+        self.cutless = is_enabled
+        self.update_action_buttons()
+        self.apply_platform_constraints()
 
 class Page6(BasePage):
     def __init__(self, app, *args, **kwargs):

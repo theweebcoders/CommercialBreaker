@@ -302,6 +302,8 @@ We also snuck in an Advanced switch that lets you run the whole thing for a diff
 - How: Type a network name, press Validate, then “Apply & Restart.”
 - Read this first: Naming still matters. If files aren’t named right, nothing else matters. See the FAQ entry “Does this only work for Toonami?” at the bottom for the full scoop.
 
+**We also support a "Networkless" mode. (See FAQ/Guides for more info)**
+
 # Support your local Mad Scientist
 <a href="https://www.buymeacoffee.com/tim000x3" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="41" width="174"></a>
 
@@ -801,6 +803,11 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 - [ ] Add comma-separated format instruction for show exclusion list
 - [ ] Enhance number input for show exclusion
 
+## **UX/UI Improvements**
+- [ ] Fix back button not preserving file selection mode (resets to folder mode, causing empty selection)
+- [ ] Fix fast scanning status not showing in WebUI when running in Docker container
+- [ ] Fix missing popup message after Toonami channel creation (should direct users to ComBreakDirect WebUI at port 8083)
+
 ## **Testing Requirements**
 
 ### *General Testing*
@@ -932,7 +939,12 @@ Q: My shows have commercials already; can I use this to remove them?
 Q: Can you make this work with Jellyfin?
 
 
-  No, we don't use Jellyfin so we have no idea how it works. If you want to make it work with Jellyfin you can fork the repo and make it work with Jellyfin. We will gladly accept a pull request.
+  We already did! ComBreakDirect works with both Plex and Jellyfin at the same time. Just add the HDHomeRun tuner to both Plex and Jellyfin using the same URL. Both will be able to tune into the channel simultaneously.
+
+
+Q: What is Networkless Mode?
+
+  Networkless Mode is a feature in brought it by popular demand! (By popular demand, we mean that one dude on discord said something kind of related to it once) Effectively, you know how we have alternative networks? Yeah, but what if you just wanted your channel to be a hodgepodge of random crap? You can do that. Just go to the Advanced mode on the first page and enter "Networkless" as your network. It will validate it and restart the program. Now you can make a channel with whatever you want. Just make sure your bumps are named properly or it won't work right.
 
 
 Q: Can I request a new feature for the apps?

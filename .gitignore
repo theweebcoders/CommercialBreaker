@@ -14,3 +14,4 @@ logs
 tests/test_toonami.db
 .gitignore
 tests/fixtures/sample.txt
+tests/fixtures

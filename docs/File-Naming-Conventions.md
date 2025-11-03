@@ -57,13 +57,19 @@ Bump naming is more complex as it varies based on the number of shows involved i
 
 ### Network and Version Components
 
-**Network**: Always "Toonami"
+**Network**: The network name configured in `config.network`
+- **Standard**: "Toonami" (default)
+- **Networkless Mode**: "Networkless" - bypasses Wikipedia validation, allows any custom content
+- **Other Networks**: "Cartoon Network", "Adult Swim", etc. (must have Wikipedia broadcast list page)
+
 **Toonami Version**: The era/version with space replacing the period
 - `1 0` = Original Toonami (OG)
-- `2 0` = Toonami 2.0  
+- `2 0` = Toonami 2.0
 - `3 0` = Toonami 3.0
 - `7 0` = Custom bumps (recommended for user-created content)
 - Missing version defaults to `1 0` (OG)
+
+**Important**: When using **Networkless mode** (`config.network = "Networkless"`), all bump filenames must use "Networkless" as the network prefix instead of "Toonami". See examples below.
 
 ---
 
@@ -78,6 +84,13 @@ Bump naming is more complex as it varies based on the number of shows involved i
 Toonami 2 0 robots 03.mp4
 Toonami 3 0 clydes 04.mp4
 Toonami 2 0 sara 01.mp4
+```
+
+**Networkless Examples**:
+```
+Networkless 2 0 robots 03.mp4
+Networkless 3 0 clydes 04.mp4
+Networkless 7 0 sara 01.mp4
 ```
 
 **Use**: General bumps, character appearances, station IDs
@@ -104,6 +117,13 @@ Toonami 2 0 Gundam intro.mp4
 Toonami 2 0 Gundam next 12 purple.mp4
 ```
 
+**Networkless Examples**:
+```
+Networkless 2 0 Gundam back 4 red.mp4
+Networkless 2 0 Naruto to ads 05 blue.mp4
+Networkless 7 0 One Piece intro.mp4
+```
+
 ---
 
 ### 3. Transitional Bumps (Two Shows)
@@ -119,6 +139,12 @@ Toonami 2 0 Gundam next 12 purple.mp4
 Toonami 2 0 Gundam Next From Evangelion 05 blue.mp4
 Toonami 2 0 Inuyasha From Evangelion 7 blue.mp4
 Toonami 3 0 Naruto Next From Bleach 02.mp4
+```
+
+**Networkless Examples**:
+```
+Networkless 2 0 Gundam Next From Evangelion 05 blue.mp4
+Networkless 3 0 Naruto From Bleach 02.mp4
 ```
 
 ---
@@ -139,6 +165,12 @@ Toonami 3 0 Now Inuyasha Next Bleach Later Naruto 2.mp4
 Toonami 2 0 Gundam Next Evangelion Later Cowboy Bebop 05.mp4
 ```
 
+**Networkless Examples**:
+```
+Networkless 2 0 Now Gundam Next Evangelion Later Cowboy Bebop 10 green.mp4
+Networkless 7 0 Now Naruto Next Bleach Later One Piece 05.mp4
+```
+
 ---
 
 ## Component Reference
@@ -147,7 +179,7 @@ Toonami 2 0 Gundam Next Evangelion Later Cowboy Bebop 05.mp4
 
 | Component | Description | Examples |
 |-----------|-------------|----------|
-| Network | Always "Toonami" | `Toonami` |
+| Network | Network from `config.network` | `Toonami`, `Networkless`, `Cartoon Network` |
 | Version | Era with space for period | `2 0`, `3 0`, `7 0` |
 | Show Name | Exact show name | `Gundam`, `Naruto`, `One Piece` |
 

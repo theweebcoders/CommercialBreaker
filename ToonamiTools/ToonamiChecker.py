@@ -323,31 +323,70 @@ class ToonamiChecker:
     def compare_shows(self):
         """
         Compares Toonami shows data with video files in a directory.
+
+        Special case: If config.network is set to "Networkless", this skips Wikipedia
+        validation and uses ALL shows from the video library without filtering.
         """
         folder_path = self.anime_folder
 
         self._status("Comparing Toonami shows data with video files in directory.")
-        
+
+        # Networkless mode: Skip Wikipedia validation and use ALL shows
+        if config.network.lower() == "networkless":
+            self._status("Networkless mode detected: Skipping Wikipedia validation")
+            self._status("Using ALL shows from video library without filtering")
+
+            try:
+                video_files = self.get_video_files()
+            except Exception as e:
+                # Error already logged by get_video_files
+                return {}
+
+            toonami_episodes = {}
+
+            # Include ALL shows from video library
+            for show in video_files:
+                for episode in video_files[show]:
+                    full_path = os.path.join(folder_path, episode)
+                    normalized_path = os.path.normpath(full_path)
+                    toonami_episodes[(show, episode)] = normalized_path
+
+            self._status(f"Found {len(video_files)} unique shows in your library")
+            self._status(f"Found {len(toonami_episodes)} total episodes in Networkless mode")
+
+            if len(toonami_episodes) == 0:
+                self.error_manager.send_error_level(
+                    source="ToonamiChecker",
+                    operation="compare_shows",
+                    message="No video files found in library",
+                    details="The anime folder appears to be empty or files are not properly named",
+                    suggestion="Check if your files are named correctly (ShowName - S##E##). See: https://github.com/theweebcoders/CommercialBreaker/wiki/File-Naming-Conventions"
+                )
+                raise ValueError("No video files found")
+
+            return toonami_episodes
+
+        # Normal mode: Use Wikipedia validation
         try:
             toonami_shows = self.toonami_shows_fetcher.get_toonami_shows()
         except Exception as e:
             # Error already logged by get_toonami_shows
             return {}
-        
+
         try:
             video_files = self.get_video_files()
         except Exception as e:
             # Error already logged by get_video_files
             return {}
-        
+
         toonami_episodes = {}
 
         # Use the show_name_mapper to normalize and map Toonami show titles
         normalized_toonami_shows = [show_name_mapper.normalize_and_map(x) for x in toonami_shows['Title']]
-        
+
         self._status(f"Found {len(normalized_toonami_shows)} shows from {config.network} Wikipedia page")
         self._status(f"Found {len(video_files)} unique shows in your library")
-        
+
         # Show first few of each for debugging
         if normalized_toonami_shows:
             print(f"First 5 {config.network} shows from Wikipedia: {normalized_toonami_shows[:5]}")

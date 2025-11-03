@@ -720,29 +720,31 @@ class Page4(ttk.Frame):
         )
 
         self.filtered_action_frame = ttk.LabelFrame(self, text="Filtered Shows Action")
-        self.filtered_action_frame.pack(fill="x", padx=10, pady=5)
+        self._filtered_action_pack = {"fill": "x", "padx": 10, "pady": 5}
+        self.filtered_action_frame.pack(**self._filtered_action_pack)
         self._get_plex_label_pack_kwargs = {"pady": 3, "before": self.filtered_action_frame}
         self._get_plex_button_pack_kwargs = {"pady": 3, "before": self.filtered_action_frame}
 
-        move_files_radio = ttk.Radiobutton(
+        self.move_files_radio = ttk.Radiobutton(
             self.filtered_action_frame, 
             text="Move Files (Legacy)", 
             variable=self.filtered_files_action, 
             value="move"
         )
-        move_files_radio.pack(side="left", padx=5, pady=5)
+        self.move_files_radio.pack(side="left", padx=5, pady=5)
 
-        prepopulate_radio = ttk.Radiobutton(
+        self.prepopulate_radio = ttk.Radiobutton(
             self.filtered_action_frame, 
             text="Prepopulate Selection", 
             variable=self.filtered_files_action, 
             value="prepopulate"
         )
-        prepopulate_radio.pack(side="left", padx=5, pady=5)
+        self.prepopulate_radio.pack(side="left", padx=5, pady=5)
 
-        process_filtered_button = ttk.Button(self, text="Process Filtered Shows",
-                                        command=self.process_filtered_shows)
-        process_filtered_button.pack(pady=3)
+        self.process_filtered_button = ttk.Button(self, text="Process Filtered Shows",
+                                             command=self.process_filtered_shows)
+        self._process_button_pack = {"pady": 3}
+        self.process_filtered_button.pack(**self._process_button_pack)
 
         self.status_label = tk.Label(self, text="Status: Idle",
                                      foreground='darkgray',
@@ -764,6 +766,10 @@ class Page4(ttk.Frame):
         self.continue_button.pack(side="right", padx=5, pady=5)
 
         self.refresh_platform_fields()
+    
+    def tkraise(self):
+        self.refresh_platform_fields()
+        super().tkraise()
         
     def process_filtered_shows(self):
         prepopulate = (self.filtered_files_action.get() == "prepopulate")
@@ -771,6 +777,10 @@ class Page4(ttk.Frame):
 
     def on_continue_button_click(self):
         self.logic.on_continue_fourth()
+        if self.logic._get_data("platform_type") == 'combreakdirect':
+            # Always prepopulate selection for ComBreakDirect
+            self.filtered_files_action.set("prepopulate")
+            self.logic.move_filtered(prepopulate=True)
         self.controller.show_frame("Page5")
 
     def update_status_label(self, status):
@@ -779,6 +789,7 @@ class Page4(ttk.Frame):
     def refresh_platform_fields(self):
         platform_type = self.logic._get_data("platform_type")
         show_plex_controls = platform_type != 'combreakdirect'
+        is_combreakdirect = platform_type == 'combreakdirect'
 
         if show_plex_controls:
             if not self.get_plex_timestamps_label.winfo_manager():
@@ -790,6 +801,18 @@ class Page4(ttk.Frame):
                 self.get_plex_timestamps_label.pack_forget()
             if self.get_plex_timestamps_button.winfo_manager():
                 self.get_plex_timestamps_button.pack_forget()
+
+        if is_combreakdirect:
+            if self.filtered_action_frame.winfo_manager():
+                self.filtered_action_frame.pack_forget()
+            if self.process_filtered_button.winfo_manager():
+                self.process_filtered_button.pack_forget()
+            self.filtered_files_action.set("prepopulate")
+        else:
+            if not self.filtered_action_frame.winfo_manager():
+                self.filtered_action_frame.pack(**self._filtered_action_pack)
+            if not self.process_filtered_button.winfo_manager():
+                self.process_filtered_button.pack(**self._process_button_pack)
 
     def prepare_my_shows(self):
         self.logic.prepare_content(self.display_show_selection)
@@ -857,6 +880,7 @@ class Page4(ttk.Frame):
         filtered_files.sort(key=lambda x: os.path.basename(x).lower())
         
         print(f"Adding {len(filtered_files)} alphabetically sorted files to input handler")
+        self.logic.input_handler.clear_all()
         self.logic.input_handler.add_files(filtered_files)
         
         self.update_file_list()
@@ -904,6 +928,7 @@ class Page5(ttk.Frame):
         toonami_filtered_folder = working_folder + "/toonami_filtered"
 
         self.set_input_output_dirs(toonami_filtered_folder, cut_folder)
+        self.update_platform_specific_controls()
         
         if hasattr(self.TOM_logic, 'filtered_files_for_selection') and self.TOM_logic.filtered_files_for_selection:
             filtered_count = len(self.TOM_logic.filtered_files_for_selection)
@@ -939,7 +964,8 @@ class Page5(ttk.Frame):
 
     def create_widgets(self):
         self.input_mode_frame = ttk.LabelFrame(self.master, text="Input Selection Mode")
-        self.input_mode_frame.pack(fill="x", padx=10, pady=5)
+        self._input_mode_pack = {"fill": "x", "padx": 10, "pady": 5}
+        self.input_mode_frame.pack(**self._input_mode_pack)
         
         self.folder_radio = ttk.Radiobutton(
             self.input_mode_frame, 
@@ -959,34 +985,41 @@ class Page5(ttk.Frame):
         )
         self.file_radio.pack(side="left", padx=5, pady=5)
         
-        self.checkbox_frame = tk.Frame(self.master)
-        self.checkbox_frame.pack(side="bottom", fill="x")
+        self.controls_frame = ttk.Frame(self.master)
+        self.controls_frame.pack(side="bottom", fill="x", padx=10, pady=5)
+        self.controls_frame.columnconfigure(0, weight=0)
+        self.controls_frame.columnconfigure(1, weight=1)
+        self.controls_frame.columnconfigure(2, weight=0)
 
-        self.destructive_mode = tk.BooleanVar()
+        self.checkbox_group = ttk.Frame(self.controls_frame)
+        self.checkbox_group.grid(row=0, column=1, padx=5)
+
+        self.destructive_mode = tk.BooleanVar(value=False)
         self.destructive_mode.trace("w", self.toggle_destructive_mode)
-        self.destructive_checkbox = ttk.Checkbutton(self.checkbox_frame, text='Destructive Mode', variable=self.destructive_mode)
-        self.destructive_checkbox.pack(side="left")
+        self.destructive_checkbox = ttk.Checkbutton(self.checkbox_group, text='Destructive Mode', variable=self.destructive_mode)
+        self.destructive_checkbox.pack(side="left", padx=12)
 
-        self.fast_mode = tk.BooleanVar()
+        self.fast_mode = tk.BooleanVar(value=False)
         self.fast_mode.trace("w", self.toggle_low_power_mode)
-        self.fast_checkbox = ttk.Checkbutton(self.checkbox_frame, text='Fast Mode', variable=self.fast_mode)
-        self.fast_checkbox.pack(side="left")
+        self.fast_checkbox = ttk.Checkbutton(self.checkbox_group, text='Fast Mode', variable=self.fast_mode)
+        self.fast_checkbox.pack(side="left", padx=12)
 
-        self.low_power_mode = tk.BooleanVar()
+        self.low_power_mode = tk.BooleanVar(value=False)
         self.low_power_mode.trace("w", self.toggle_fast_mode)
-        self.low_power_checkbox = ttk.Checkbutton(self.checkbox_frame, text='Low Power Mode', variable=self.low_power_mode)
-        self.low_power_checkbox.pack(side="left")
+        self.low_power_checkbox = ttk.Checkbutton(self.checkbox_group, text='Low Power Mode', variable=self.low_power_mode)
+        self.low_power_checkbox.pack(side="left", padx=12)
 
-        self.cutless_mode = tk.BooleanVar()
+        self.cutless_mode = tk.BooleanVar(value=False)
         self.cutless_mode.trace("w", self.toggle_cutless_mode)
-        self.cutless_checkbox = ttk.Checkbutton(self.checkbox_frame, text='Cutless Mode', variable=self.cutless_mode)
-        self.update_cutless_checkbox(LogicController.cutless)
+        self.cutless_checkbox = ttk.Checkbutton(self.checkbox_group, text='Cutless Mode', variable=self.cutless_mode)
+        self.cutless_checkbox.pack(side="left", padx=12)
 
         self.directory_frame = ttk.Frame(self.master)
         self.directory_frame.pack(fill="x", padx=10, pady=5)
         
         self.input_frame = ttk.Frame(self.directory_frame)
-        self.input_frame.pack(fill="x", pady=3)
+        self._input_frame_pack = {"fill": "x", "pady": 3}
+        self.input_frame.pack(**self._input_frame_pack)
         self.input_label = ttk.Label(self.input_frame, text="Input directory:", width=15)
         self.input_label.pack(side="left", pady=3, padx=1)
         self.input_entry = ttk.Entry(self.input_frame, textvariable=self.input_path)
@@ -995,6 +1028,7 @@ class Page5(ttk.Frame):
         self.input_browse_btn.pack(side="left", pady=3, padx=1)
         
         self.file_frame = ttk.Frame(self.master)
+        self._file_frame_pack = {"fill": "both", "expand": True, "padx": 10, "pady": 5}
         self.file_list_label = ttk.Label(self.file_frame, text="Selected Files:")
         self.file_list_label.pack(anchor="w", padx=10, pady=(5,0))
         
@@ -1011,7 +1045,8 @@ class Page5(ttk.Frame):
         self.file_scrollbar.config(command=self.file_listbox.yview)
         
         self.file_buttons_frame = ttk.Frame(self.file_frame)
-        self.file_buttons_frame.pack(fill="x", padx=10, pady=(0,5))
+        self._file_buttons_pack = {"fill": "x", "padx": 10, "pady": (0, 5)}
+        self.file_buttons_frame.pack(**self._file_buttons_pack)
         
         self.add_files_btn = ttk.Button(self.file_buttons_frame, text="Add Files", command=self.add_files)
         self.add_files_btn.pack(side="left", padx=5)
@@ -1043,41 +1078,161 @@ class Page5(ttk.Frame):
         self.status_label = ttk.Label(progress_frame, text="Idle")
         self.status_label.grid(row=1, column=1)
 
-        button_frame = ttk.Frame(self.master)
-        button_frame.pack(pady=10)
+        self.button_frame = ttk.Frame(self.master)
+        self.button_frame.pack(pady=10)
         
-        button_configs = [
-            ("Detect", self.detect_commercials),
-            ("Cut", self.cut_videos),
-            ("Delete", self.delete_txt_files),
-            ("Exit", self.exit_program),
-        ]
-        for text, cmd in button_configs:
-            button = ttk.Button(button_frame, text=text, command=cmd)
-            button.pack(side="left", padx=5, pady=3)
+        self.detect_button = ttk.Button(self.button_frame, text="Detect", command=self.detect_commercials)
+        self.cut_button = ttk.Button(self.button_frame, text="Cut", command=self.cut_videos)
+        self.create_cutless_button = ttk.Button(self.button_frame, text="Create Cutless Data", command=self.create_cutless_data)
+        self.delete_button = ttk.Button(self.button_frame, text="Delete", command=self.delete_txt_files)
+        self.exit_button = ttk.Button(self.button_frame, text="Exit", command=self.exit_program)
 
-        # Go Back button on the left side of checkbox_frame
-        self.go_back_button = ttk.Button(self.checkbox_frame, text="Go Back",
+        self.go_back_button = ttk.Button(self.controls_frame, text="Go Back",
                                     command=self.controller.go_back)
-        self.go_back_button.pack(side="left", padx=5, pady=5)
+        self.go_back_button.grid(row=0, column=0, sticky="w", padx=5, pady=5)
 
-        self.continue_button = ttk.Button(self.checkbox_frame, text="Continue", command=lambda: [self.controller.show_frame("Page6"), self.on_continue_button_click()])
-        self.continue_button.pack(side="right", padx=5, pady=5)
+        self.continue_button = ttk.Button(self.controls_frame, text="Continue", command=lambda: [self.controller.show_frame("Page6"), self.on_continue_button_click()])
+        self.continue_button.grid(row=0, column=2, sticky="e", padx=5, pady=5)
         
+        # Sync initial state
+        self.cutless_mode.set(LogicController.cutless)
         self.toggle_input_mode()
+        self.update_pipeline_buttons()
+        self.update_platform_specific_controls()
 
     def toggle_input_mode(self):
-        if self.input_mode.get() == "folder":
-            self.file_frame.pack_forget()
-            self.input_frame.pack(fill="x", pady=3)
+        platform_type = self.TOM_logic._get_data("platform_type")
+        is_combreakdirect = platform_type == 'combreakdirect'
+
+        if is_combreakdirect and self.input_mode.get() != "file":
+            self.input_mode.set("file")
+
+        mode = self.input_mode.get()
+
+        if mode == "folder":
+            if self.file_frame.winfo_manager():
+                self.file_frame.pack_forget()
+            if not self.input_frame.winfo_manager():
+                self.input_frame.pack(**self._input_frame_pack)
             self.logic.input_handler.clear_all()
             self.input_label.config(text="Input directory:")
             self.input_browse_btn.config(command=self.browse_input_directory)
+            if self.file_buttons_frame.winfo_manager():
+                self.file_buttons_frame.pack_forget()
         else:
-            self.file_frame.pack(fill="both", expand=True, padx=10, pady=5, before=self.directory_frame)
-            self.input_frame.pack_forget()
+            if not self.file_frame.winfo_manager():
+                pack_args = dict(self._file_frame_pack)
+                pack_args["before"] = self.directory_frame
+                self.file_frame.pack(**pack_args)
+            if self.input_frame.winfo_manager():
+                self.input_frame.pack_forget()
             self.input_label.config(text="Input path:")
             self.input_browse_btn.config(command=self.add_files)
+            if is_combreakdirect:
+                if self.file_buttons_frame.winfo_manager():
+                    self.file_buttons_frame.pack_forget()
+            else:
+                if not self.file_buttons_frame.winfo_manager():
+                    self.file_buttons_frame.pack(**self._file_buttons_pack)
+
+    def update_pipeline_buttons(self):
+        """Adjust primary action buttons based on cutless mode."""
+        buttons = [
+            self.detect_button,
+            self.cut_button,
+            self.create_cutless_button,
+            self.delete_button,
+            self.exit_button,
+        ]
+        for button in buttons:
+            button.pack_forget()
+
+        if self.cutless_mode.get():
+            ordered = [self.create_cutless_button, self.delete_button, self.exit_button]
+        else:
+            ordered = [self.detect_button, self.cut_button, self.delete_button, self.exit_button]
+
+        for button in ordered:
+            button.pack(side="left", padx=5, pady=3)
+
+    def create_cutless_data(self):
+        """Run detection and cutless generation in a single pipeline."""
+        if not self.validate_input_output_dirs():
+            return
+
+        # Ensure destructive mode is off and cutless mode is on before starting
+        if self.destructive_mode.get():
+            self.destructive_mode.set(False)
+        if not self.cutless_mode.get():
+            self.cutless_mode.set(True)
+
+        def pipeline():
+            noop = lambda *_: None
+            self.after(0, lambda: self.create_cutless_button.config(state=tk.DISABLED))
+            try:
+                self._run_and_notify(
+                    self.logic.detect_commercials,
+                    noop,
+                    "Detect Black Frames",
+                    False,
+                    False,
+                    self.low_power_mode.get(),
+                    self.fast_mode.get(),
+                    self.reset_progress_bar
+                )
+                self._run_and_notify(
+                    self.logic.cut_videos,
+                    noop,
+                    "Cut Video",
+                    False,
+                    True
+                )
+                self.after(0, lambda: messagebox.showinfo("Create Cutless Data", "Cutless data ready!"))
+            finally:
+                self.after(0, lambda: self.create_cutless_button.config(state=tk.NORMAL))
+
+        threading.Thread(target=pipeline, daemon=True).start()
+
+    def _is_combreakdirect(self):
+        return self.TOM_logic._get_data("platform_type") == 'combreakdirect'
+
+    def update_platform_specific_controls(self):
+        """Enforce platform-specific UI constraints."""
+        is_combreakdirect = self._is_combreakdirect()
+
+        if is_combreakdirect:
+            if self.input_mode_frame.winfo_manager():
+                self.input_mode_frame.pack_forget()
+            if self.destructive_checkbox.winfo_manager():
+                self.destructive_checkbox.pack_forget()
+            if self.destructive_mode.get():
+                self.destructive_mode.set(False)
+            if self.cutless_checkbox.winfo_manager():
+                self.cutless_checkbox.pack_forget()
+            self.cutless_checkbox.config(state=tk.DISABLED)
+            if self.file_buttons_frame.winfo_manager():
+                self.file_buttons_frame.pack_forget()
+            if self.input_mode.get() != "file":
+                self.input_mode.set("file")
+            self.toggle_input_mode()
+            if not self.cutless_mode.get():
+                self.cutless_mode.set(True)
+        else:
+            if not self.input_mode_frame.winfo_manager():
+                self.input_mode_frame.pack(**self._input_mode_pack)
+            if not self.destructive_checkbox.winfo_manager():
+                self.destructive_checkbox.pack(side="left", padx=12)
+            self.update_cutless_checkbox(LogicController.cutless)
+            if self.cutless_checkbox.winfo_manager():
+                state = tk.NORMAL if self.cutless_mode.get() else tk.DISABLED
+                self.cutless_checkbox.config(state=state)
+            if self.input_mode.get() == "file":
+                if not self.file_buttons_frame.winfo_manager():
+                    self.file_buttons_frame.pack(**self._file_buttons_pack)
+            elif self.file_buttons_frame.winfo_manager():
+                self.file_buttons_frame.pack_forget()
+
+        self.update_pipeline_buttons()
 
     def add_files(self):
         files = filedialog.askopenfilenames(
@@ -1153,6 +1308,7 @@ class Page5(ttk.Frame):
     def toggle_cutless_mode(self, *args):
         if self.cutless_mode.get():
             self.destructive_mode.set(False)
+        self.update_pipeline_buttons()
             
     def toggle_destructive_mode(self, *args):
         if self.destructive_mode.get():
@@ -1278,23 +1434,30 @@ class Page5(ttk.Frame):
         self.status_label.config(text=status)
 
     def update_cutless_checkbox(self, enabled):
+        if self._is_combreakdirect():
+            return
         if enabled:
-            if not self.cutless_checkbox.winfo_ismapped():
-                self.cutless_checkbox.pack(side="left")
+            if not self.cutless_checkbox.winfo_manager():
+                self.cutless_checkbox.pack(side="left", padx=12)
         else:
-            if self.cutless_checkbox.winfo_ismapped():
+            if self.cutless_checkbox.winfo_manager():
                 self.cutless_checkbox.pack_forget()
-            self.cutless_mode.set(False)
+            if self.cutless_mode.get():
+                self.cutless_mode.set(False)
 
     def on_cutless_state_change(self, enabled):
         self.update_cutless_checkbox(enabled)
 
     def handle_cutless_state_update(self, enabled):
-        self.on_cutless_state_change(enabled)
-        if enabled:
-            self.cutless_checkbox.config(state=tk.NORMAL)
-        else:
+        is_enabled = enabled if isinstance(enabled, bool) else str(enabled).lower() == 'true'
+        self.on_cutless_state_change(is_enabled)
+        if self.cutless_mode.get() != is_enabled:
+            self.cutless_mode.set(is_enabled)
+        if self._is_combreakdirect():
             self.cutless_checkbox.config(state=tk.DISABLED)
+        else:
+            self.cutless_checkbox.config(state=tk.NORMAL if is_enabled else tk.DISABLED)
+        self.update_pipeline_buttons()
 
     def load_filtered_files_handler(self, data):
         try:
@@ -1424,6 +1587,11 @@ class Page6(ttk.Frame):
                                                                      text=f"Create {config.network} Channel with Flex",
                                                                      command=self.create_toonami_channel)
             self.create_toonami_channel_button_with_flex.pack(pady=3)
+        elif platform_type == "combreakdirect":
+            self.create_toonami_channel_button = ttk.Button(self.dynamic_buttons_frame, 
+                                                           text="Create ComBreakDirect Channel",
+                                                           command=self.create_toonami_channel)
+            self.create_toonami_channel_button.pack(pady=3)
         else:
             self.create_toonami_channel_button = ttk.Button(self.dynamic_buttons_frame, 
                                                            text=f"Create {config.network} Channel",
@@ -1589,17 +1757,22 @@ class Page7(ttk.Frame):
             widget.destroy()
             
         if platform_type == "tunarr":
-            self.create_toonami_channel_button_with_flex = ttk.Button(self.dynamic_buttons_frame, 
+            self.create_toonami_channel_button_with_flex = ttk.Button(self.dynamic_buttons_frame,
                                                                      text=f"Create {config.network} Channel with Flex",
                                                                      command=self.create_toonami_channel_cont)
             self.create_toonami_channel_button_with_flex.pack(pady=3)
+        elif platform_type == "combreakdirect":
+            self.create_toonami_channel_button = ttk.Button(self.dynamic_buttons_frame,
+                                                           text="Create ComBreakDirect Channel",
+                                                           command=self.create_toonami_channel_cont)
+            self.create_toonami_channel_button.pack(pady=3)
         else:
-            self.create_toonami_channel_button = ttk.Button(self.dynamic_buttons_frame, 
+            self.create_toonami_channel_button = ttk.Button(self.dynamic_buttons_frame,
                                                            text=f"Create {config.network} Channel",
                                                            command=self.create_toonami_channel_cont)
             self.create_toonami_channel_button.pack(pady=3)
-            
-            self.add_flex_button = ttk.Button(self.dynamic_buttons_frame, 
+
+            self.add_flex_button = ttk.Button(self.dynamic_buttons_frame,
                                              text="Add Flex",
                                              command=self.add_flex)
             self.add_flex_button.pack(pady=3)

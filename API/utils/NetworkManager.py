@@ -68,10 +68,22 @@ def _url_exists(url: str, timeout: float = 5.0) -> bool:
 def validate_network_name(network_name: str) -> Tuple[bool, str]:
     """Validate the network by checking for an existing Wikipedia list page.
 
+    Special case: "Networkless" bypasses Wikipedia validation and allows use of all
+    shows in the library without filtering. Users must name their bumps with the
+    "Networkless" prefix (e.g., "Networkless 2 0 ShowName back 4 red.mp4").
+
     Returns (is_valid, message).
     """
     if not network_name or not network_name.strip():
         return False, "Network name cannot be empty"
+
+    # Special case: Networkless mode bypasses Wikipedia validation
+    if network_name.strip().lower() == "networkless":
+        return True, (
+            "Networkless mode: Wikipedia validation bypassed. "
+            "All shows in library will be used. "
+            "Ensure bumps are named with 'Networkless' prefix."
+        )
 
     # Basic sanity check to avoid obviously invalid values
     if len(network_name.strip()) > 80:

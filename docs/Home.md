@@ -19,7 +19,7 @@ CommercialBreaker & Toonami Tools automate a continuous Toonami marathon by inte
   - HDHomeRun emulation for Plex & Jellyfin DVR integration
 - **Toonami Tools**: Generate custom lineups with authentic bump integration
 - **Multiple Interfaces**: GUI (TOM), Web UI (Absolution), and CLI (Clydes)
-- **Multi‑Network Support**: Not just Toonami — switch the active network from the Advanced settings in TOM/Absolution or at Clydes startup
+- **Multi‑Network Support**: Not just Toonami — switch the active network from the Advanced settings in TOM/Absolution or at Clydes startup. Includes **Networkless mode** to bypass Wikipedia validation and use any custom content collection
 - **Platform Support**: Works with DizqueTV, Tunarr, or self-hosted ComBreakDirect
 - **Plex Integration**: Seamless integration with your existing Plex library and HDHomeRun-style discovery
 
