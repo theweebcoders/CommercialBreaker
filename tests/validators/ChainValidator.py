@@ -1,5 +1,4 @@
 import re
-import pandas as pd
 from API.utils.DatabaseManager import get_db_manager
 from ToonamiTools.utils import show_name_mapper
 
@@ -29,11 +28,10 @@ class ChainValidator:
         self.decoder = None  # map abbr -> full name (lower)
 
     def _load_decoder(self):
-        with self.db.transaction() as conn:
-            df_codes = pd.read_sql("SELECT * FROM codes", conn)
+        codes_data = self.db.fetchall_as_dicts("SELECT * FROM codes")
         # codes table has columns: Name, Code (from BumpEncoder)
         # Build decoder: abbr -> name (lower)
-        self.decoder = {row["Code"]: row["Name"].lower() for _, row in df_codes.iterrows()}
+        self.decoder = {row["Code"]: row["Name"].lower() for row in codes_data}
 
     def _decode_shows_from_code(self, code_str: str):
         parts = code_str.split("-")
@@ -52,10 +50,10 @@ class ChainValidator:
         if self.decoder is None:
             self._load_decoder()
 
-        with self.db.transaction() as conn:
-            df = pd.read_sql(f"SELECT FULL_FILE_PATH, Code, BLOCK_ID FROM {table_name} ORDER BY ROWID", conn)
+        data = self.db.fetchall_as_dicts(f"SELECT FULL_FILE_PATH, Code, BLOCK_ID FROM {table_name} ORDER BY ROWID")
 
-        code_rows = df[df["Code"].notna() & (df["Code"].str.strip() != "")]
+        # Filter for rows with non-empty Code
+        code_rows = [row for row in data if row.get("Code") and str(row["Code"]).strip() != ""]
         violations = []
 
         # -----------------
@@ -63,7 +61,7 @@ class ChainValidator:
         # -----------------
         expected_next_anchor = None  # lowercased show name expected by the next code row
 
-        for idx, row in code_rows.iterrows():
+        for idx, row in enumerate(code_rows):
             code_str = row["Code"]
             shows = self._decode_shows_from_code(code_str)
             is_ns3 = bool(re.search(r"-NS3\b", code_str))
@@ -109,8 +107,7 @@ class ChainValidator:
         if self.decoder is None:
             self._load_decoder()
 
-        with self.db.transaction() as conn:
-            df = pd.read_sql(f"SELECT FULL_FILE_PATH, Code, BLOCK_ID FROM {table_name} ORDER BY ROWID", conn)
+        data = self.db.fetchall_as_dicts(f"SELECT FULL_FILE_PATH, Code, BLOCK_ID FROM {table_name} ORDER BY ROWID")
 
         violations = []
 
@@ -121,7 +118,7 @@ class ChainValidator:
 
         last_episode_show = None
 
-        for idx, row in df.iterrows():
+        for idx, row in enumerate(data):
             code_str = (row["Code"] or "").strip()
             block_id = row.get("BLOCK_ID")
 

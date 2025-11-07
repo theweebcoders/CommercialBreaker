@@ -289,6 +289,657 @@ def clear_error_messages(self) -> None:
     """Clear all error messages from all UIs"""
 ```
 
+## DatabaseManager API
+
+The `DatabaseManager` class in `API/utils/DatabaseManager.py` provides thread-safe database operations with automatic retry logic, including methods for working with dictionary-based data structures.
+
+### Getting the DatabaseManager
+
+```python
+from API.utils.DatabaseManager import get_db_manager
+
+class MyModule:
+    def __init__(self):
+        self.db_manager = get_db_manager()
+```
+
+### Basic Query Methods
+
+```python
+def fetchone(self, query: str, params: Optional[Tuple] = None) -> Optional[Tuple]:
+    """
+    Execute a query and fetch one result as a tuple.
+
+    Args:
+        query: SQL query to execute
+        params: Optional query parameters
+
+    Returns:
+        Tuple of column values or None
+    """
+
+def fetchall(self, query: str, params: Optional[Tuple] = None) -> List[Tuple]:
+    """
+    Execute a query and fetch all results as tuples.
+
+    Args:
+        query: SQL query to execute
+        params: Optional query parameters
+
+    Returns:
+        List of tuples, one per row
+    """
+
+def execute(self, query: str, params: Optional[Tuple] = None) -> int:
+    """
+    Execute a query that doesn't return results.
+
+    Args:
+        query: SQL query to execute
+        params: Optional query parameters
+
+    Returns:
+        Number of rows affected
+    """
+```
+
+### Dictionary-Based Methods
+
+**These methods return and accept native Python dictionaries.**
+
+```python
+def fetchall_as_dicts(self, query: str, params: Optional[Tuple] = None) -> List[Dict[str, Any]]:
+    """
+    Execute a query and fetch all results as a list of dictionaries.
+
+    Each row is returned as a dictionary with column names as keys.
+    This replaces the need for pd.read_sql() in most cases.
+
+    Args:
+        query: SQL query to execute
+        params: Optional query parameters
+
+    Returns:
+        List of dictionaries, one per row
+        Empty list if no results
+
+    Example:
+        >>> data = db_manager.fetchall_as_dicts("SELECT * FROM shows WHERE active = ?", (True,))
+        >>> # Returns: [{"id": 1, "name": "Naruto", "active": True}, ...]
+        >>> for row in data:
+        >>>     print(row['name'])
+    """
+
+def fetchone_as_dict(self, query: str, params: Optional[Tuple] = None) -> Optional[Dict[str, Any]]:
+    """
+    Execute a query and fetch one result as a dictionary.
+
+    Args:
+        query: SQL query to execute
+        params: Optional query parameters
+
+    Returns:
+        Dictionary with column names as keys, or None if no results
+
+    Example:
+        >>> show = db_manager.fetchone_as_dict("SELECT * FROM shows WHERE id = ?", (1,))
+        >>> # Returns: {"id": 1, "name": "Naruto", "active": True}
+        >>> if show:
+        >>>     print(show['name'])
+    """
+
+def bulk_insert_dicts(self, table_name: str, data: List[Dict[str, Any]]) -> int:
+    """
+    Bulk insert a list of dictionaries into a table.
+
+    All dictionaries must have the same keys (columns).
+    Uses executemany for efficient bulk insertion.
+
+    Args:
+        table_name: Name of the table to insert into
+        data: List of dictionaries with column names as keys
+
+    Returns:
+        Number of rows inserted
+
+    Raises:
+        ValueError: If data is empty or dictionaries have inconsistent keys
+
+    Example:
+        >>> rows = [
+        >>>     {"show": "Naruto", "season": 1, "episodes": 220},
+        >>>     {"show": "Bleach", "season": 1, "episodes": 366}
+        >>> ]
+        >>> count = db_manager.bulk_insert_dicts("anime_info", rows)
+        >>> print(f"Inserted {count} rows")
+    """
+
+def create_table_from_dicts(self, table_name: str, data: List[Dict[str, Any]],
+                            if_exists: str = 'fail') -> None:
+    """
+    Create a table from a list of dictionaries with automatic type inference.
+
+    Column types are inferred from the first row:
+    - int values → INTEGER
+    - float values → REAL
+    - all others → TEXT
+
+    Args:
+        table_name: Name of the table to create
+        data: List of dictionaries (must have at least one element)
+        if_exists: What to do if table exists:
+            - 'fail': Raise error (default)
+            - 'replace': Drop existing table and create new one
+            - 'append': Insert data into existing table
+
+    Raises:
+        ValueError: If data is empty or if_exists is invalid
+        Exception: If table exists and if_exists='fail'
+
+    Example:
+        >>> data = [
+        >>>     {"name": "Naruto", "episodes": 220, "rating": 8.3},
+        >>>     {"name": "Bleach", "episodes": 366, "rating": 7.9}
+        >>> ]
+        >>> db_manager.create_table_from_dicts("anime_stats", data, if_exists='replace')
+        >>> # Creates table: name TEXT, episodes INTEGER, rating REAL
+
+    Note:
+        - All rows are normalized to have the same columns (missing values filled with None)
+        - Type inference uses the first row's values
+        - NULL/None values are allowed after the first row
+    """
+
+def replace_table_data(self, table_name: str, data: List[Dict[str, Any]]) -> None:
+    """
+    Replace all data in a table with new data.
+
+    This is a convenience method that:
+    1. Drops the table if it exists
+    2. Creates a new table with the same schema
+    3. Inserts the new data
+
+    Equivalent to create_table_from_dicts(table_name, data, if_exists='replace')
+
+    Args:
+        table_name: Name of the table
+        data: List of dictionaries with new data
+
+    Example:
+        >>> # Load, transform, and save back
+        >>> data = db_manager.fetchall_as_dicts("SELECT * FROM shows")
+        >>> for row in data:
+        >>>     row['normalized_name'] = row['name'].lower()
+        >>> db_manager.replace_table_data("shows", data)
+    """
+
+def drop_table(self, table_name: str) -> None:
+    """
+    Drop a table if it exists.
+
+    Args:
+        table_name: Name of the table to drop
+
+    Example:
+        >>> db_manager.drop_table("temporary_processing_table")
+    """
+```
+
+### CRUD Operations
+
+```python
+def insert(self, table_name: str, data: Dict[str, Any]) -> int:
+    """
+    Insert a single row into a table.
+
+    Args:
+        table_name: Name of the table
+        data: Dictionary with column names as keys
+
+    Returns:
+        ID of inserted row (lastrowid)
+    """
+
+def update(self, table_name: str, data: Dict[str, Any],
+          where: str, params: Tuple) -> int:
+    """
+    Update rows in a table.
+
+    Args:
+        table_name: Name of the table
+        data: Dictionary with columns to update
+        where: WHERE clause (without 'WHERE' keyword)
+        params: Parameters for WHERE clause
+
+    Returns:
+        Number of rows updated
+    """
+
+def delete(self, table_name: str, where: str, params: Tuple) -> int:
+    """
+    Delete rows from a table.
+
+    Args:
+        table_name: Name of the table
+        where: WHERE clause (without 'WHERE' keyword)
+        params: Parameters for WHERE clause
+
+    Returns:
+        Number of rows deleted
+    """
+```
+
+### Utility Methods
+
+```python
+def table_exists(self, table_name: str) -> bool:
+    """Check if a table exists in the database"""
+
+def get_table_schema(self, table_name: str) -> List[Tuple]:
+    """Get the schema information for a table"""
+
+def get_table_names(self) -> List[str]:
+    """Get a list of all table names in the database"""
+```
+
+### Transaction Management
+
+```python
+def transaction(self) -> ContextManager:
+    """
+    Context manager for database transactions.
+
+    Automatically commits on success, rolls back on exception.
+
+    Example:
+        >>> with db_manager.transaction() as conn:
+        >>>     cursor = conn.cursor()
+        >>>     cursor.execute("INSERT INTO table1 VALUES (?, ?)", (val1, val2))
+        >>>     cursor.execute("UPDATE table2 SET col = ? WHERE id = ?", (val3, id))
+        >>>     # Automatically commits when context exits successfully
+        >>>     # Automatically rolls back if any exception occurs
+    """
+```
+
+### Thread Safety
+
+- Each thread gets its own database connection automatically
+- All methods use automatic retry logic for database locks
+- Exponential backoff with configurable max attempts
+- No manual connection management required
+
+### Performance Considerations
+
+- **Dict lists are better for**: Small to medium datasets (< 10,000 rows), simple transformations
+- **Pandas would be better for**: Very large datasets (> 100,000 rows), complex aggregations
+- **For CommercialBreaker**: Dict lists provide lower memory footprint and simpler code for typical use cases
+
+## NetworkUtils API
+
+The `NetworkUtils` module in `API/utils/NetworkUtils.py` provides stdlib-based HTTP operations using curl subprocess.
+
+### Module Overview
+
+This module provides:
+- **CurlHttpClient**: HTTP client using system curl via subprocess
+- **CurlResponse**: Response object mimicking requests.Response interface
+- **WikipediaTableParser**: Regex-based HTML table parser
+- **Exception Classes**: Compatible with requests library exceptions
+
+### CurlHttpClient
+
+Drop-in replacement for basic `requests` operations using system curl.
+
+```python
+from API.utils.NetworkUtils import CurlHttpClient
+
+class MyTool:
+    def fetch_data(self):
+        # GET request
+        response = CurlHttpClient.get(
+            "https://api.example.com/data",
+            headers={"User-Agent": "MyApp/1.0"},
+            timeout=30
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            return data
+```
+
+#### Methods
+
+```python
+@staticmethod
+def get(url: str,
+        headers: Optional[Dict[str, str]] = None,
+        params: Optional[Dict[str, str]] = None,
+        timeout: int = 30) -> CurlResponse:
+    """
+    Perform HTTP GET request using curl subprocess.
+
+    Args:
+        url: Target URL (must be valid HTTP/HTTPS URL)
+        headers: Optional dictionary of HTTP headers
+        params: Optional dictionary of query parameters (appended to URL)
+        timeout: Timeout in seconds (default: 30)
+
+    Returns:
+        CurlResponse object with status_code, text, and json() method
+
+    Raises:
+        Timeout: If request exceeds timeout duration
+        ConnectionError: If curl cannot connect to the server
+        RequestException: For other curl errors (exit codes 1-99)
+
+    Example:
+        >>> response = CurlHttpClient.get(
+        >>>     "https://en.wikipedia.org/api/rest_v1/page/html/List_of_programs_broadcast_by_Toonami",
+        >>>     headers={"User-Agent": "CommercialBreaker/1.0"},
+        >>>     timeout=10
+        >>> )
+        >>> if response.status_code == 200:
+        >>>     html = response.text
+    """
+
+@staticmethod
+def post(url: str,
+         json_data: Optional[Dict] = None,
+         data: Optional[Union[Dict, str]] = None,
+         headers: Optional[Dict[str, str]] = None,
+         timeout: int = 30) -> CurlResponse:
+    """
+    Perform HTTP POST request using curl subprocess.
+
+    Args:
+        url: Target URL
+        json_data: Optional dictionary to send as JSON body (sets Content-Type: application/json)
+        data: Optional data to send as form data (dict) or raw body (str)
+        headers: Optional dictionary of HTTP headers
+        timeout: Timeout in seconds (default: 30)
+
+    Returns:
+        CurlResponse object
+
+    Raises:
+        Timeout: If request exceeds timeout
+        ConnectionError: If curl cannot connect
+        RequestException: For other curl errors
+
+    Example:
+        >>> response = CurlHttpClient.post(
+        >>>     "https://api.example.com/endpoint",
+        >>>     json_data={"key": "value"},
+        >>>     headers={"Authorization": "Bearer token"}
+        >>> )
+        >>> print(response.status_code)
+    """
+```
+
+### CurlResponse
+
+Response object that mimics the `requests.Response` interface for compatibility.
+
+```python
+class CurlResponse:
+    """
+    Response object mimicking requests.Response interface.
+
+    Attributes:
+        text (str): Response body as string
+        status_code (int): HTTP status code
+        _content (bytes): Raw response content
+    """
+
+    @property
+    def text(self) -> str:
+        """
+        Get response body as string.
+
+        Returns:
+            Response body decoded as UTF-8
+        """
+
+    @property
+    def status_code(self) -> int:
+        """
+        Get HTTP status code.
+
+        Returns:
+            HTTP status code (200, 404, 500, etc.)
+        """
+
+    def json(self) -> Any:
+        """
+        Parse response body as JSON.
+
+        Returns:
+            Parsed JSON data (dict, list, etc.)
+
+        Raises:
+            json.JSONDecodeError: If response is not valid JSON
+
+        Example:
+            >>> response = CurlHttpClient.get("https://api.example.com/data")
+            >>> data = response.json()
+            >>> print(data['key'])
+        """
+
+    def raise_for_status(self) -> None:
+        """
+        Raise HTTPError if status code indicates an error (4xx or 5xx).
+
+        Raises:
+            HTTPError: If status code >= 400
+
+        Example:
+            >>> response = CurlHttpClient.get(url)
+            >>> response.raise_for_status()  # Raises if error
+            >>> data = response.json()  # Safe to proceed
+        """
+```
+
+### WikipediaTableParser
+
+Regex-based HTML table parser for extracting tabular data from Wikipedia pages.
+
+```python
+from API.utils.NetworkUtils import WikipediaTableParser
+
+class MyTool:
+    def parse_wikipedia_table(self, html):
+        parser = WikipediaTableParser(html)
+        tables = parser.extract_tables()
+
+        for table in tables:
+            for row in table['rows']:
+                # Process row data
+                pass
+```
+
+#### Methods
+
+```python
+def __init__(self, html: str):
+    """
+    Initialize parser with HTML content.
+
+    Args:
+        html: HTML content containing tables
+    """
+
+def extract_tables(self) -> List[Dict[str, Any]]:
+    """
+    Extract all tables from HTML using regex patterns.
+
+    Returns:
+        List of table dictionaries, each containing:
+        - 'rows': List of row dictionaries with column data
+        - Additional metadata as needed
+
+    Example:
+        >>> html = response.text
+        >>> parser = WikipediaTableParser(html)
+        >>> tables = parser.extract_tables()
+        >>> for table in tables:
+        >>>     print(f"Found table with {len(table['rows'])} rows")
+        >>>     for row in table['rows']:
+        >>>         print(row)  # Dict with column names as keys
+    """
+```
+
+### Exception Classes
+
+Compatible exception hierarchy matching the requests library.
+
+```python
+class RequestException(Exception):
+    """
+    Base exception for all network request errors.
+
+    All other NetworkUtils exceptions inherit from this.
+    """
+
+class HTTPError(RequestException):
+    """
+    Exception raised for HTTP error status codes (4xx, 5xx).
+
+    Raised by CurlResponse.raise_for_status() when status code >= 400.
+    """
+
+class Timeout(RequestException):
+    """
+    Exception raised when request exceeds timeout duration.
+
+    Raised when curl subprocess times out (exit code 28).
+    """
+
+class ConnectionError(RequestException):
+    """
+    Exception raised for connection errors.
+
+    Raised when curl cannot connect to server (exit codes 6, 7).
+    """
+```
+
+### Usage Examples
+
+#### Basic GET Request with Error Handling
+
+```python
+from API.utils.NetworkUtils import CurlHttpClient, Timeout, ConnectionError, HTTPError
+
+def fetch_with_retry(url, max_attempts=3):
+    for attempt in range(max_attempts):
+        try:
+            response = CurlHttpClient.get(url, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except Timeout:
+            print(f"Attempt {attempt + 1}: Timeout")
+            if attempt == max_attempts - 1:
+                raise
+        except ConnectionError as e:
+            print(f"Attempt {attempt + 1}: Connection error - {e}")
+            if attempt == max_attempts - 1:
+                raise
+        except HTTPError as e:
+            print(f"HTTP error: {e}")
+            raise  # Don't retry on HTTP errors
+```
+
+#### Wikipedia API Integration
+
+```python
+def fetch_toonami_shows(self):
+    """Fetch Toonami shows from Wikipedia."""
+    url = "https://en.wikipedia.org/api/rest_v1/page/html/List_of_programs_broadcast_by_Toonami"
+    headers = {"User-Agent": "CommercialBreaker/1.0 (github.com/yourrepo)"}
+
+    try:
+        response = CurlHttpClient.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+
+        parser = WikipediaTableParser(response.text)
+        tables = parser.extract_tables()
+
+        for table in tables:
+            for row in table['rows']:
+                show_name = row.get('show_name', '')
+                # Process show data
+
+    except Timeout:
+        print("Wikipedia request timed out")
+    except ConnectionError:
+        print("Cannot connect to Wikipedia")
+    except Exception as e:
+        print(f"Error fetching data: {e}")
+```
+
+#### POST Request with JSON
+
+```python
+def send_platform_config(self, config_data):
+    """Send configuration to DizqueTV/Tunarr."""
+    url = f"{self.platform_url}/api/channels"
+
+    response = CurlHttpClient.post(
+        url,
+        json_data=config_data,
+        headers={"Content-Type": "application/json"},
+        timeout=30
+    )
+
+    if response.status_code == 200:
+        return response.json()
+    else:
+        print(f"Failed with status {response.status_code}")
+        return None
+```
+
+### System Requirements
+
+- **curl must be installed** on the system
+  - macOS/Linux: Usually pre-installed
+  - Windows: Included in Windows 10+ by default
+  - Docker: Added to Dockerfile with `apt-get install curl`
+
+### Migration from requests
+
+The NetworkUtils module provides a compatible interface for basic requests usage:
+
+**Old (requests):**
+```python
+import requests
+
+response = requests.get(url, headers=headers, timeout=30)
+if response.status_code == 200:
+    data = response.json()
+```
+
+**New (NetworkUtils):**
+```python
+from API.utils.NetworkUtils import CurlHttpClient
+
+response = CurlHttpClient.get(url, headers=headers, timeout=30)
+if response.status_code == 200:
+    data = response.json()
+```
+
+**Key Differences:**
+- NetworkUtils uses system curl (subprocess) instead of Python HTTP libraries
+- No persistent session support (each request is independent)
+- No SSL certificate verification control (uses curl defaults)
+- No cookie jar support
+- Simpler interface suitable for CommercialBreaker's use cases
+
+### Performance Notes
+
+- Each request spawns a curl subprocess (minimal overhead)
+- No persistent connections between requests
+- Suitable for infrequent API calls (Wikipedia scraping, platform integration)
+- Not suitable for high-frequency API polling
+
 #### Workflow API
 
 
@@ -584,10 +1235,151 @@ class ToonamiChecker:
 class MediaProcessor:
     def __init__(self, bump_folder: str):
         """Initialize with bumps directory"""
-    
+
     def run(self) -> None:
         """Process and catalog bump files"""
 ```
+
+### DizqueTV Helper Functions
+
+The `ToonamiTools/utils/DizqueTVHelpers.py` module provides utility functions for creating DizqueTV-compatible data structures from Plex media items.
+
+#### create_program_dict_from_plex_item
+```python
+def create_program_dict_from_plex_item(
+    plex_item,
+    plex_server,
+    start_time: Optional[int] = None,
+    end_time: Optional[int] = None
+) -> dict:
+    """
+    Create a DizqueTV program dictionary from a PlexAPI item.
+
+    Args:
+        plex_item: PlexAPI Video, Movie, Episode, or Track object
+        plex_server: PlexAPI PlexServer object
+        start_time: Optional start time in milliseconds (for cutless mode)
+        end_time: Optional end time in milliseconds (for cutless mode)
+
+    Returns:
+        Dictionary containing program data in DizqueTV format with keys:
+        - title: Program title
+        - key: Plex item key
+        - ratingKey: Plex rating key (as string)
+        - icon: Full URL to thumbnail image
+        - type: Item type ('episode', 'movie', 'track')
+        - duration: Duration in milliseconds
+        - summary: Program description
+        - rating: Content rating (e.g., 'TV-PG', 'PG-13')
+        - date: Original air date (YYYY-MM-DD format)
+        - year: Release year
+        - plexFile: Plex media part key
+        - file: Full file path on Plex server
+        - serverKey: Plex server friendly name
+
+        For episodes, additional keys:
+        - showTitle: Series name
+        - episode: Episode number (int)
+        - season: Season number (int)
+        - episodeIcon: Episode thumbnail URL
+        - seasonIcon: Season poster URL
+        - showIcon: Series poster URL
+
+        For cutless mode:
+        - seekPosition: Start time in milliseconds (if start_time provided)
+        - endPosition: End time in milliseconds (if end_time provided)
+
+    Raises:
+        ValueError: If media parts cannot be found for the Plex item
+
+    Example:
+        from plexapi.server import PlexServer
+        from ToonamiTools.utils.DizqueTVHelpers import create_program_dict_from_plex_item
+
+        plex = PlexServer('http://localhost:32400', token='your_token')
+        episode = plex.library.section('TV Shows').get('Cowboy Bebop').episodes()[0]
+
+        # Standard program entry
+        program = create_program_dict_from_plex_item(episode, plex)
+
+        # Cutless mode with custom start/end times (in milliseconds)
+        program = create_program_dict_from_plex_item(
+            episode,
+            plex,
+            start_time=5000,      # Start at 5 seconds
+            end_time=1380000      # End at 23 minutes
+        )
+    """
+```
+
+**Implementation Notes:**
+- Automatically detects item type (episode, movie, track) from PlexAPI object
+- Handles date formatting consistently (YYYY-MM-DD)
+- Constructs authenticated URLs with Plex tokens for thumbnails/icons
+- Supports cutless mode via optional start_time/end_time parameters
+- Gracefully handles missing metadata fields with empty strings
+
+#### create_default_channel_settings
+```python
+def create_default_channel_settings(channel_number: int, channel_name: str) -> dict:
+    """
+    Create default channel settings for DizqueTV.
+
+    Args:
+        channel_number: Channel number (e.g., 1, 2, 101)
+        channel_name: Channel display name (e.g., 'Toonami')
+
+    Returns:
+        Dictionary containing default DizqueTV channel configuration with:
+        - number: Channel number
+        - name: Channel name
+        - programs: Empty list (populate with program dicts)
+        - icon: Channel icon URL (empty by default)
+        - disableFillerOverlay: False (show filler overlays)
+        - startTime: 0 (start immediately)
+        - offline: Offline mode configuration (clip mode by default)
+        - fallback: Empty fallback content list
+        - fillerCollections: Empty filler collections list
+        - scheduleBackup: Empty schedule backup list
+        - transcoding: Default transcoding settings
+            - targetResolution: "1920x1080"
+            - videoBitrate: 3000 kbps
+            - videoBufSize: 1000
+        - watermark: Watermark configuration (disabled by default)
+            - enabled: False
+            - width: 10%
+            - margins: 1% vertical/horizontal
+            - duration: 0 (always show)
+            - fixedSize: False
+            - position: "bottom-right"
+            - url: Empty
+
+    Example:
+        from ToonamiTools.utils.DizqueTVHelpers import create_default_channel_settings
+
+        # Create a new Toonami channel
+        channel = create_default_channel_settings(101, "Toonami")
+
+        # Customize settings
+        channel['icon'] = 'https://example.com/toonami_logo.png'
+        channel['transcoding']['videoBitrate'] = 5000  # Increase bitrate
+        channel['watermark']['enabled'] = True
+        channel['watermark']['url'] = 'https://example.com/watermark.png'
+
+        # Add programs (created with create_program_dict_from_plex_item)
+        channel['programs'].append(program1)
+        channel['programs'].append(program2)
+    """
+```
+
+**Usage in Pipeline:**
+These helper functions are used by `PlexToDizqueTV` to convert Plex media items and lineup data into DizqueTV channel configurations. They abstract away the complexity of DizqueTV's data format and ensure consistency across the codebase.
+
+**Best Practices:**
+- Always use these helpers instead of manually constructing DizqueTV dictionaries
+- Verify Plex server connectivity before calling `create_program_dict_from_plex_item`
+- Customize channel settings after creation rather than modifying defaults
+- For cutless mode, ensure start_time < end_time and both are within video duration
 
 ## ComBreak Module APIs
 

@@ -182,20 +182,135 @@ with self.db_manager.transaction() as conn:
     # Automatically commits on success, rolls back on exception
 ```
 
-### Working with Pandas
+### Working with Dictionary-Based Data
 
-When using pandas DataFrames with the database:
+All database operations return native Python data structures (lists of dictionaries). This approach eliminates heavy dependencies while maintaining excellent performance for typical dataset sizes.
+
+#### Reading Data as Dictionaries
 
 ```python
-with self.db_manager.transaction() as conn:
-    # Read data
-    df = pd.read_sql("SELECT * FROM table", conn)
-    
-    # Process dataframe
-    processed_df = process_data(df)
-    
-    # Write back to database
-    processed_df.to_sql("processed_table", conn, if_exists="replace", index=False)
+# Read all rows as list of dictionaries
+data = self.db_manager.fetchall_as_dicts("SELECT * FROM shows")
+# Returns: [{"id": 1, "name": "Naruto", "active": True}, {"id": 2, "name": "Bleach", "active": True}]
+
+# Read single row as dictionary
+row = self.db_manager.fetchone_as_dict("SELECT * FROM shows WHERE id = ?", (1,))
+# Returns: {"id": 1, "name": "Naruto", "active": True} or None if not found
+
+# With parameters
+active_shows = self.db_manager.fetchall_as_dicts(
+    "SELECT * FROM shows WHERE active = ?",
+    (True,)
+)
+```
+
+#### Filtering and Transforming Data
+
+```python
+# Filter using list comprehensions
+active_shows = [row for row in data if row['active'] == True]
+recent_episodes = [row for row in data if row['season'] > 1]
+
+# Transform data by modifying dictionaries in place
+for row in data:
+    row['normalized_name'] = row['name'].lower()
+    row['full_title'] = f"{row['name']} Season {row['season']}"
+
+# Chain filters
+filtered = [
+    row for row in data
+    if row['status'] == 'active' and row.get('episodes', 0) > 10
+]
+```
+
+#### Sorting Data
+
+```python
+# Sort by single key
+data.sort(key=lambda x: x['name'])
+
+# Sort by multiple keys
+data.sort(key=lambda x: (x['season'], x['episode']))
+
+# Sort in reverse
+data.sort(key=lambda x: x['episode_count'], reverse=True)
+```
+
+#### Saving Data
+
+```python
+# Bulk insert list of dictionaries
+new_rows = [
+    {"name": "One Piece", "season": 1, "active": True},
+    {"name": "Gundam", "season": 2, "active": True}
+]
+self.db_manager.bulk_insert_dicts("shows", new_rows)
+
+# Create table from data (with type inference)
+self.db_manager.create_table_from_dicts("new_table", data, if_exists='replace')
+
+# Replace all data in existing table
+processed_data = process(data)
+self.db_manager.replace_table_data("shows", processed_data)
+
+# Drop table if needed
+self.db_manager.drop_table("temporary_table")
+```
+
+#### Checking for None/Empty Values
+
+```python
+# Check for None or empty string
+if row.get('column') is None or row.get('column') == '':
+    # Handle missing/empty value
+    pass
+
+# Safe access with default
+value = row.get('optional_column', 'default_value')
+
+# Filter out rows with missing data
+valid_data = [
+    row for row in data
+    if row.get('required_field') and row['required_field'] != ''
+]
+```
+
+#### Deduplication
+
+```python
+# Deduplicate by key, keeping last occurrence
+seen = {}
+for row in data:
+    seen[row['unique_key']] = row
+deduplicated = list(seen.values())
+
+# Deduplicate by multiple columns
+seen = {}
+for row in data:
+    key = (row['show'], row['season'], row['episode'])
+    seen[key] = row
+deduplicated = list(seen.values())
+```
+
+#### Grouping Data
+
+```python
+from collections import defaultdict
+
+# Group by single key
+groups = defaultdict(list)
+for row in data:
+    groups[row['show_name']].append(row)
+
+# Process each group
+for show_name, episodes in groups.items():
+    print(f"{show_name}: {len(episodes)} episodes")
+
+# Group by multiple keys
+groups = defaultdict(list)
+for row in data:
+    key = (row['show'], row['season'])
+    groups[key].append(row)
 ```
 
 ### Important Notes
@@ -205,6 +320,8 @@ with self.db_manager.transaction() as conn:
 3. **Auto-retry** - Database locks are handled with exponential backoff
 4. **Transactions** - Use the `transaction()` context manager for atomic operations
 5. **Resource Cleanup** - Connections are managed automatically per thread
+6. **Dict Lists vs DataFrames** - For typical dataset sizes (< 10,000 rows), dict lists provide better memory efficiency and simpler code
+7. **Type Inference** - `create_table_from_dicts()` infers column types from the first row (int, float, or text)
 
 ## Error Handling
 
@@ -460,7 +577,7 @@ class YourNewTool:
         self.param2 = param2
         self.db_manager = get_db_manager()
         self.error_manager = get_error_manager()
-    
+
     def run(self):
         try:
             # Validate parameters
@@ -473,18 +590,24 @@ class YourNewTool:
                     suggestion="Provide param1 in configuration"
                 )
                 return None
-            
-            # Use DatabaseManager for all database operations
-            with self.db_manager.transaction() as conn:
-                df = pd.read_sql("SELECT * FROM shows", conn)
-                
-            # Use show_name_mapper for name normalization
-            for show in shows:
-                normalized = show_name_mapper.map(show, strategy='all')
-                # Process normalized name
-            
-            return result
-            
+
+            # Load data as list of dictionaries
+            data = self.db_manager.fetchall_as_dicts("SELECT * FROM shows")
+
+            # Transform data
+            for row in data:
+                # Use show_name_mapper for name normalization
+                row['normalized_name'] = show_name_mapper.map(row['show'], strategy='all')
+                row['clean_name'] = show_name_mapper.clean(row['normalized_name'], mode='matching')
+
+            # Filter data
+            active_shows = [row for row in data if row.get('active', False)]
+
+            # Save processed data
+            self.db_manager.replace_table_data("processed_shows", active_shows)
+
+            return len(active_shows)
+
         except Exception as e:
             self.error_manager.send_critical(
                 source="YourNewTool",

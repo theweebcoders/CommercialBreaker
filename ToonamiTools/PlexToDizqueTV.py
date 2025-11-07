@@ -1,13 +1,13 @@
-import pandas as pd
 import re
 import os
 import sys
 import config
 from API.utils.DatabaseManager import get_db_manager
 from API.utils.ErrorManager import get_error_manager
+from API.utils.NetworkUtils import CurlHttpClient, RequestException, Timeout, ConnectionError
 from plexapi.server import PlexServer
-from dizqueTV import API
 from .utils import show_name_mapper
+from .utils.DizqueTVHelpers import create_program_dict_from_plex_item, create_default_channel_settings
 
 
 class PlexToDizqueTVSimplified:
@@ -27,7 +27,6 @@ class PlexToDizqueTVSimplified:
         
         # These will be initialized in run()
         self.plex = None
-        self.dtv = None
         self.df = None
         self.anime_media = {}
         self.toonami_media = {}
@@ -47,16 +46,19 @@ class PlexToDizqueTVSimplified:
                 suggestion="Check that your Plex server is running and your credentials are correct"
             )
             raise
-        
-        # Initialize DizqueTV API
+
+        # Test DizqueTV connection
         try:
-            self.dtv = API(url=self.dizquetv_url)
-        except Exception as e:
+            response = CurlHttpClient.get(f"{self.dizquetv_url}/api/channels", timeout=10)
+            if response.status_code != 200:
+                raise Exception(f"DizqueTV returned status code {response.status_code}")
+            print("Connected to DizqueTV successfully.")
+        except (Timeout, ConnectionError, RequestException) as e:
             self.error_manager.send_error_level(
                 source="PlexToDizqueTV",
                 operation="run",
                 message="Cannot connect to DizqueTV",
-                details=f"Failed to connect to {self.dizquetv_url}",
+                details=f"Failed to connect to {self.dizquetv_url}: {str(e)}",
                 suggestion="Check that DizqueTV is running and the URL is correct"
             )
             raise
@@ -80,10 +82,9 @@ class PlexToDizqueTVSimplified:
                     suggestion="Run 'Prepare Cut Anime for Lineup' first to create the necessary lineup data"
                 )
                 raise Exception(f"Table {self.table} not found")
-            
-            with db_manager.transaction() as conn:
-                self.df = pd.read_sql_query(f"SELECT * FROM {self.table}", conn)
-        
+
+            self.df = db_manager.fetchall_as_dicts(f"SELECT * FROM {self.table}")
+
         # Initialize libraries
         self._init_libraries()
         
@@ -93,32 +94,34 @@ class PlexToDizqueTVSimplified:
         to_add = []
         missing_files = []
         
-        for index, row in self.df.iterrows():
+        for index, row in enumerate(self.df):
             file_path = row['FULL_FILE_PATH']
             filename = self.get_filename_from_path(file_path)
-            
+
             # Get the media item
             plex_item = self.get_media_item(file_path)
-            
+
             if plex_item:
                 print(f"Converting Plex item: {plex_item.title}")
-                
+
                 try:
-                    # Convert the plex item to a program
-                    program = self.dtv.convert_plex_item_to_program(plex_item=plex_item, plex_server=self.plex)
-                    
-                    # Add custom start time if available
-                    if pd.notna(row.get('startTime')):
-                        start_time = int(row['startTime'])
-                        program._data['seekPosition'] = start_time
+                    # Get custom timing parameters if available
+                    start_time = int(row['startTime']) if row.get('startTime') is not None else None
+                    end_time = int(row['endTime']) if row.get('endTime') is not None else None
+
+                    # Convert the plex item to a program dictionary
+                    program = create_program_dict_from_plex_item(
+                        plex_item=plex_item,
+                        plex_server=self.plex,
+                        start_time=start_time,
+                        end_time=end_time
+                    )
+
+                    if start_time is not None:
                         print(f"  - Using custom start time: {start_time}ms")
-                    
-                    # Add custom end time if available
-                    if pd.notna(row.get('endTime')):
-                        end_time = int(row['endTime'])
-                        program._data['endPosition'] = end_time
+                    if end_time is not None:
                         print(f"  - Using custom end time: {end_time}ms")
-                    
+
                     to_add.append(program)
                 except Exception as e:
                     print(f"Error converting {plex_item.title}: {e}")
@@ -143,16 +146,83 @@ class PlexToDizqueTVSimplified:
             return
         
         print("Checking and updating the dizqueTV channel...")
-        # Step 2: Add those media items to dizqueTV channel
-        channel = self.dtv.get_channel(self.channel_number)
-        if not channel:
-            print("Channel not found. Creating a new one...")
-            channel = self.dtv.add_channel(programs=[], name=f"{config.network} Channel {self.channel_number}", number=self.channel_number)
-        
-        print("Deleting old programs from the channel...")
-        if channel.delete_all_programs():
-            print("Adding new programs to the channel...")
-            self.dtv.add_programs_to_channels(programs=to_add, channels=[channel])
+
+        # Get existing channel or create new one
+        channel_data = None
+        try:
+            response = CurlHttpClient.get(f"{self.dizquetv_url}/api/channel/{self.channel_number}", timeout=10)
+            if response.status_code == 200:
+                channel_data = response.json()
+                print(f"Found existing channel: {channel_data.get('name', 'Unknown')}")
+            elif response.status_code == 404:
+                print("Channel not found. Creating a new one...")
+            else:
+                raise Exception(f"Unexpected status code {response.status_code}")
+        except (Timeout, ConnectionError, RequestException) as e:
+            self.error_manager.send_error_level(
+                source="PlexToDizqueTV",
+                operation="run",
+                message="Failed to get channel from DizqueTV",
+                details=str(e),
+                suggestion="Check DizqueTV connection"
+            )
+            raise
+
+        # Create or update channel
+        if channel_data is None:
+            # Create new channel
+            channel_data = create_default_channel_settings(
+                channel_number=self.channel_number,
+                channel_name=f"{config.network} Channel {self.channel_number}"
+            )
+            channel_data['programs'] = to_add
+
+            try:
+                response = CurlHttpClient.post(
+                    f"{self.dizquetv_url}/api/channel",
+                    json_data=channel_data,
+                    timeout=30
+                )
+                if response.status_code not in [200, 201]:
+                    raise Exception(f"Failed to create channel: status {response.status_code}")
+                print("Channel created successfully.")
+            except (Timeout, ConnectionError, RequestException) as e:
+                self.error_manager.send_error_level(
+                    source="PlexToDizqueTV",
+                    operation="run",
+                    message="Failed to create channel in DizqueTV",
+                    details=str(e),
+                    suggestion="Check DizqueTV connection and channel settings"
+                )
+                raise
+        else:
+            # Update existing channel - clear old programs and add new ones
+            print("Clearing old programs and adding new ones...")
+            channel_data['programs'] = to_add
+
+            # Calculate total duration
+            total_duration = sum(prog['duration'] for prog in to_add)
+            channel_data['duration'] = total_duration
+
+            try:
+                response = CurlHttpClient.post(
+                    f"{self.dizquetv_url}/api/channel",
+                    json_data=channel_data,
+                    timeout=60
+                )
+                if response.status_code != 200:
+                    raise Exception(f"Failed to update channel: status {response.status_code}")
+                print("Channel updated successfully.")
+            except (Timeout, ConnectionError, RequestException) as e:
+                self.error_manager.send_error_level(
+                    source="PlexToDizqueTV",
+                    operation="run",
+                    message="Failed to update channel in DizqueTV",
+                    details=str(e),
+                    suggestion="Check DizqueTV connection and channel data"
+                )
+                raise
+
         print("Operation complete.")
 
     def _init_libraries(self):

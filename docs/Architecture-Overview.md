@@ -57,7 +57,11 @@ CommercialBreaker & Toonami Tools is a modular Python application designed to au
         │    │  │   │ • Network validation     │ • Centralized error handling   │
         │    │  │   │ • Config persistence     │ • Error history tracking       │
         │    │  │   │   (update config.py)     │ • UI error broadcasting        │
-        │    │  │   └──────────────────────────┴────────────────────────────────┘
+        │    │  │   ├──────────────────────────┴────────────────────────────────┤
+        │    │  │   │  NetworkUtils.py                                          │
+        │    │  │   │ • Curl-based HTTP client  • Wikipedia table parser        │
+        │    │  │   │ • Response interface      • Request exceptions            │
+        │    │  │   └───────────────────────────────────────────────────────────┘
         │    │  │                                               ▲ 
         │    ▼  │                                               │
         │  ┌────────────────────────────────────────────────┐   │
@@ -111,8 +115,9 @@ The CommercialBreaker uses a centralized DatabaseManager for all database operat
 - **Automatic retry logic**: Handles database locks with exponential backoff
 - **Transaction support**: Atomic operations with automatic commit/rollback
 - **Simplified API**: Common operations wrapped in convenient methods
+- **Dictionary-based operations**: Queries return lists of dictionaries (`fetchall_as_dicts()`, `bulk_insert_dicts()`, etc.)
 
-All modules access the database through `get_db_manager()` from `API.utils.DatabaseManager`. This ensures consistent error handling and prevents database lock issues in multi-threaded scenarios.
+All modules access the database through `get_db_manager()` from `API.utils.DatabaseManager`, ensuring consistent error handling and preventing database lock issues in multi-threaded scenarios.
 
 ## Centralized Error Handling
 
@@ -130,8 +135,10 @@ The system employs a centralized error handling mechanism via `ErrorManager.py`,
 ### 1. Initialization Phase
 
 ```
-User Input → Interface Selection → Configuration Loading → Plex Authentication
+User Input → Interface Selection → Configuration Loading → Platform Selection → Plex Authentication (conditional)
 ```
+
+**Note**: Platform selection (DizqueTV, Tunarr, or ComBreakDirect) determines whether Plex authentication is required. ComBreakDirect users skip Plex authentication entirely.
 
 ### 2. Content Discovery Phase
 

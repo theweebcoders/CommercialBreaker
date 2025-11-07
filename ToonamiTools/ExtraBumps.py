@@ -1,8 +1,7 @@
 import os
+import random
 from API.utils.DatabaseManager import get_db_manager
 from API.utils.ErrorManager import get_error_manager
-import pandas as pd
-import numpy as np
 import config
 
 class FileProcessor:
@@ -83,35 +82,38 @@ class FileProcessor:
         
         for lineup_name in self.lineup_dataframes:
             try:
-                with self.db_manager.transaction() as conn:
-                    df_input = pd.read_sql(f"SELECT * FROM {lineup_name}", conn)
-                    
-                if df_input.empty:
+                lineup_data = self.db_manager.fetchall_as_dicts(f"SELECT * FROM {lineup_name}")
+
+                if len(lineup_data) == 0:
                     print(f"Skipping {lineup_name} - it's empty")
                     continue
 
-                df = pd.DataFrame(full_paths, columns=["FULL_FILE_PATH"])
-                df["Code"] = ""
-                df["BLOCK_ID"] = ""
-                df = df.sample(frac=1).reset_index(drop=True)
+                # Create list of bump entries with required columns
+                bump_data = [
+                    {"FULL_FILE_PATH": path, "Code": "", "BLOCK_ID": ""}
+                    for path in full_paths
+                ]
 
-                print("Shuffled DataFrame: ")
-                print(df.head())
+                # Shuffle the bump data
+                random.shuffle(bump_data)
+
+                print("Shuffled bump data: ")
+                print(bump_data[:5])
 
                 pos = 0
-                for i in range(len(df)):
-                    pos += np.random.randint(3, 8)
-                    if pos < len(df_input):
-                        df_input = pd.concat([df_input.iloc[:pos], df.iloc[i:i + 1], df_input.iloc[pos:]]).reset_index(drop=True)
+                for i in range(len(bump_data)):
+                    pos += random.randint(3, 8)
+                    if pos < len(lineup_data):
+                        # Insert bump at position pos
+                        lineup_data = lineup_data[:pos] + [bump_data[i]] + lineup_data[pos:]
                     else:
                         break
 
-                # Create output DataFrame name with '_bonus' suffix
+                # Create output table name with '_bonus' suffix
                 output_name = lineup_name + '_bonus'
 
-                # Write DataFrame back to the database with the new name
-                with self.db_manager.transaction() as conn:
-                    df_input.to_sql(output_name, conn, if_exists='replace', index=False)
+                # Write data back to the database with the new name
+                self.db_manager.replace_table_data(output_name, lineup_data)
 
                 print(f"Processed {lineup_name} and saved as {output_name}")
                 

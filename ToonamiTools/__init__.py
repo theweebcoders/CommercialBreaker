@@ -20,3 +20,4 @@ from .PlexToTunarr import PlexToTunarr
 from .CutlessFinalization import CutlessFinalizer
 from .ComBreakToComBreakDirect import ComBreakToComBreakDirect
 from .BumpCalculator import BumpCalculator
+from .PostCutBumpFilter import PostCutBumpFilter

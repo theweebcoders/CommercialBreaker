@@ -14,8 +14,8 @@ from typing import Optional
 from .utils.MessageBroker import get_message_broker
 from .utils.ErrorManager import get_error_manager, ErrorLevel
 from .utils.NetworkManager import validate_network_name, update_config_network
+from .utils.NetworkUtils import CurlHttpClient, RequestException
 import os
-import requests
 
 import run_server as cbd_run_server
 
@@ -534,9 +534,9 @@ class LogicController():
 
     def _is_combreakdirect_running(self, base_url: str) -> bool:
         try:
-            response = requests.get(f"{base_url}/status", timeout=1.5)
+            response = CurlHttpClient.get(f"{base_url}/status", timeout=1.5)
             return response.status_code == 200
-        except requests.RequestException:
+        except RequestException:
             return False
 
     def _wait_for_combreakdirect_server(self, base_url: str, retries: int = 30, delay: float = 1.0) -> bool:
@@ -1073,10 +1073,10 @@ class LogicController():
                 
                 # Define all possible merger configurations
                 merger_configs = [
-                    {'input': 'multibumps_v2_data_reordered', 'output': 'lineup_v2'},
-                    {'input': 'multibumps_v3_data_reordered', 'output': 'lineup_v3'},
-                    {'input': 'multibumps_v8_data_reordered', 'output': 'lineup_v8'},
-                    {'input': 'multibumps_v9_data_reordered', 'output': 'lineup_v9'},
+                    {'input': 'multibumps_v2_data_reordered_postcut', 'output': 'lineup_v2'},
+                    {'input': 'multibumps_v3_data_reordered_postcut', 'output': 'lineup_v3'},
+                    {'input': 'multibumps_v8_data_reordered_postcut', 'output': 'lineup_v8'},
+                    {'input': 'multibumps_v9_data_reordered_postcut', 'output': 'lineup_v9'},
                 ]
                 
                 commercial_injector_out = 'commercial_injector_final'
@@ -1093,6 +1093,14 @@ class LogicController():
                     
                 commercial_injector.generate_lineup()
                 BIC.run()
+                self._broadcast_status_update("Filtering multi-show bumps after episode cuts...")
+                post_cut_filter = ToonamiTools.PostCutBumpFilter()
+                post_cut_filter.run()
+
+                self._broadcast_status_update("Reordering post-cut multi-show bumps...")
+                ml_postcut = ToonamiTools.Multilineup(post_cut=True)
+                ml_postcut.reorder_all_tables()
+
                 self._broadcast_status_update("Creating your lineup...")
                 
                 # Check which reordered tables actually exist and run merger only for those

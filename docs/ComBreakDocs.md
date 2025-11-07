@@ -448,7 +448,7 @@ ComBreak is an application designed to identify commercial break points in video
   - Crucial for tracking progress through multiple detection methods
 
 ### 9. VideoLoader.py
-- **Purpose:** Simplified interface for OpenCV video processing
+- **Purpose:** Simplified interface for video processing
 - **Key Features:**
   - Implements Python iterator protocol for easy frame-by-frame access
   - Applies frame rate reduction (only processes every Nth frame)

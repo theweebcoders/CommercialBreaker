@@ -323,7 +323,31 @@ Please read the FAQ before using this program. It will save you a lot of time an
 
 Feeling adventurous? On Page 1 there’s a small “Advanced” button. You can change the network there (e.g., “Cartoon Network”, “Disney Channel”) — hit Validate, then “Apply & Restart.” We’ll quietly reboot TOM for you so everything (including the database file) points to your new universe. Still: you must follow the naming rules above or the Clydes will revolt.
 
-## Step 1 - Login to Plex - Welcome to the Absolution
+## Step 1 - Choose Your Platform
+
+**Step 1** Select your platform
+
+This is where you decide if you are a dizquetv boo, a tunarr bro, or a self-hosting chad. There are three buttons each clearly labeled as DizqueTV, Tunarr, and ComBreakDirect. Click the one you use. If you're going with ComBreakDirect, you're basically becoming your own broadcast network—congratulations, you've achieved Toonami nirvana.
+
+**Step 2** Enter your DizqueTV or Tunarr URL (unless using ComBreakDirect)
+
+Enter the URL of your DizqueTV or Tunarr server. This is the URL you use to access your server in a browser. It should look something like this: http://192.168.255.255:3000
+
+If you're using ComBreakDirect, you don't need to enter a URL—it runs as part of CommercialBreaker and is auto-configured.
+
+**⚠️ Important for ComBreakDirect Users**: Unlike DizqueTV and Tunarr (which run independently), ComBreakDirect is part of CommercialBreaker. You'll need to **keep CommercialBreaker running** for your channel to stream. If you close TOM/Absolution/Clydes, ComBreakDirect stops too. Think of it like keeping your broadcast tower powered on!
+
+**Desktop (TOM) Users**: When using TOM on desktop, you'll need to manually start ComBreakDirect using the "Start ComBreakDirect Server" button on the first page. After creating your Toonami channel, you'll see a popup with a button labeled "Open Web UI & Move to Menu Bar" (Mac) or "Open Web UI & Move to Taskbar" (Windows). Click this button to open the ComBreakDirect Web UI in your browser and minimize TOM to your system tray, keeping the server running in the background. Don't use Cmd+Q (Mac) or Alt+F4 (Windows) to close—use the popup button instead. You can access the Web UI and quit the application from the tray icon. ComBreakDirect is automatically started in Docker containers.
+
+**Navigation**: After selecting your platform and entering the URL (if needed), you'll see either a "Skip" button (if using ComBreakDirect) or a "Continue" button (if using DizqueTV/Tunarr) at the bottom right of the window.
+
+**Warning: The button will show "Continue" even if you don't enter your server URL. If you don't enter your server URL for DizqueTV/Tunarr, you will get an error when you try to create your channel.**
+
+Also if your not a creature of the night like us, you can toggle dark mode on and off with the button in the bottom left corner of the window.
+
+## Step 2 - Login to Plex (Optional - Not shown for ComBreakDirect)
+
+**Note**: If you selected **ComBreakDirect** in Step 1, you won't see this page at all - the UI will navigate directly to Step 3 - Select Folders.
 
 **Step 1** Login with Plex
 
@@ -339,33 +363,19 @@ Click the drop-down menu labeled "Select your Anime Library" and select the libr
 
 **Step 4** Select your Toonami Library
 
-Click the drop-down menu labeled "Select your Toonami Library" and select the library you want to use. This is the library that will contain your cut Anime and bumps. You will want to make a new library for this, as it is going to be a mess. Don't worry Anime can be in more than one library without taking up more space or affecting your other libraries. 
+Click the drop-down menu labeled "Select your Toonami Library" and select the library you want to use. This is the library that will contain your cut Anime and bumps. You will want to make a new library for this, as it is going to be a mess. Don't worry Anime can be in more than one library without taking up more space or affecting your other libraries.
 
-**Step 5** Select your platfrom
+**Step 5** Continue
 
-This is where you decide if you are a dizquetv boo, a tunarr bro, or a self-hosting chad. There are three buttons each clearly labeled as DizqueTV, Tunarr, and ComBreakDirect. Click the one you use. If you're going with ComBreakDirect, you're basically becoming your own broadcast network—congratulations, you've achieved Toonami nirvana. 
+After selecting your server and libraries, the "Skip" button at the bottom right will automatically change to "Continue". Click "Continue" to proceed to folder selection.
 
-**Step 6** Enter your DizqueTV or Tunarr URL
+### Step 2 Alternate - Enter Details Manually
 
-Enter the URL of your DizqueTV or Tunarr server. This is the URL you use to access your server in a browser. It should look something like this: http://192.168.255.255:3000
+**Note**: If you're using **DizqueTV/Tunarr** and prefer manual entry, you can click the "Skip" button at the bottom right of the Plex login page to access this alternate page.
 
-If you're using ComBreakDirect, you don't need to enter a URL—it runs as part of CommercialBreaker.
+If you prefer to enter your Plex details manually, you can enter your Plex URL and Token here instead of using the automated login. You will also have to enter the URL for your DizqueTV or Tunarr, select your platform via the same buttons as page one, and enter the names of your Anime Library and Toonami Library. Just type them in and click "Continue" at the bottom right of the window.
 
-**⚠️ Important for ComBreakDirect Users**: Unlike DizqueTV and Tunarr (which run independently), ComBreakDirect is part of CommercialBreaker. You'll need to **keep CommercialBreaker running** for your channel to stream. If you close TOM/Absolution/Clydes, ComBreakDirect stops too. Think of it like keeping your broadcast tower powered on!
-
-**Desktop (TOM) Users**: When using TOM on desktop, you'll need to manually start ComBreakDirect using the "Start ComBreakDirect Server" button on the first page. After creating your Toonami channel, you'll see a popup with a button labeled "Open Web UI & Move to Menu Bar" (Mac) or "Open Web UI & Move to Taskbar" (Windows). Click this button to open the ComBreakDirect Web UI in your browser and minimize TOM to your system tray, keeping the server running in the background. Don't use Cmd+Q (Mac) or Alt+F4 (Windows) to close—use the popup button instead. You can access the Web UI and quit the application from the tray icon. ComBreakDirect is automatically started in Docker containers.
-
-You will notice a button labeled "Skip" at the bottom right of the window. If you don't login with Plex or choose your libraries, this will show up and take you to the next step. If you do login with plex and choose your libraries, this will turn into a button labeled "Continue" and take you to the next step.
-
-**Warning: It will turn into a button labeled "Continue" even if you don't enter your server URL. If you don't enter your server URL, you will get an error when you try to create your channel.**
-
-Also if your not a creature of the night like us, you can toggle dark mode on and off with the button in the bottom left corner of the window.
-
-## Step 1 - Enter Details - A Little Detour
-
-If, for some reason, you don't want to login with Plex or can't, you can enter your Plex URL and Token manually. You will also have to enter the URL for your DizqueTV or Tunarr, select your platfrom via the same buttons as page one, and enter the names of your Anime Library and Toonami Library. Just type them in and click "Continue" at the bottom right of the window.
-
-## Step 2 - Select Folders - Deploy the Clydes
+## Step 3 - Select Folders - Deploy the Clydes
 
 **Step 1** Select your Anime Folder
 
@@ -396,7 +406,7 @@ Click the "Browse Working Folder" button and navigate to the folder that you wan
 
 Once you have selected all your folders, click the "Continue" button at the bottom right of the window.
 
-## Step 3 - Prepare Content - Intruder Alert
+## Step 4 - Prepare Content - Intruder Alert
 
 
 **Step 1** Click the "Prepare Content"
@@ -413,17 +423,21 @@ You'll see two options:
 
 Choose which mode you want by and click the "Process Filtered Shows".
 
+**Note**: If you selected **ComBreakDirect** in Step 1, these options and the "Process Filtered Shows" button won't appear - the system automatically uses "Prepopulate Selection" mode since ComBreakDirect requires cutless mode.
+
 **Step 3** Click "Get Plex Timestamps" (Optional, but highly recommended)
+
+**Note**: If you selected **ComBreakDirect** in Step 1, this option won't appear since ComBreakDirect doesn't use Plex timestamps.
 
 This will get the Plex Timestamps for Intros for all the shows in your Anime Library (The one you selected in Step 1). If you don't have Plex Pass or the "Skip Intro" feature enabled, you can skip this step. If you do have Plex Pass and the "Skip Intro" feature, we highly recommend you do this step as it serves as a backup for when the black frames and silence detection fails.
 
 You can now click the "Continue" button at the bottom right of the window.
 
-## Step 4 - Commercial Breaker - Toonami Will Be Right Back
+## Step 5 - Commercial Breaker - Toonami Will Be Right Back
 
 See below, as this is a big one and we have a lot to say about it. Once you are done, move your cut Anime to a folder Plex can find and add it to your Toonami Library you made earlier. Wait for it to scan and then move on to the next step. If you used cutless mode you can leave your Anime in the Anime library.
 
-## Step 5 - Create your Toonami Channel - All aboard the Absolution
+## Step 6 - Create your Toonami Channel - All aboard the Absolution
 
 It's time to create your Toonami Channel!
 
@@ -469,7 +483,7 @@ That's it! Congratulations! Now you REALLY made a Toonami Channel!
 
 If you want to make another channel, just click the "Continue" button at the bottom right. There are a few extra features on this page too for users who are making multiple channels.
 
-## Step 6 - Let's Make Another Channel! - Toonami's Back Bitches
+## Step 7 - Let's Make Another Channel! - Toonami's Back Bitches
 
 So you finished watching your Toonami Channel and you want to make another one. No problem! 
 
@@ -676,7 +690,7 @@ This is a specialized tool designed to facilitate the insertion of mid-episode b
 
 ### Commercial Injector
 
-Commercialinjector is the linchpin in your cut anime lineup, expertly inserting mid-episode bumps. Working synergistically with commercialinjectorprep, it adds specific bumps like "to ads" and "back" into each episode. Should those specific bumps be unavailable, the tool has a hierarchy of fallbacks: it will first look for anime-specific generic bumps before resorting to universal generics like Clydes or Robot. Employing a SQLite database and pandas dataframes, the tool ensures that each episode is enriched with appropriately timed and contextually fitting bumps, thereby finalizing your polished anime lineup.
+Commercialinjector is the linchpin in your cut anime lineup, expertly inserting mid-episode bumps. Working synergistically with commercialinjectorprep, it adds specific bumps like "to ads" and "back" into each episode. Should those specific bumps be unavailable, the tool has a hierarchy of fallbacks: it will first look for anime-specific generic bumps before resorting to universal generics like Clydes or Robot. Employing a SQLite database, the tool ensures that each episode is enriched with appropriately timed and contextually fitting bumps, thereby finalizing your polished anime lineup.
 
 ### Merger (Again)
 
@@ -818,11 +832,6 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 - [ ] Make it so Clydes can rerun prepare show cut 
 
 ## **Known Issues**
-- [ ] Anime added via Toonami Checker and not cut will cause issues with the lineup
-    - This is because multibump reordered added the bump assuming the Anime will exist
-    - This causes the multibump to be added but no anime will follow it
-    - Can cause issues with NS2 to NS3 logic causing disorganized bump structure
-    - **Possible Fix:** When running cut, rerun multibump reordered based on cut anime
 - [ ] Still a lot of broken connections
 - [ ] If you add special bumps to a list it makes a _bonus table and it's never used
 - [ ] Add to the readme to move the cut anime and bumps to the toonami library

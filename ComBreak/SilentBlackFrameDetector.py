@@ -1,11 +1,8 @@
-import os
 from pathlib import Path
 import subprocess
 from bisect import bisect_left
 import config
-import cv2
-import numpy as np
-from ComBreak.VideoLoader import VideoLoader
+from ComBreak.VideoLoader import VideoLoader, CAP_PROP_FPS, CAP_PROP_POS_MSEC, CAP_PROP_FRAME_COUNT
 from ComBreak.utils import get_executable_path
 from ComBreak.DurationManager import get_duration_manager
 
@@ -146,7 +143,7 @@ class SilentBlackFrameOrchestrator:
                         # Use VideoLoader's get_frame_count to estimate frames in periods
                         temp_loader = VideoLoader(str(original_file))
                         # Calculate how many frames per second after FRAME_RATE sampling
-                        fps = temp_loader.cap.get(cv2.CAP_PROP_FPS) / config.FRAME_RATE
+                        fps = temp_loader.cap.get(CAP_PROP_FPS) / config.FRAME_RATE
                         temp_loader.release()
                         
                         for period in silence_periods:
@@ -194,7 +191,7 @@ class SilentBlackFrameOrchestrator:
                 try:
                     # Use the same FPS calculation as above for consistency
                     temp_loader = VideoLoader(str(original_file))
-                    fps = temp_loader.cap.get(cv2.CAP_PROP_FPS) / config.FRAME_RATE
+                    fps = temp_loader.cap.get(CAP_PROP_FPS) / config.FRAME_RATE
                     temp_loader.release()
                     
                     for period in silence_periods:
@@ -599,12 +596,16 @@ class BlackFrameAnalyzer:
                 progress_step()
             return [], processed_frames
         for frame in video_loader:
-            frame_time = video_loader.cap.get(cv2.CAP_PROP_POS_MSEC) / 1000
+            if frame is None:
+                continue
+
+            frame_time = video_loader.cap.get(CAP_PROP_POS_MSEC) / 1000
             processed_frames += 1
             progress_step()
             idx = bisect_left(flat_ts, frame_time)
             if idx > 0 and idx % 2 != 0:
-                if np.mean(np.asarray(frame)) < config.BLACK_FRAME_THRESHOLD:
+                # Check if this is a black frame (calculate mean of all pixel values)
+                if sum(frame) / len(frame) < config.BLACK_FRAME_THRESHOLD:
                     timestamps.append(frame_time)
         return timestamps, processed_frames
     
@@ -684,12 +685,15 @@ class BlackFrameAnalyzer:
                 loader = VideoLoader(segment_path)
                 
                 for frame in loader:
+                    if frame is None:
+                        continue
+
                     # Get time within the segment
-                    frame_time_in_segment = loader.cap.get(cv2.CAP_PROP_POS_MSEC) / 1000
-                    
+                    frame_time_in_segment = loader.cap.get(CAP_PROP_POS_MSEC) / 1000
+
                     # Calculate actual time in original video
                     actual_frame_time = segment_start_time + frame_time_in_segment
-                    
+
                     # Verify the timestamp is within expected bounds
                     if actual_frame_time < segment_start_time or actual_frame_time > segment_end_time:
                         if status_callback:
@@ -697,9 +701,9 @@ class BlackFrameAnalyzer:
                                           f"bounds ({segment_start_time:.3f}s-{segment_end_time:.3f}s). Adjusting.")
                         # Clamp to ensure we're in range
                         actual_frame_time = max(segment_start_time, min(actual_frame_time, segment_end_time))
-                    
-                    # Check if this is a black frame
-                    if np.mean(np.asarray(frame)) < config.BLACK_FRAME_THRESHOLD:
+
+                    # Check if this is a black frame (calculate mean of all pixel values)
+                    if sum(frame) / len(frame) < config.BLACK_FRAME_THRESHOLD:
                         timestamps.append(actual_frame_time)
                     
                     # Update progress

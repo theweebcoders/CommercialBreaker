@@ -1,10 +1,5 @@
 import os
 from pathlib import Path
-import cv2
-import numpy as np
-import subprocess
-import json
-from ComBreak.VideoLoader import VideoLoader
 from ComBreak.VideoFileManager import VideoFilesManager
 from ComBreak.EnhancedInputHandler import EnhancedInputHandler
 from ComBreak.VirtualCut import VirtualCut
@@ -12,7 +7,6 @@ from ComBreak.SilentBlackFrameDetector import SilentBlackFrameDetector
 from ComBreak.ChapterExtractor import ChapterExtractor
 from ComBreak.VideoCutter import VideoCutter
 from ComBreak.TimestampManager import TimestampManager
-from bisect import bisect_left
 import config
 
 

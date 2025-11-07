@@ -5,8 +5,7 @@ import json
 from API.utils.DatabaseManager import get_db_manager
 from API.utils.ErrorManager import get_error_manager
 import logging
-import requests
-import pandas as pd
+from API.utils.NetworkUtils import CurlHttpClient, RequestException
 from datetime import datetime
 from plexapi.server import PlexServer
 import config
@@ -64,7 +63,7 @@ class PlexToTunarr:
             
         # Test Tunarr connection - just see if we can reach it
         try:
-            response = requests.get(f"{tunarr_url}/api/channels", timeout=5)
+            response = CurlHttpClient.get(f"{tunarr_url}/api/channels", timeout=5)
             # Don't check status code - Tunarr is beta and unpredictable
         except Exception as e:
             self.error_manager.send_error_level(
@@ -135,11 +134,10 @@ class PlexToTunarr:
                         suggestion="Run 'Prepare Cut Anime for Lineup' first to create the necessary lineup data"
                     )
                     raise Exception(f"Table {self.table} not found")
-                    
-                with db_manager.transaction() as conn:
-                    df = pd.read_sql_query(f"SELECT * FROM {self.table}", conn)
-                    
-                if df.empty:
+
+                data = db_manager.fetchall_as_dicts(f"SELECT * FROM {self.table}")
+
+                if not data:
                     self.error_manager.send_error_level(
                         source="PlexToTunarr",
                         operation="load_db_data",
@@ -148,9 +146,9 @@ class PlexToTunarr:
                         suggestion="Run 'Prepare Cut Anime for Lineup' to populate the lineup data"
                     )
                     raise Exception("Lineup table is empty")
-                    
-                logger.info("Loaded %d rows from table '%s'", len(df), self.table)
-                return df
+
+                logger.info("Loaded %d rows from table '%s'", len(data), self.table)
+                return data
             except Exception as e:
                 if "not found" not in str(e) and "empty" not in str(e):
                     logger.error("Error connecting to database: %s", e)
@@ -166,7 +164,7 @@ class PlexToTunarr:
     # ------------------------------------------------------------------
     def get_channel_by_number(self, channel_number):
         try:
-            response = requests.get(f"{self.tunarr_url}/api/channels")
+            response = CurlHttpClient.get(f"{self.tunarr_url}/api/channels")
             if response.status_code == 200:
                 channels = response.json()
                 for channel in channels:
@@ -204,7 +202,7 @@ class PlexToTunarr:
             "guideMinimumDuration": 0
         }
         logger.debug("Creating channel with data: %s", channel_data)
-        response = requests.post(f"{self.tunarr_url}/api/channels", json=channel_data)
+        response = CurlHttpClient.post(f"{self.tunarr_url}/api/channels", json_data=channel_data)
         if response.status_code == 201:
             new_channel = response.json()
             logger.info("Channel '%s' created successfully.", new_channel.get("name"))
@@ -216,7 +214,7 @@ class PlexToTunarr:
 
     def get_transcode_configs(self):
         try:
-            response = requests.get(f"{self.tunarr_url}/api/transcode_configs")
+            response = CurlHttpClient.get(f"{self.tunarr_url}/api/transcode_configs")
             if response.status_code == 200:
                 return response.json()
             return []
@@ -228,7 +226,7 @@ class PlexToTunarr:
         payload = {"type": "manual", "programs": [], "lineup": []}
         logger.debug("Deleting all programs from channel: %s", channel_id)
         url = f"{self.tunarr_url}/api/channels/{channel_id}/programming"
-        response = requests.post(url, json=payload)
+        response = CurlHttpClient.post(url, json_data=payload)
         return response.status_code == 200
 
     def get_plex_source_info(self):
@@ -243,7 +241,7 @@ class PlexToTunarr:
     def get_plex_media_source_id(self):
         """Get the ID of the Plex media source in Tunarr"""
         try:
-            response = requests.get(f"{self.tunarr_url}/api/media-sources")
+            response = CurlHttpClient.get(f"{self.tunarr_url}/api/media-sources")
             if response.status_code == 200:
                 sources = response.json()
                 # Print out all available media sources for debugging
@@ -291,9 +289,9 @@ class PlexToTunarr:
                 "sendChannelUpdates": False
             }
             
-            response = requests.post(
+            response = CurlHttpClient.post(
                 f"{self.tunarr_url}/api/media-sources",
-                json=media_source_data
+                json_data=media_source_data
             )
             
             if response.status_code == 201:
@@ -517,7 +515,7 @@ class PlexToTunarr:
 
         logger.debug("Final JSON payload to POST:\n%s", json.dumps(payload, indent=2))
         url = f"{self.tunarr_url}/api/channels/{channel_id}/programming"
-        response = requests.post(url, json=payload)
+        response = CurlHttpClient.post(url, json_data=payload)
         if response.status_code == 200:
             logger.info("Programs added successfully!")
             return True
@@ -547,13 +545,13 @@ class PlexToTunarr:
             raise
 
         # Filter Plex items based on the DB table (match file name)
-        if self.df is not None and not self.df.empty and "FULL_FILE_PATH" in self.df.columns:
+        if self.df is not None and len(self.df) > 0 and "FULL_FILE_PATH" in self.df[0]:
             media_dict = {}
             for item in all_media:
                 if item.media and item.media[0].parts:
                     fname = self.get_filename_from_path(item.media[0].parts[0].file)
                     media_dict[fname] = item
-            db_file_names = [self.get_filename_from_path(p) for p in self.df["FULL_FILE_PATH"].tolist()]
+            db_file_names = [self.get_filename_from_path(row["FULL_FILE_PATH"]) for row in self.df]
             filtered_media = []
             for fname in db_file_names:
                 if fname in media_dict:

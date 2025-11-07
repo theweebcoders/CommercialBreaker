@@ -1,4 +1,3 @@
-import pandas as pd
 import os
 import re
 from API.utils.DatabaseManager import get_db_manager
@@ -45,15 +44,16 @@ class CutlessFinalizer:
             query = f"SELECT {select_columns} FROM {mapping_table}"
             with self.db_manager.transaction() as conn:
                 # First check if the table has ANY columns
-                test_df = pd.read_sql_query(f"SELECT * FROM {mapping_table} LIMIT 1", conn)
-                
+                cursor = conn.execute(f"SELECT * FROM {mapping_table} LIMIT 1")
+                test_columns = [desc[0] for desc in cursor.description]
+
                 # Check if timestamp columns exist
                 missing_columns = []
-                if 'startTime' not in test_df.columns:
+                if 'startTime' not in test_columns:
                     missing_columns.append('startTime')
-                if 'endTime' not in test_df.columns:
+                if 'endTime' not in test_columns:
                     missing_columns.append('endTime')
-                    
+
                 if missing_columns:
                     self.error_manager.send_critical(
                         source="CutlessFinalizer",
@@ -63,12 +63,14 @@ class CutlessFinalizer:
                         suggestion="This is a critical issue that should be reported. Please join our Discord and let us know about this error so we can investigate"
                     )
                     return None
-                
+
                 # Now read the actual data we need
-                mapping_df = pd.read_sql_query(query, conn)
-            
+                cursor = conn.execute(query)
+                columns = [desc[0] for desc in cursor.description]
+                mapping_data = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
             # Check if we have any data
-            if mapping_df.empty:
+            if len(mapping_data) == 0:
                 self.error_manager.send_error_level(
                     source="CutlessFinalizer",
                     operation="_get_cutless_mapping",
@@ -99,15 +101,17 @@ class CutlessFinalizer:
                 return False
             
             # Separate anime files from bump files
-            anime_mask = ~mapping_df['FULL_FILE_PATH'].apply(is_bump_file)
-            anime_files = mapping_df[anime_mask]
-            bump_files = mapping_df[~anime_mask]
-            
-            if not anime_files.empty:
-                # Only flag critical error if anime files have BOTH startTime AND endTime null
-                anime_missing_both = anime_files[anime_files['startTime'].isna() & anime_files['endTime'].isna()]
+            anime_files = [row for row in mapping_data if not is_bump_file(row['FULL_FILE_PATH'])]
+            bump_files = [row for row in mapping_data if is_bump_file(row['FULL_FILE_PATH'])]
 
-                if not anime_missing_both.empty:
+            if len(anime_files) > 0:
+                # Only flag critical error if anime files have BOTH startTime AND endTime null
+                anime_missing_both = [
+                    row for row in anime_files
+                    if row.get('startTime') is None and row.get('endTime') is None
+                ]
+
+                if len(anime_missing_both) > 0:
                     self.error_manager.send_critical(
                         source="CutlessFinalizer",
                         operation="_get_cutless_mapping",
@@ -115,12 +119,12 @@ class CutlessFinalizer:
                         details=f"{len(anime_missing_both)} anime files have no timestamp data (both startTime and endTime are null) out of {len(anime_files)} total anime files",
                         suggestion="Anime files need timestamps for cutless mode. This indicates commercial detection may have failed"
                     )
-            
+
             # Log summary of what was found
-            print(f"Successfully loaded {len(mapping_df)} mappings from {mapping_table} ({len(anime_files)} anime files, {len(bump_files)} bump files).")
-            # Set index for faster lookup
-            mapping_df.set_index('FULL_FILE_PATH', inplace=True)
-            return mapping_df
+            print(f"Successfully loaded {len(mapping_data)} mappings from {mapping_table} ({len(anime_files)} anime files, {len(bump_files)} bump files).")
+            # Convert to dict indexed by FULL_FILE_PATH for faster lookup
+            mapping_dict = {row['FULL_FILE_PATH']: row for row in mapping_data}
+            return mapping_dict
             
         except Exception as e:
             self.error_manager.send_error_level(
@@ -144,14 +148,13 @@ class CutlessFinalizer:
                 details="Table 'bump_durations' does not exist",
                 suggestion="Run Prepare Toonami Channel to calculate bump durations before finalizing"
             )
-            return pd.DataFrame(columns=['FULL_FILE_PATH', 'duration']).set_index('FULL_FILE_PATH')
+            return {}
 
         try:
             with self.db_manager.transaction() as conn:
-                bump_df = pd.read_sql_query(
-                    f"SELECT FULL_FILE_PATH, duration FROM {table_name}",
-                    conn
-                )
+                cursor = conn.execute(f"SELECT FULL_FILE_PATH, duration FROM {table_name}")
+                columns = [desc[0] for desc in cursor.description]
+                bump_data = [dict(zip(columns, row)) for row in cursor.fetchall()]
         except Exception as e:
             self.error_manager.send_warning(
                 source="CutlessFinalizer",
@@ -160,9 +163,9 @@ class CutlessFinalizer:
                 details=str(e),
                 suggestion="Check database integrity and rerun bump calculation if necessary"
             )
-            return pd.DataFrame(columns=['FULL_FILE_PATH', 'duration']).set_index('FULL_FILE_PATH')
+            return {}
 
-        if bump_df.empty:
+        if len(bump_data) == 0:
             self.error_manager.send_info(
                 source="CutlessFinalizer",
                 operation="_get_bump_durations",
@@ -170,22 +173,34 @@ class CutlessFinalizer:
                 details="No rows found in 'bump_durations'",
                 suggestion="Recalculate bump durations if lineup entries still need timing information"
             )
-            return pd.DataFrame(columns=['FULL_FILE_PATH', 'duration']).set_index('FULL_FILE_PATH')
+            return {}
 
-        bump_df['FULL_FILE_PATH'] = bump_df['FULL_FILE_PATH'].astype(str).str.strip()
-        bump_df.dropna(subset=['FULL_FILE_PATH'], inplace=True)
-        bump_df['FULL_FILE_PATH'].replace('', pd.NA, inplace=True)
-        bump_df.dropna(subset=['FULL_FILE_PATH'], inplace=True)
+        # Clean and filter data
+        cleaned_data = []
+        for row in bump_data:
+            # Strip and validate FULL_FILE_PATH
+            file_path = str(row.get('FULL_FILE_PATH', '')).strip()
+            if not file_path:
+                continue
 
-        bump_df['duration'] = pd.to_numeric(bump_df['duration'], errors='coerce')
-        bump_df.dropna(subset=['duration'], inplace=True)
+            # Convert duration to numeric
+            try:
+                duration = float(row.get('duration'))
+            except (ValueError, TypeError):
+                continue
 
-        if bump_df.empty:
-            return pd.DataFrame(columns=['FULL_FILE_PATH', 'duration']).set_index('FULL_FILE_PATH')
+            cleaned_data.append({'FULL_FILE_PATH': file_path, 'duration': duration})
 
-        bump_df.drop_duplicates(subset=['FULL_FILE_PATH'], keep='last', inplace=True)
-        bump_df.set_index('FULL_FILE_PATH', inplace=True)
-        return bump_df
+        if len(cleaned_data) == 0:
+            return {}
+
+        # Remove duplicates (keep last occurrence)
+        seen = {}
+        for row in cleaned_data:
+            seen[row['FULL_FILE_PATH']] = row['duration']
+
+        # Return as dict indexed by FULL_FILE_PATH
+        return seen
 
     def _get_lineup_tables(self):
         """Get a list of all lineup table names matching the expected patterns, excluding uncut tables."""
@@ -238,9 +253,11 @@ class CutlessFinalizer:
             )
             return None
 
-    def _validate_durations(self, df, table_name):
+    def _validate_durations(self, data, table_name):
         """Ensure all lineup rows contain duration data before writing output."""
-        if 'duration' not in df.columns:
+        # Check if duration column exists in any row
+        has_duration_column = any('duration' in row for row in data)
+        if not has_duration_column:
             self.error_manager.send_error_level(
                 source="CutlessFinalizer",
                 operation="run",
@@ -250,20 +267,29 @@ class CutlessFinalizer:
             )
             return False
 
-        duration_strings = df['duration'].astype(str).str.strip()
-        missing_mask = df['duration'].isna() | duration_strings.eq('')
-        if not missing_mask.any():
+        # Find rows with missing duration
+        rows_with_missing_duration = [
+            row for row in data
+            if row.get('duration') is None or str(row.get('duration', '')).strip() == ''
+        ]
+
+        if len(rows_with_missing_duration) == 0:
             return True
 
         network_token = str(getattr(config, 'network', '')).strip().lower()
-        file_paths = df['FULL_FILE_PATH'].astype(str).str.lower()
-        bump_mask = file_paths.str.contains(network_token, na=False) if network_token else pd.Series(False, index=df.index)
 
-        bump_missing = df[missing_mask & bump_mask]
-        anime_missing = df[missing_mask & ~bump_mask]
+        # Separate bump and anime files
+        bump_missing = []
+        anime_missing = []
+        for row in rows_with_missing_duration:
+            file_path_lower = str(row.get('FULL_FILE_PATH', '')).lower()
+            if network_token and network_token in file_path_lower:
+                bump_missing.append(row)
+            else:
+                anime_missing.append(row)
 
-        if not bump_missing.empty:
-            sample = ', '.join(bump_missing['FULL_FILE_PATH'].head(5))
+        if len(bump_missing) > 0:
+            sample = ', '.join([row['FULL_FILE_PATH'] for row in bump_missing[:5]])
             details = f"Example bump rows missing duration: {sample}" if sample else ""
             self.error_manager.send_error_level(
                 source="CutlessFinalizer",
@@ -273,8 +299,8 @@ class CutlessFinalizer:
                 suggestion="Run Prepare Cut Anime again after ensuring the Bump Calculator completed successfully"
             )
 
-        if not anime_missing.empty:
-            sample = ', '.join(anime_missing['FULL_FILE_PATH'].head(5))
+        if len(anime_missing) > 0:
+            sample = ', '.join([row['FULL_FILE_PATH'] for row in anime_missing[:5]])
             details = f"Example anime rows missing duration: {sample}" if sample else ""
             self.error_manager.send_error_level(
                 source="CutlessFinalizer",
@@ -303,13 +329,13 @@ class CutlessFinalizer:
             return
             
         try:            
-            mapping_df = self._get_cutless_mapping()
-            if mapping_df is None:
+            mapping_dict = self._get_cutless_mapping()
+            if mapping_dict is None:
                 print("Aborting finalization due to missing or invalid mapping data.")
                 return
 
-            bump_duration_df = self._get_bump_durations()
-            if bump_duration_df.empty:
+            bump_duration_dict = self._get_bump_durations()
+            if len(bump_duration_dict) == 0:
                 self.error_manager.send_error_level(
                     source="CutlessFinalizer",
                     operation="run",
@@ -320,7 +346,7 @@ class CutlessFinalizer:
                 print("Aborting finalization because bump durations were not found.")
                 return
 
-            bump_duration_df = bump_duration_df.rename(columns={'duration': 'bump_duration'})
+            # bump_duration_dict is already keyed by FULL_FILE_PATH with duration values
 
             lineup_tables = self._get_lineup_tables()
             if not lineup_tables:
@@ -336,9 +362,12 @@ class CutlessFinalizer:
                     
                     # Read data from original lineup table
                     with self.db_manager.transaction() as conn:
-                        lineup_df = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
-                    
-                    if 'FULL_FILE_PATH' not in lineup_df.columns:
+                        cursor = conn.execute(f"SELECT * FROM {table_name}")
+                        columns = [desc[0] for desc in cursor.description]
+                        lineup_data = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+                    # Check if FULL_FILE_PATH column exists
+                    if len(lineup_data) > 0 and 'FULL_FILE_PATH' not in lineup_data[0]:
                         self.error_manager.send_warning(
                             source="CutlessFinalizer",
                             operation="run",
@@ -347,113 +376,101 @@ class CutlessFinalizer:
                             suggestion="This table doesn't appear to be a valid lineup table"
                         )
                         continue
-                        
+
                     # Remove any existing timestamp and duration columns before merging to avoid conflicts
-                    if 'startTime' in lineup_df.columns:
-                        lineup_df.drop(columns=['startTime'], inplace=True, errors='ignore')
-                    if 'endTime' in lineup_df.columns:
-                        lineup_df.drop(columns=['endTime'], inplace=True, errors='ignore')
-                    if 'duration' in lineup_df.columns:
-                        lineup_df.drop(columns=['duration'], inplace=True, errors='ignore')
-                    
-                    # Merge lineup data with mapping data
-                    # Use left merge to keep all lineup entries, even if mapping is missing
-                    merged_df = lineup_df.merge(mapping_df, left_on='FULL_FILE_PATH', right_index=True, 
-                                           how='left', suffixes=('', '_map'))
+                    for row in lineup_data:
+                        row.pop('startTime', None)
+                        row.pop('endTime', None)
+                        row.pop('duration', None)
 
-                    merged_df = merged_df.merge(
-                        bump_duration_df,
-                        left_on='FULL_FILE_PATH',
-                        right_index=True,
-                        how='left'
-                    )
+                    # Manual left join: merge lineup data with mapping data
+                    # Keep all lineup entries, even if mapping is missing
+                    mapped_count = 0
+                    has_duration_in_mapping = any('duration' in mapping_dict.get(k, {}) for k in mapping_dict)
 
-                    # Identify rows where mapping was successful (ORIGINAL_FILE_PATH is not NaN)
-                    mapped_rows = merged_df['ORIGINAL_FILE_PATH'].notna()
-                    print(f"Found {mapped_rows.sum()} out of {len(merged_df)} rows with mappings")
+                    for row in lineup_data:
+                        file_path = row.get('FULL_FILE_PATH')
+
+                        # Look up mapping data
+                        mapping_row = mapping_dict.get(file_path)
+                        if mapping_row:
+                            mapped_count += 1
+                            # Add mapping data (ORIGINAL_FILE_PATH, startTime, endTime, duration if present)
+                            row['ORIGINAL_FILE_PATH'] = mapping_row.get('ORIGINAL_FILE_PATH')
+                            row['startTime'] = mapping_row.get('startTime')
+                            row['endTime'] = mapping_row.get('endTime')
+                            if 'duration' in mapping_row:
+                                row['duration'] = mapping_row.get('duration')
+                        else:
+                            row['ORIGINAL_FILE_PATH'] = None
+                            row['startTime'] = None
+                            row['endTime'] = None
+                            if has_duration_in_mapping:
+                                row['duration'] = None
+
+                        # Look up bump duration
+                        bump_duration = bump_duration_dict.get(file_path)
+                        if bump_duration is not None:
+                            # Fill duration if not already set
+                            if row.get('duration') is None:
+                                row['duration'] = bump_duration
+
+                    print(f"Found {mapped_count} out of {len(lineup_data)} rows with mappings")
 
                     # Update FULL_FILE_PATH with ORIGINAL_FILE_PATH where mapping exists
-                    merged_df.loc[mapped_rows, 'FULL_FILE_PATH'] = merged_df.loc[mapped_rows, 'ORIGINAL_FILE_PATH']
-                    
-                    # Add empty timestamp columns if they don't exist
-                    if 'startTime' not in merged_df.columns: merged_df['startTime'] = None
-                    if 'endTime' not in merged_df.columns: merged_df['endTime'] = None
-
-                    # Add empty duration column if it exists in mapping data but not in merged data
-                    has_duration_in_mapping = 'duration' in mapping_df.columns
-                    if has_duration_in_mapping and 'duration' not in merged_df.columns:
-                        merged_df['duration'] = None
-                    
-                    # We need to handle the case where mapping columns might have different names
-                    if 'startTime_map' in merged_df.columns:
-                        # Copy startTime from mapping where mapping exists
-                        merged_df.loc[mapped_rows, 'startTime'] = merged_df.loc[mapped_rows, 'startTime_map']
-                        merged_df.drop(columns=['startTime_map'], inplace=True, errors='ignore')
-                        
-                    if 'endTime_map' in merged_df.columns:
-                        # Copy endTime from mapping where mapping exists
-                        merged_df.loc[mapped_rows, 'endTime'] = merged_df.loc[mapped_rows, 'endTime_map']
-                        merged_df.drop(columns=['endTime_map'], inplace=True, errors='ignore')
-
-                    # Handle duration mapping if it exists
-                    if 'duration_map' in merged_df.columns:
-                        # Copy duration from mapping where mapping exists
-                        merged_df.loc[mapped_rows, 'duration'] = merged_df.loc[mapped_rows, 'duration_map']
-                        merged_df.drop(columns=['duration_map'], inplace=True, errors='ignore')
-
-                    if 'bump_duration' in merged_df.columns:
-                        if 'duration' in merged_df.columns:
-                            merged_df['duration'] = merged_df['duration'].fillna(merged_df['bump_duration'])
-                        else:
-                            merged_df['duration'] = merged_df['bump_duration']
-                        merged_df.drop(columns=['bump_duration'], inplace=True, errors='ignore')
+                    for row in lineup_data:
+                        if row.get('ORIGINAL_FILE_PATH') is not None:
+                            row['FULL_FILE_PATH'] = row['ORIGINAL_FILE_PATH']
 
                     # Drop the ORIGINAL_FILE_PATH column which we no longer need
-                    if 'ORIGINAL_FILE_PATH' in merged_df.columns:
-                        merged_df.drop(columns=['ORIGINAL_FILE_PATH'], inplace=True, errors='ignore')
-                    
-                    # Drop any other columns with the _map suffix that might have been created
-                    map_columns = [col for col in merged_df.columns if col.endswith('_map')]
-                    if map_columns:
-                        print(f"Removing extra mapping columns: {map_columns}")
-                        merged_df.drop(columns=map_columns, inplace=True, errors='ignore')
+                    for row in lineup_data:
+                        row.pop('ORIGINAL_FILE_PATH', None)
 
-                    if not self._validate_durations(merged_df, cutless_table_name):
+                    # Validate durations
+                    if not self._validate_durations(lineup_data, cutless_table_name):
                         print(f"Skipping table {table_name} due to missing durations.")
                         continue
 
-                    # Convert timestamp columns to appropriate type - CONVERTING TO INT
-                    if 'startTime' in merged_df.columns:
-                        # Convert timestamps to integers to avoid decimal issues
-                        merged_df['startTime'] = merged_df['startTime'].apply(
-                            lambda x: int(float(x)) if pd.notnull(x) else None
-                        )
-                    if 'endTime' in merged_df.columns:
-                        # Convert timestamps to integers to avoid decimal issues
-                        merged_df['endTime'] = merged_df['endTime'].apply(
-                            lambda x: int(float(x)) if pd.notnull(x) else None
-                        )
-                    if 'duration' in merged_df.columns:
-                        # Convert duration to integers to match timestamp format
-                        merged_df['duration'] = merged_df['duration'].apply(
-                            lambda x: int(float(x)) if pd.notnull(x) else None
-                        )
+                    # Convert timestamp columns to integers
+                    for row in lineup_data:
+                        for col in ['startTime', 'endTime', 'duration']:
+                            if col in row and row[col] is not None:
+                                try:
+                                    row[col] = int(float(row[col]))
+                                except (ValueError, TypeError):
+                                    row[col] = None
 
                     # Warn if any lineup entries still lack duration after processing
-                    if 'duration' in merged_df.columns and merged_df['duration'].isna().any():
-                        missing_count = int(merged_df['duration'].isna().sum())
+                    missing_duration_count = sum(1 for row in lineup_data if row.get('duration') is None)
+                    if missing_duration_count > 0:
                         self.error_manager.send_warning(
                             source="CutlessFinalizer",
                             operation="run",
-                            message=f"{missing_count} lineup entries missing duration after finalization",
+                            message=f"{missing_duration_count} lineup entries missing duration after finalization",
                             details=f"Table '{cutless_table_name}' still has rows without duration",
                             suggestion="Confirm mapping data includes durations or update assets manually"
                         )
 
                     # Write the result to a new table with _cutless suffix
-                    # Always replace if it exists
                     with self.db_manager.transaction() as conn:
-                        merged_df.to_sql(cutless_table_name, conn, if_exists='replace', index=False)
+                        conn.execute(f"DROP TABLE IF EXISTS {cutless_table_name}")
+
+                        if lineup_data:
+                            # Preserve original column order, append new columns at the end
+                            all_columns = list(columns)  # Start with original order from SELECT
+                            for row in lineup_data:
+                                for col in row.keys():
+                                    if col not in all_columns:
+                                        all_columns.append(col)  # Add new columns at end
+
+                            column_names = ','.join([f'"{col}"' for col in all_columns])
+                            placeholders = ','.join(['?' for _ in all_columns])
+                            conn.execute(f"CREATE TABLE {cutless_table_name} ({column_names})")
+                            conn.executemany(
+                                f"INSERT INTO {cutless_table_name} VALUES ({placeholders})",
+                                [tuple(row.get(col) for col in all_columns) for row in lineup_data]
+                            )
+
                     print(f"Successfully created table: {cutless_table_name}")
                     successful_tables += 1
 

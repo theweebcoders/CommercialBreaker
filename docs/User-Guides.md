@@ -23,25 +23,53 @@ TOM is your mission control for creating Toonami channels. It guides you through
 
 ### Getting Started with TOM
 
-#### Phase 1: Plex Setup
+#### Phase 1: Platform and Plex Setup
 
-**Step 1: Login to Plex**
-- Click "Login with Plex"
-- A browser window opens - log into your Plex account
-- Click "Allow" when prompted
-- Close the success window
+**Page 1: Choose Your Platform**
 
-**Step 2: Select Plex Server**
-- Use the dropdown to select your Plex server
-- Even with one server, you may need to click the dropdown
+1. **Select your platform**
+   - Choose between **DizqueTV**, **Tunarr**, or **ComBreakDirect**
+   - **DizqueTV/Tunarr**: External channel platforms requiring a URL
+   - **ComBreakDirect**: Self-hosted streaming server (no URL needed, auto-configured)
 
-**Step 3: Choose Libraries**
-- **Anime Library**: Your existing anime collection (for intro timestamps)
-- **Toonami Library**: Create a new library for cut content and bumps
+2. **Enter Platform URL** (unless using ComBreakDirect)
+   - Enter your platform's URL (e.g., `http://192.168.1.100:3000` for DizqueTV or `http://192.168.1.100:8000` for Tunarr)
+   - ComBreakDirect users skip this - it's auto-configured
 
-**Step 4: Select Platform**
-- Choose between **DizqueTV** or **Tunarr**
-- Enter your platform's URL (e.g., `http://192.168.1.100:3000`)
+3. **Navigation**
+   - Click "Skip" (ComBreakDirect) or "Continue" (DizqueTV/Tunarr) at bottom right
+
+**Page 2: Login to Plex** (Optional - Not shown for ComBreakDirect)
+
+**Note**: ComBreakDirect users won't see this page - the UI navigates directly to folder selection.
+
+1. **Login with Plex**
+   - Click "Login with Plex" button
+   - Browser window opens - log into your Plex account
+   - Click "Allow" when prompted
+   - Close the success window
+
+2. **Select Plex Server**
+   - Use the dropdown to select your Plex server
+   - Even with one server, you may need to click the dropdown
+
+3. **Select Anime Library**
+   - Choose your existing anime collection (used for intro timestamps)
+
+4. **Select Toonami Library**
+   - Choose or create a new library for cut content and bumps
+
+5. **Continue**
+   - After selecting libraries, "Skip" button changes to "Continue"
+   - Click "Continue" to proceed to folder selection
+
+**Page 2 Alternate: Manual Entry**
+
+**Note**: DizqueTV/Tunarr users can access this page by clicking "Skip" at the bottom right of the Plex login page.
+
+- Enter Plex URL and Token manually
+- Enter platform URL
+- Type library names instead of selecting from dropdowns
 
 **Pro Tip**: Toggle dark mode with the button in the bottom-left corner.
 
@@ -73,7 +101,12 @@ TOM is your mission control for creating Toonami channels. It guides you through
   - **Move Files (Legacy)**: Traditional file moving
   - **Prepopulate Selection**: Prepare for selective processing
 
+**Note**: If you selected ComBreakDirect in Page 1, these processing mode options won't appear - the system automatically uses "Prepopulate Selection" mode.
+
 **Step 2: Get Plex Timestamps (Optional but Recommended)**
+
+**Note**: If you selected ComBreakDirect in Page 1, this option won't appear since ComBreakDirect doesn't use Plex timestamps.
+
 - Click "Get Plex Timestamps"
 - Extracts intro markers from Plex (requires Plex Pass)
 - Provides backup when automatic detection fails

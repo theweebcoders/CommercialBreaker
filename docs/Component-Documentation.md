@@ -6,11 +6,14 @@ This document provides detailed information about each tool and module in the Co
 
 The tools work together in a specific sequence to create your Toonami channel:
 
+**Note**: Before any tools run, users must first select their platform (DizqueTV, Tunarr, or ComBreakDirect) via the UI. This determines the workflow path and whether Plex authentication is required.
+
 ```plaintext
-1. LoginToPlex (Optional) → 2. FolderMaker → 3. ToonamiChecker → 4. LineupPrep → 5. BumpEncoder →
+0. Platform Selection (UI) →
+1. LoginToPlex (Optional - Required for DizqueTV/Tunarr, Skipped for ComBreakDirect) → 2. FolderMaker → 3. ToonamiChecker → 4. LineupPrep → 5. BumpEncoder →
 6. UncutEncoder → 7. Multilineup → 8. ShowScheduler (Merger) X4 → 9. EpisodeFilter (EpisodeFilter) → 10. GetPlexTimestamps (Optional) →
 11. CommercialBreaker →
-12. CommercialInjectorPrep → 13. CommercialInjector → 14. BlockMaker (BlockIDCreator) → 15. ShowScheduler (Merger) (again) X4 → 16. CutlessFinalizer (If using cutless mode) → 16a. BumpCalculator (Optional) → 17. ExtraBumps (FileProcessor) (Optional) → 18. PlexAutoSplitter (Optional) → 19. PlexSplitRenamer (Optional) → 20. PlexToDizqueTV/PlexToTunarr/ComBreakToComBreakDirect → 21. DizqueTVManager (FlexInjector) (If using DizqueTV) OR ComBreakDirect Server (If using ComBreakDirect)
+12. CommercialInjectorPrep → 13. CommercialInjector → 14. BlockMaker (BlockIDCreator) → 14a. PostCutBumpFilter (Optional - filters multi-show bumps) → 15. ShowScheduler (Merger) (again) X4 → 16. CutlessFinalizer (If using cutless mode) → 16a. BumpCalculator (Optional) → 17. ExtraBumps (FileProcessor) (Optional) → 18. PlexAutoSplitter (Optional) → 19. PlexSplitRenamer (Optional) → 20. PlexToDizqueTV/PlexToTunarr/ComBreakToComBreakDirect → 21. DizqueTVManager (FlexInjector) (If using DizqueTV) OR ComBreakDirect Server (If using ComBreakDirect)
 ```
 
 ---
@@ -113,14 +116,17 @@ The tools work together in a specific sequence to create your Toonami channel:
 
 **`ToonamiShowsFetcher` Class**:
 -   **Purpose**: Fetches a list of programs broadcast by a specified network (e.g., "Toonami", configurable via `config.network`) from Wikipedia.
--   **Data Fetching (`get_toonami_shows` method)**:
+-   **Data Fetching (`get_toonami_shows` method)** *
     -   Uses the Wikipedia API (`action=parse`) to get the HTML content of the "List of programs broadcast by [network]" page.
-    -   Parses the HTML using `BeautifulSoup` to find tables with class `wikitable`.
+    -   **HTTP Client**: Uses `CurlHttpClient` from `API.utils.NetworkUtils` (curl subprocess) instead of the requests library.
+    -   **HTML Parsing**: Uses `WikipediaTableParser` (regex-based) from `API.utils.NetworkUtils` to extract tables instead of BeautifulSoup.
     -   Iterates through these tables, identifying relevant columns like 'title' (or 'program') and 'year(s) aired' (or 'airdate').
     -   Extracts show titles and their airing years, cleaning the data (removing footnotes, normalizing years).
-    -   Returns a Pandas DataFrame with 'Title' and 'Year' columns, with duplicates dropped.
+    -   **Data Structure**: Returns a dictionary containing show data (keys: 'Title', 'Year'), with duplicates removed.
 -   **Inputs**: `config.network` (e.g., "Toonami").
--   **Outputs**: Pandas DataFrame of Toonami shows and their airing years.
+-   **Outputs**: Dictionary of Toonami shows with their airing years (structure: `{"show_name": {"Title": "...", "Year": "..."}}`).
+
+*Uses stdlib-based HTTP operations (curl subprocess via `NetworkUtils`) and regex-based HTML parsing, eliminating dependencies on requests and beautifulsoup4 libraries.
 
 **`ToonamiChecker` Class**:
 -   **Purpose**: Compares the fetched list of Toonami shows with video files in a user-specified anime folder, identifies matches, and saves the results to a SQLite database.
@@ -179,7 +185,7 @@ The tools work together in a specific sequence to create your Toonami channel:
         -   `count >= 3` (Triple show bumps, "later"): e.g., `Toonami [Version] [Placement1?] [ShowName1] [Placement2] [ShowName2] [Placement3] [ShowName3] [AdVersion?] [Color?]`
         -   `count == 0` (Generic/Robot bumps): e.g., `Toonami [Version] [robot|clyde] [AdVersion?]`
     -   **Data Extraction (`_extract_data_from_pattern` method)**: Applies the generated regex to the (transformed) filename to extract named groups like `TOONAMI_VERSION`, `SHOW_NAME_1`, `PLACEMENT_2`, `SHOW_NAME_2`, `AD_VERSION`, `COLOR`, etc.
--   **File Processing (`_process_data_patterns` method)**:
+-   **File Processing (`_process_data_patterns` method)** *
     -   Retrieves all media files (mkv, mp4) from the `bump_folder`.
     -   For each file, cleans the filename (removes extension, replaces underscores with spaces).
     -   Calls `_extract_data_from_pattern` to get metadata.
@@ -187,16 +193,18 @@ The tools work together in a specific sequence to create your Toonami channel:
     -   **Status Setting (`_set_status` method)**:
         -   Sets status to 'nice' if extracted show names are found in the list of known `shows` (from `Toonami_Shows` table) or if the bump is a recognized generic bump (from `config.genric_bumps`).
         -   Otherwise, sets status to 'naughty'.
-    -   Appends processed data to either a `new_df` (for matches) or `no_match_df`.
--   **Database Interaction (`run`, `_save_to_sql` methods)**:
-    -   Connects to the SQLite database (`[config.network].db`).
-    -   Reads the `Toonami_Shows` table to get the list of valid show titles (normalized).
-    -   Saves the processed bump data into several tables:
+    -   **Data Structure**: Appends processed data (as dictionaries) to lists: `new_data` (for matches) or `no_match_data` (for non-matches).
+-   **Database Interaction (`run`, `_save_to_sql` methods)** *
+    -   Connects to the SQLite database (`[config.network].db`) via `DatabaseManager`.
+    -   Reads the `Toonami_Shows` table using `fetchall_as_dicts()` to get the list of valid show titles (normalized).
+    -   **Data Processing**: Uses lists of dictionaries instead of pandas DataFrames for all bump data manipulation.
+    -   **Deduplication Strategy**: Combines existing data with new data, creates tuple keys from all column values, and keeps last occurrence of duplicates using dictionary-based deduplication.
+    -   Saves the processed bump data into several tables using `bulk_insert_dicts()` or `replace_table_data()`:
         -   `nice_list`: Bumps with 'nice' status.
         -   `naughty_list`: Bumps with 'naughty' status.
         -   `no_match`: Files for which no pattern was matched.
         -   `lineup_prep_out`: A subset of `nice_list` (dropping `ORIGINAL_FILE_PATH` and `Status`), which serves as the primary input for `BumpEncoder`.
-    -   Handles existing tables by appending new data and removing duplicates.
+    -   Handles existing tables by appending new data and removing duplicates via atomic table replacement.
 -   **Inputs**:
     -   `bump_folder` (path to bump files).
     -   `config.py` (keywords, show_name_mappings, colors, generic_bumps, network name).
@@ -210,8 +218,8 @@ The tools work together in a specific sequence to create your Toonami channel:
 **File**: `ToonamiTools/BumpEncoder.py`
 **Purpose**: Processes bump data from the `lineup_prep_out` database table to create standardized codes for each bump. These codes are used for efficient library management and bump selection during lineup generation by the `Merger (ShowScheduler)`.
 
-**Key Features & Process**:
-- **Input**: Reads data from the `lineup_prep_out` table (created by `LineupPrep`). This table is expected to have columns like `PLACEMENT_1`, `PLACEMENT_2`, `PLACEMENT_3`, `SHOW_NAME_1`, `SHOW_NAME_2`, `SHOW_NAME_3`, `TOONAMI_VERSION`, `AD_VERSION`, and `COLOR`.
+**Key Features & Process** *
+- **Input**: Reads data from the `lineup_prep_out` table (created by `LineupPrep`) using `fetchall_as_dicts()`. Each bump is represented as a dictionary with keys like `PLACEMENT_1`, `PLACEMENT_2`, `PLACEMENT_3`, `SHOW_NAME_1`, `SHOW_NAME_2`, `SHOW_NAME_3`, `TOONAMI_VERSION`, `AD_VERSION`, and `COLOR`.
 - **Show Abbreviation (`get_abbr` method)**:
     - For each unique show name encountered (e.g., in `SHOW_NAME_1`), it generates a 3-letter uppercase abbreviation.
         - If the name has multiple words, it uses the first two letters of the first word and the first letter of the second word (e.g., "Dragon Ball Z" -> "DRB").
@@ -220,7 +228,7 @@ The tools work together in a specific sequence to create your Toonami channel:
     - These abbreviations are stored in an internal dictionary (`self.codes`) mapping full names to abbreviations, and this dictionary is later saved to the `codes` table in the database.
     - The method returns a string like `S1:DRB` (for Show 1: Dragon Ball Z) or `P1:NXT` (for Placement 1: Next).
 - **Code Creation (`create_code` method)**:
-    - For each row (bump) in the input DataFrame:
+    - For each bump dictionary in the input data list:
         - It generates placement codes (e.g., `P1:BCK` for "Back") and show codes (e.g., `S1:GND` for "Gundam") using `get_abbr`.
         - It constructs a composite code string by concatenating:
             - Toonami Version (e.g., `V2.0` becomes `V2`)
@@ -229,21 +237,21 @@ The tools work together in a specific sequence to create your Toonami channel:
             - Color (e.g., `-B` if color is "Blue", taking the first letter)
             - Number of Shows (e.g., `-NS1` for a single show bump, `-NS2` for double, `-NS3` for triple).
     - **Example Code**: `V2-P1:BCK-S1:GND-P2:NXT-S2:BLE-AV1-R-NS2` (Toonami Version 2.0, Back Gundam, Next Bleach, Ad Version 1, Red, 2 Shows)
-- **DataFrame Encoding (`encode_dataframe` method)**:
-    - Applies `create_code` to each row to generate a `Code` column.
-    - Extracts `sort_ver` (e.g., `2` from `V2`) and `sort_ns` (e.g., `1` from `NS1`) from the `Code` for sorting purposes.
-    - Sorts the DataFrame by `sort_ver` then `sort_ns`.
-- **Database Output**:
-    - `codes` table: Stores the mapping of full show names (and placement names) to their generated abbreviations (e.g., "Dragon Ball Z" | "DRB").
-    - `main_data` table: Contains the original bump data along with the new `Code` column (and `sort_ver`, `sort_ns` dropped).
-    - `singles_data` table: A subset of `main_data` containing only single-show bumps (`Code` contains `-NS1`).
+- **Data Encoding (`encode_dataframe` method)** *(method name unchanged for compatibility)*:
+    - Iterates through each dictionary, applies `create_code` to generate a `Code` field.
+    - Uses `re.search()` to extract `sort_ver` (e.g., `2` from `V2`) and `sort_ns` (e.g., `1` from `NS1`) from the `Code` for sorting purposes.
+    - Sorts the list of dictionaries using `data.sort(key=lambda x: (x['sort_ver'], x['sort_ns']))`.
+- **Database Output** *(using dict-based DatabaseManager methods)*:
+    - `codes` table: Stores the mapping of full show names (and placement names) to their generated abbreviations (e.g., "Dragon Ball Z" | "DRB"). Saved using `bulk_insert_dicts()`.
+    - `main_data` table: Contains the original bump data along with the new `Code` field (with `sort_ver`, `sort_ns` removed). Created using `create_table_from_dicts()`.
+    - `singles_data` table: A subset of `main_data` containing only single-show bumps (`Code` contains `-NS1`). Filtered with list comprehension: `[row for row in data if '-NS1' in row['Code']]`.
     - `multibumps_v8_data` table: A subset of `main_data` containing multi-show bumps (`Code` contains `-NS2` or `-NS3`). (Note: the 'v8' seems hardcoded here in the `save_encoded_dataframes` method, which might be an oversight if it's meant to be dynamic).
-    - `multibumps_vX_data` tables: For each unique Toonami version (`sort_ver`) found in the multibumps, a separate table is created (e.g., `multibumps_v2_data`, `multibumps_v9_data`).
+    - `multibumps_vX_data` tables: For each unique Toonami version (`sort_ver`) found in the multibumps, a separate table is created (e.g., `multibumps_v2_data`, `multibumps_v9_data`). Created by grouping with `defaultdict` and filtering.
 - **Overall Workflow (`encode_and_save` method)**:
-    1. Reads `lineup_prep_out`.
-    2. Encodes the DataFrame.
-    3. Saves the various derived DataFrames (`main_data`, `singles_data`, `multibumps_vX_data`) to the database.
-    4. Saves the `codes` mapping table to the database.
+    1. Reads `lineup_prep_out` as list of dictionaries.
+    2. Encodes the data (iterates and adds `Code` field to each dict).
+    3. Saves the various derived data lists (`main_data`, `singles_data`, `multibumps_vX_data`) to the database using dict-based methods.
+    4. Saves the `codes` mapping table to the database using `bulk_insert_dicts()`.
 
 **Significance**:
 - The `BumpEncoder` standardizes bump representation, making it easier for the `Merger (ShowScheduler)` to identify and sequence bumps based on the shows they feature and their type (single, double, triple, version, etc.).
@@ -303,6 +311,9 @@ The tools work together in a specific sequence to create your Toonami channel:
 
 **Key Features & Process**:
 -   **Initialization**:
+    -   Takes optional `post_cut` parameter (default: `False`).
+        -   When `post_cut=False`: Operates on original `multibumps_vX_data` tables and creates `_reordered` output tables.
+        -   When `post_cut=True`: Operates on filtered `multibumps_vX_data_postcut` tables (created by `PostCutBumpFilter`) and creates `_reordered_postcut` output tables.
     -   Connects to the SQLite database (`[config.network].db`).
     -   Initializes `used_rows` (a set to track already processed bumps) and `recent_shows` (a list to de-prioritize recently featured shows).
 -   **Bump Selection Logic**:
@@ -331,14 +342,134 @@ The tools work together in a specific sequence to create your Toonami channel:
             -   Writes it to the reordered table.
             -   Updates `self.recent_shows`.
         -   Continues until all bumps from the original table are used.
-    -   `reorder_all_tables`: Iterates through potential table names (`multibumps_v0_data` to `multibumps_v9_data`) and calls `reorder_table` for each one that exists.
+    -   `reorder_all_tables`: Iterates through potential table names (`multibumps_v0_data` to `multibumps_v9_data`) with appropriate suffix and calls `reorder_table` for each one that exists.
 -   **Inputs**:
-    -   Various `multibumps_vX_data` tables from the database (created by `BumpEncoder`).
+    -   **Standard mode** (`post_cut=False`): Various `multibumps_vX_data` tables from the database (created by `BumpEncoder`).
+    -   **Post-cut mode** (`post_cut=True`): Various `multibumps_vX_data_postcut` tables from the database (created by `PostCutBumpFilter`).
     -   `config.network` (for database name).
 -   **Outputs**:
-    -   Creates new tables in the database with `_reordered` suffix (e.g., `multibumps_v2_data_reordered`), containing the bumps in a more logical sequence.
+    -   **Standard mode**: Creates new tables with `_reordered` suffix (e.g., `multibumps_v2_data_reordered`).
+    -   **Post-cut mode**: Creates new tables with `_reordered_postcut` suffix (e.g., `multibumps_v2_data_reordered_postcut`).
+    -   Both output types contain the bumps in a more logical sequence optimized for show transitions.
 
-**Significance**: `Multilineup` is crucial for creating engaging Toonami blocks where the announcements flow logically from one multi-show bump to the next. The reordered tables it produces are used by the `ShowScheduler` (Merger) to construct the final channel lineup, ensuring that transitions between shows are smooth and make narrative sense based on the bump announcements.
+**Significance**: `Multilineup` is crucial for creating engaging Toonami blocks where the announcements flow logically from one multi-show bump to the next. The tool runs twice in the pipeline: first before episode filtering to reorder all bumps, then again after `PostCutBumpFilter` (when using multi-show bumps) to reorder only the filtered bumps. The reordered tables it produces are used by the `ShowScheduler` (Merger) to construct the final channel lineup, ensuring that transitions between shows are smooth and make narrative sense based on the bump announcements.
+
+### CommercialInjectorPrep
+**File**: `ToonamiTools/CommercialInjectorPrep.py`
+**Class**: `AnimeFileOrganizer`
+**Purpose**: Scans and catalogs cut anime files from the `cut` directory, extracting metadata from filenames and organizing them into a structured database table. This prepares cut episode parts for commercial bump injection by creating an organized inventory of all available segments.
+
+**Important**: This component is **only used in traditional cutting mode**. In **Cutless Mode**, this step is skipped entirely and its role is taken over by `VirtualCut` (see CommercialBreaker System Overview below), which creates the `commercial_injector_prep` table with virtual segment references instead of physical cut file paths.
+
+**Key Features & Process** *
+-   **Initialization**:
+    -   Takes `anime_dir` (path to the `cut` folder containing cut episode parts) as input.
+    -   Uses `DatabaseManager` for all database operations and `ErrorManager` for error reporting.
+-   **File Discovery (`organize_files` method)**:
+    -   Recursively walks the `anime_dir` directory tree to find all `.mp4` files.
+    -   Uses regex pattern `r'(.+?) - (S\d{2}E\d{2}) - Part (\d{3})\.mp4'` to extract metadata from filenames:
+        -   Show name (e.g., "Naruto")
+        -   Season and episode (e.g., "S01E28")
+        -   Part number (e.g., "001", "002")
+    -   Creates a dictionary for each matched file containing:
+        -   `SHOW_NAME_1`: Extracted show name
+        -   `Season and Episode`: Season/episode identifier
+        -   `Part Number`: Part number within the episode
+        -   `FULL_FILE_PATH`: Absolute path to the file
+    -   Collects all matched files into a list of dictionaries.
+-   **Data Validation**:
+    -   Checks directory existence and read permissions
+    -   Verifies that cut files were found (raises error if empty)
+    -   Warns if fewer than 3 unique episodes detected (suggests running CommercialBreaker on more content)
+    -   Reports detailed error messages with suggestions for common issues
+-   **Database Operations** *
+    -   Checks if `commercial_injector_prep` table exists using `db_manager.table_exists()`
+    -   If table exists:
+        -   Reads existing data via `fetchall_as_dicts()`
+        -   Ensures column compatibility between existing and new data
+        -   Combines datasets and deduplicates by `FULL_FILE_PATH` (keeping last occurrence)
+        -   Replaces table atomically using `replace_table_data()`
+    -   If table doesn't exist:
+        -   Creates new table via `create_table_from_dicts()`
+    -   All operations use dict-based DatabaseManager methods instead of pandas
+
+**Inputs**:
+-   `anime_dir`: Path to directory containing cut episode parts (typically `[working_folder]/cut/`)
+-   Files must follow naming convention: `ShowName - SXXEXX - Part XXX.mp4`
+
+**Outputs**:
+-   `commercial_injector_prep` table in SQLite database with columns:
+    -   `SHOW_NAME_1`: Show name extracted from filename
+    -   `Season and Episode`: Season/episode identifier (e.g., "S01E28")
+    -   `Part Number`: Part number as string (e.g., "001")
+    -   `FULL_FILE_PATH`: Absolute path to the cut file
+
+**Significance**: This tool bridges the commercial detection phase and the bump injection phase **in traditional cutting mode**. After CommercialBreaker has cut episodes into parts, CommercialInjectorPrep catalogs all those parts in a structured format. This inventory allows CommercialInjector to systematically insert appropriate bumps between episode segments, creating the authentic Toonami commercial break experience. Without this cataloging step (or its cutless alternative, VirtualCut), the system wouldn't know what cut parts are available for lineup assembly.
+
+**Cutless Mode Alternative**: In cutless mode, this entire step is bypassed. VirtualCut (part of the CommercialBreaker system) directly creates the `commercial_injector_prep` table with virtual segment references, allowing the pipeline to continue seamlessly without physical file cutting.
+
+### CommercialInjector
+**File**: `ToonamiTools/CommercialInjector.py`
+**Class**: `LineupLogic`
+**Purpose**: The linchpin in creating an authentic cut anime lineup by inserting mid-episode bumps ("to ads", "back") between cut episode parts. Works synergistically with CommercialInjectorPrep to create complete episode sequences with contextually appropriate commercial break bumps, following a sophisticated fallback hierarchy when show-specific bumps are unavailable.
+
+**Key Features & Process** *
+-   **Initialization**:
+    -   Uses `DatabaseManager` for all database operations and `ErrorManager` for error reporting.
+    -   Imports `show_name_mapper` for consistent show name normalization across different data sources.
+-   **Data Loading (`generate_lineup` method)** *
+    -   Loads cut episode parts from `commercial_injector_prep` table as list of dictionaries via `fetchall_as_dicts()`
+    -   Loads single-show bumps from `singles_data` table (created by BumpEncoder) as list of dictionaries
+    -   Validates that both datasets contain data (raises errors with helpful suggestions if empty)
+-   **Bump Sanitization**:
+    -   Creates sanitized version of bump data by splitting `FULL_FILE_PATH` on 'Θ' delimiter
+    -   This handles bump files that may contain metadata suffixes
+-   **Show Name Normalization** *
+    -   Applies two-stage normalization to all show names in both parts and bumps data:
+        1. Maps to canonical values using `show_name_mapper.map(x, strategy='all')`
+        2. Cleans for matching using `show_name_mapper.clean(x, mode='matching')`
+    -   Ensures consistent naming between episode parts and bumps (handles ampersands, apostrophes, etc.)
+    -   Iterates through dict lists using native Python loops instead of pandas apply
+-   **Data Sorting** *
+    -   Sorts parts data using `data.sort(key=lambda x: (x['SHOW_NAME_1'], x['Season and Episode'], x['Part Number']))`
+    -   Ensures episode parts are processed in correct order
+-   **Bump Matching & Fallback Hierarchy**:
+    -   **Show-Specific Bumps (Priority 1)**: Attempts to find bumps specifically for the current show
+        -   Looks for placement-specific bumps (e.g., "Naruto to ads", "Naruto back")
+        -   Uses `defaultdict` to organize bumps by show name and placement
+    -   **Generic Anime Bumps (Priority 2)**: Falls back to anime-generic bumps if show-specific unavailable
+        -   Looks for bumps labeled with generic anime identifiers
+    -   **Universal Generic Bumps (Priority 3)**: Final fallback to Clydes or Robot bumps
+        -   Ensures every episode gets some form of commercial break, even without show-specific content
+        -   Uses `itertools.cycle` to rotate through available generic bumps
+-   **Lineup Assembly**:
+    -   Groups episode parts by `SHOW_NAME_1` and `Season and Episode` using `defaultdict(list)`
+    -   For each episode group:
+        -   Inserts intro/opening part
+        -   Inserts "to ads" bump before commercial break
+        -   Inserts middle content parts
+        -   Inserts "back" bump returning from commercial
+        -   Inserts closing/outro part
+    -   Builds final lineup as list of dictionaries with `FULL_FILE_PATH` entries
+-   **Database Output** *
+    -   Saves complete lineup to `commercial_injector` table
+    -   Uses `replace_table_data()` for atomic table replacement
+    -   Output contains alternating pattern of episode parts and bumps
+
+**Inputs**:
+-   `commercial_injector_prep` table: Cut episode parts with show names and part numbers
+-   `singles_data` table: Single-show bumps with placement information
+-   `config.network`: Network name for database selection
+
+**Outputs**:
+-   `commercial_injector` table in SQLite database containing:
+    -   Interleaved episode parts and commercial bumps
+    -   `FULL_FILE_PATH`: Paths to both episode segments and bump files
+    -   `SHOW_NAME_1`: Normalized show names
+    -   `Season and Episode`: Episode identifiers
+    -   `Part Number`: Part numbers for episode segments
+
+**Significance**: CommercialInjector is the core component that transforms cut anime episodes into authentic Toonami-style programming. By intelligently selecting and inserting appropriate commercial break bumps between episode parts, it recreates the classic Toonami viewing experience. The sophisticated fallback hierarchy ensures every episode gets proper commercial transitions, even when show-specific bumps are missing. This is the critical step that differentiates a simple episode collection from a professionally-produced Toonami block with authentic commercial break aesthetics.
 
 ### BlockMaker
 **File**: `ToonamiTools/BlockMaker.py` (Class: `BlockMaker`)
@@ -387,23 +518,31 @@ The tools work together in a specific sequence to create your Toonami channel:
 - **Dual Functionality**:
     1.  **Initial Run**: Creates a base lineup structure from a bump list (e.g., `multibumps_v9_data_reordered` from `config.TOONAMI_CONFIG[version]["merger_bump_list"]`) and an input episode data table (e.g., `commercial_injector_final` or `uncut_encoded_data` from `config.TOONAMI_CONFIG[version]["encoder_in"]`).
     2.  **Second Run**: Can be used to integrate commercial-cut content or refine lineups.
-- **Input Tables**:
-    - `encoder_table`: Contains bump data with encoded show information (e.g., `multibumps_v9_data_reordered`). This table has a `Code` column that indicates the shows involved in a bump (e.g., `-S1:DBZ-S2:GITS-NS3` for a triple bump).
-    - `commercial_table`: Contains episode data, including `FULL_FILE_PATH` and `BLOCK_ID` (e.g., `commercial_injector_final` for cut content, `uncut_encoded_data` for uncut).
-- **Output Table**: Saves the generated lineup to a specified table (e.g., `lineup_v9` from `config.TOONAMI_CONFIG[version]["merger_out"]`).
+- **Input Tables** *
+    - `encoder_table`: Contains bump data with encoded show information (e.g., `multibumps_v9_data_reordered`). This table has a `Code` column that indicates the shows involved in a bump (e.g., `-S1:DBZ-S2:GITS-NS3` for a triple bump). Loaded as list of dictionaries via `fetchall_as_dicts()`.
+    - `commercial_table`: Contains episode data, including `FULL_FILE_PATH` and `BLOCK_ID` (e.g., `commercial_injector_final` for cut content, `uncut_encoded_data` for uncut). Loaded as list of dictionaries.
+- **Output Table**: Saves the generated lineup to a specified table (e.g., `lineup_v9` from `config.TOONAMI_CONFIG[version]["merger_out"]`). Saved using `create_table_from_dicts()`.
 - **Show Name Normalization**:
-    - Decodes show codes via the `codes` table.
+    - Decodes show codes via the `codes` table (loaded as dict mapping).
+    - Uses `_assign_show_name_from_block_id()` method to parse BLOCK_ID strings (e.g., `"NARUTO_S01E01"` → `"naruto"`).
     - Normalizes decoded names using `show_name_mapper.map(name, strategy='all')` followed by `show_name_mapper.clean(mapped, mode='matching')` to align with bump and episode data.
+    - All string operations use native Python methods instead of pandas string methods.
 - **Episode Block Management**:
     - `reuse_episode_blocks` (boolean, constructor arg): If `True`, episode blocks for a show are reused from the beginning once exhausted. If `False`, the show is skipped once all its blocks are used.
     - `continue_from_last_used_episode_block` (boolean, constructor arg): If `True`, the scheduler attempts to continue from the last used episode block for each show (persisted in `last_used_episode_block` table). Otherwise, it resets tracking.
     - `shows_with_no_more_blocks` (internal set): Tracks shows that have run out of blocks when `reuse_episode_blocks` is `False`.
 - **Uncut Mode**:
     - `uncut` (boolean, constructor arg, also in `config.TOONAMI_CONFIG[version]["uncut"]`): If `True`, schedules for uncut content. This also influences `apply_ns3_logic`.
+- **Data Structures** *
+    - `self.encoder_data`: Bump list (List[Dict]) instead of DataFrame
+    - `self.decoded_data`: Decoded show names (List[Dict])
+    - `self.commercial_injector_data`: Episode blocks (List[Dict])
+    - `final_lineup`: Accumulated lineup list instead of DataFrame
+    - **Grouping**: Uses `collections.defaultdict` for grouping instead of pandas groupby
 
-**Core Scheduling Logic (`generate_schedule` method)**:
-1.  Iterates through the `encoder_df` (bump list).
-2.  For each bump (`row`), extracts the shows involved (`shows` list from `row["Code"]`) and the bump code itself (`code_value`).
+**Core Scheduling Logic (`generate_schedule` method)** *
+1.  Iterates through the `encoder_data` list (bump list dictionaries).
+2.  For each bump dictionary (`row`), extracts the shows involved (`shows` list from `row["Code"]`) and the bump code itself (`code_value`).
 3.  **NS2/NS3 Bump Handling** (`apply_ns3_logic` - enabled if NS2 bumps exist and not in `uncut` mode):
     -   **NS2 Bumps** (e.g., `Code` contains `-NS2`): These are typically "Next Show" transitions involving two shows (Show A, then Show B).
         -   Continuity guard: If Show A’s next episode block cannot be placed immediately after the NS2 code, the scheduler skips appending that NS2 bump to preserve the invariant that bump rows are followed by appropriate program content.
@@ -415,11 +554,12 @@ The tools work together in a specific sequence to create your Toonami channel:
         -   The NS3 bump file is added.
         -   Episode blocks for the shows in the NS3 list (potentially adjusted by the chain detection or if the *next* bump is also an NS3 for the same tail show) are inserted sequentially.
     -   `_attempt_interweave`: Adds a blank row for spacing if the next bump starts with a different show and there's no direct NS2/NS3 handoff.
-4.  **Episode Block Insertion (`_insert_episode_block`)**:
-    -   `get_next_episode_block(show)`: Retrieves the next available `BLOCK_ID` for the given `show` from `commercial_injector_df`.
+4.  **Episode Block Insertion (`_insert_episode_block`)** *
+    -   `get_next_episode_block(show)`: Retrieves the next available `BLOCK_ID` for the given `show` from `commercial_injector_data` (list of dicts).
         -   Considers `last_used_episode_block` if `continue_from_last_used_episode_block` is true.
         -   Handles `reuse_episode_blocks` or adds to `shows_with_no_more_blocks`.
-    -   The files corresponding to the selected `BLOCK_ID` are fetched from `commercial_injector_df` and appended to the `final_df`.
+        -   Uses list filtering: `[row for row in commercial_injector_data if row['show'] == target_show]`
+    -   The files corresponding to the selected `BLOCK_ID` are fetched from `commercial_injector_data` and appended to the `final_lineup` list.
     -   `delete_intro`: If true (usually after a transition bump), the first file of the block (assumed to be an intro) is skipped.
 5.  **NS3 Special Index Adjustment (`adjust_final_df_based_on_ns3_indices`)**:
     -   If `apply_ns3_logic` is true, `get_ns3_special_indices` finds NS3 bumps that immediately follow an NS2 bump for the *same show*.
@@ -444,6 +584,96 @@ The next bump processed would ideally start with "Now ShowC...".
 - Reads from: `encoder_table`, `commercial_table`, `codes`, `last_used_episode_block` (optional).
 - Writes to: `save_table`, `last_used_episode_block` (optional).
 All table names are typically sourced from `config.TOONAMI_CONFIG` based on the selected Toonami version.
+
+### CutlessFinalization
+**File**: `ToonamiTools/CutlessFinalization.py`
+**Class**: `CutlessFinalizer`
+**Purpose**: Finalizes cutless mode lineups by calculating precise start/end timestamps for virtual segments and transforming the data into the format required by DizqueTV and Tunarr platforms. This critical step enables virtual cutting without physically modifying video files, preserving original media while providing frame-accurate playback control.
+
+**Key Features & Process** *
+-   **Initialization**:
+    -   Takes `network` name as parameter (e.g., "Toonami" from `config.network`)
+    -   Uses `DatabaseManager` for all database operations and `ErrorManager` for error reporting
+    -   Validates that required tables exist before processing
+-   **Cutless Mapping Loading (`_get_cutless_mapping` method)** *
+    -   Loads virtual cut data from `commercial_injector_prep` table as dictionary indexed by `FULL_FILE_PATH`
+    -   Validates critical columns exist (`startTime`, `endTime`, `ORIGINAL_FILE_PATH`)
+    -   Checks that data isn't empty and raises detailed errors if missing
+    -   Validates timestamp data quality:
+        -   Separates anime files from bump files (bumps contain network name in path)
+        -   Ensures anime files have either `startTime` OR `endTime` (at least one required)
+        -   Raises critical error if anime files missing both timestamps (indicates failed commercial detection)
+    -   Returns data as dict mapping `FULL_FILE_PATH` → row data for O(1) lookups
+-   **Bump Duration Loading (`_get_bump_durations` method)** *
+    -   Loads pre-calculated bump durations from `bump_durations` table
+    -   Created by BumpCalculator during Prepare Content workflow
+    -   Cleans and validates data:
+        -   Strips whitespace from file paths
+        -   Converts duration values to numeric (filters invalid values)
+        -   Removes duplicates (keeps last occurrence)
+    -   Returns as dict mapping `FULL_FILE_PATH` → duration for fast lookups
+    -   Gracefully handles missing table (returns empty dict with warning)
+-   **Lineup Table Discovery (`_get_lineup_tables` method)**:
+    -   Queries database schema for all tables matching pattern `lineup_v*`
+    -   Excludes uncut lineup tables (those containing "uncut" in name)
+    -   Returns list of cut lineup tables that need cutless finalization
+    -   Handles version-specific lineups (v2, v8, v9, etc.)
+-   **Duration Injection (`_inject_durations` method)** *
+    -   For each lineup entry:
+        -   Checks if duration already exists (skips if present)
+        -   Looks up duration in bump_durations dict for bump files
+        -   Calculates duration from timestamps for anime files:
+            -   If both startTime and endTime exist: `duration = endTime - startTime`
+            -   If only startTime exists: uses total video duration - startTime
+            -   Converts milliseconds to seconds for consistency
+        -   Falls back to probing file with DurationManager if no other method works
+    -   Validates all lineup rows have duration data before proceeding
+    -   Uses native Python dict operations and list iterations
+-   **Cutless Data Transformation**:
+    -   Merges lineup data with cutless mapping data:
+        -   Looks up each `FULL_FILE_PATH` in the cutless mapping dict
+        -   Adds `startTime`, `endTime`, and `ORIGINAL_FILE_PATH` fields
+        -   For bump files: `startTime` and `endTime` are null (plays full file)
+        -   For anime segments: precise millisecond timestamps for virtual cutting
+    -   Creates `lineup_vX_cutless` output table with complete timing metadata
+-   **Database Output** *
+    -   Processes each lineup table (`lineup_v2`, `lineup_v8`, `lineup_v9`, etc.)
+    -   Saves cutless-enabled version with `_cutless` suffix
+    -   Uses `replace_table_data()` for atomic table replacement
+    -   Final tables contain all data needed for cutless playback
+-   **Overall Workflow (`run` method)**:
+    1. Discover all cut lineup tables in database
+    2. Load cutless mapping data (virtual cut timestamps)
+    3. Load bump duration data
+    4. For each lineup table:
+        - Load lineup data as list of dicts
+        - Inject duration information
+        - Validate all rows have durations
+        - Merge with cutless mapping (add timestamps)
+        - Save to `lineup_vX_cutless` table
+
+**Inputs**:
+-   `commercial_injector_prep` table: Virtual cut mapping with `startTime`, `endTime`, `ORIGINAL_FILE_PATH`
+-   `bump_durations` table: Pre-calculated bump file durations (from BumpCalculator)
+-   `lineup_vX` tables: Cut lineup tables from Merger (ShowScheduler)
+-   `config.network`: Network name for database selection
+
+**Outputs**:
+-   `lineup_vX_cutless` tables in SQLite database containing:
+    -   `FULL_FILE_PATH`: Virtual segment path (may not physically exist)
+    -   `ORIGINAL_FILE_PATH`: Path to actual video file on disk
+    -   `startTime`: Start time in milliseconds (null for bumps)
+    -   `endTime`: End time in milliseconds (null for bumps/last segment)
+    -   `duration`: Segment duration in seconds
+    -   All other lineup metadata (show names, codes, etc.)
+
+**Significance**: CutlessFinalization is the transformative component that enables zero-disk-overhead Toonami channels. By calculating precise timestamps and preserving references to original files, it allows DizqueTV and Tunarr to play exact segments without creating thousands of cut files. This revolutionary approach:
+-   **Saves massive disk space** - No duplicate cut files needed
+-   **Preserves quality** - Original files remain untouched
+-   **Enables flexibility** - Commercial break points can be adjusted without re-cutting
+-   **Maintains compatibility** - Works seamlessly with existing Plex libraries
+
+This is the final critical step for cutless mode, transforming standard lineups into virtual-cut-ready data that platforms can use for frame-accurate playback. Without this finalization, the cutless workflow cannot function.
 
 ### EpisodeFilter
 **File**: `ToonamiTools/EpisodeFilter.py`
@@ -533,7 +763,7 @@ The CommercialBreaker system is composed of several specialized components worki
   - **VideoPreprocessor**: Downscales only silent segments
   - **BlackFrameAnalyzer**: Analyzes frames for darkness
 - **TimestampManager.py** (`TimestampManager`): Handles timestamp file operations, two-stage filtering, Plex timestamp integration
-- **VirtualCut.py** (`VirtualCut`): Used only in Cutless Mode to create virtual references instead of physical cuts, outputting to the `commercial_injector_prep` table.
+- **VirtualCut.py** (`VirtualCut`): **Cutless Mode replacement for CommercialInjectorPrep** (step 12 in the pipeline). Instead of cataloging physical cut files, VirtualCut creates virtual segment references with precise timestamps. Outputs to the `commercial_injector_prep` table with the same schema as traditional mode, plus additional `startTime`, `endTime`, and `ORIGINAL_FILE_PATH` columns. This allows the rest of the pipeline (CommercialInjector, BlockMaker, Merger, etc.) to proceed identically regardless of cutting mode.
 
 
 #### Detection Method Priority & Mode Exclusivity
@@ -547,8 +777,8 @@ The CommercialBreaker system is composed of several specialized components worki
 #### Cutting Phase Components
 
 - **VideoCutter.py** (`VideoCutter`): Handles the actual file processing
-  - **Traditional Mode**: Physically cuts videos at detected timestamps, creates multiple files per episode (Part 1, Part 2, etc.)
-  - **Cutless Mode**: Uses `VirtualCut` to create virtual references, no physical files are created, only database entries
+  - **Traditional Mode**: Physically cuts videos at detected timestamps, creates multiple files per episode (Part 1, Part 2, etc.). After cutting, the `CommercialInjectorPrep` tool catalogs these cut files.
+  - **Cutless Mode**: Uses `VirtualCut` to create virtual references, no physical files are created, only database entries with timestamps. VirtualCut directly populates `commercial_injector_prep` table, **replacing the need for CommercialInjectorPrep** (step 12 in the pipeline).
 
 #### Progress Tracking System
 
@@ -595,6 +825,68 @@ The CommercialBreaker system is composed of several specialized components worki
     -   Creates new tables in the database with `_bonus` suffix (e.g., `lineup_v2_bonus`), containing the original lineup data interspersed with the bonus content.
 
 **Significance**: This tool allows for the dynamic enrichment of pre-generated Toonami lineups with additional content like special Toonami event bumps, music videos, or any other short video pieces the user wants to include, adding variety and customization to the final channel.
+
+### PostCutBumpFilter
+**File**: `ToonamiTools/PostCutBumpFilter.py`
+**Class**: `PostCutBumpFilter`
+**Purpose**: Filters multi-show bump data after the commercial cutting pipeline completes, ensuring that only bumps referencing shows with available episode blocks remain in the lineup tables.
+
+**Problem Solved**:
+When creating lineups with multi-show bumps (bumps that reference multiple different shows), some bumps may reference shows for which no episode data was cut or prepared. These orphaned bumps would cause errors or display issues in the final lineup. `PostCutBumpFilter` removes these problematic entries automatically.
+
+**Key Features & Process**:
+- **Initialization**:
+    - Connects to the database using `DatabaseManager`.
+    - Initializes the `ErrorManager` for warnings and errors.
+    - Loads the list of generic bump names from `config.generic_bumps` (these are show-agnostic bumps that should never be filtered).
+    - Normalizes all generic bump names using the `show_name_mapper` utility for consistent matching.
+
+- **Show Name Normalization**:
+    - Uses the `show_name_mapper` utility with `strategy='all'` and `mode='matching'` to ensure consistent show name matching.
+    - Handles variations in show naming across different data sources.
+    - Generic bumps (like "Toonami", "Adult Swim", etc.) are excluded from filtering.
+
+- **Available Shows Collection** (`_collect_allowed_shows` method):
+    - Reads the `commercial_injector_prep` table which contains all shows that were successfully processed through the commercial cutting pipeline.
+    - Extracts show names from multiple possible column names: `show_name`, `BLOCK_ID`, or `SHOW_NAME_1`.
+    - Normalizes each show name and builds a set of allowed shows.
+    - Raises an error if the episode table is missing or empty, as this indicates the pipeline didn't complete.
+
+- **Multi-Show Bump Filtering**:
+    - **Lineup Table Filtering** (`_filter_lineup_table` method):
+        - Reads the `lineup_prep_out` table containing prepared lineup entries.
+        - For each row, checks if any show references (in `SHOW_NAME_1`, `SHOW_NAME_2`, `SHOW_NAME_3` columns) point to shows not in the allowed set.
+        - Skips generic bumps during this check.
+        - Removes rows with missing show references.
+        - Creates a new table `lineup_prep_out_postcut` with only valid entries.
+    - **Multibump Tables Filtering** (`_filter_multibump_tables` method):
+        - Iterates through multibump tables (`multibumps_v0_data` through `multibumps_v9_data`).
+        - Applies the same filtering logic to each table.
+        - Creates `*_postcut` versions of each multibump table.
+        - Drops and resets the `*_reordered_postcut` tables so they can be rebuilt fresh.
+
+- **Reporting** (`run` method):
+    - Tracks which shows had bumps removed and how many.
+    - Sends a warning through `ErrorManager` listing the top 5 most impacted shows.
+    - Provides actionable suggestions: add episode cuts for missing shows or remove their multi-show bumps.
+
+- **Inputs**:
+    - `commercial_injector_prep` table (contains available episode blocks).
+    - `lineup_prep_out` table (contains prepared lineup with multi-show bumps).
+    - `multibumps_v*_data` tables (contains multi-show bump data).
+    - `config.generic_bumps` (list of show-agnostic bump names).
+
+- **Outputs**:
+    - `lineup_prep_out_postcut` table (filtered lineup).
+    - `multibumps_v*_data_postcut` tables (filtered multibump tables).
+    - Warning messages about removed bumps (via ErrorManager).
+
+**When to Use**:
+- Run automatically after the commercial cutting pipeline when using multi-show bumps.
+- Ensures clean lineup data for downstream tools like `PlexToDizqueTV`, `PlexToTunarr`, or `ComBreakToComBreakDirect`.
+- Can be skipped if not using multi-show bumps or if all referenced shows have episode data.
+
+**Significance**: This tool prevents runtime errors and display issues caused by bumps referencing non-existent show data, ensuring the final Toonami channel lineup is consistent and error-free.
 
 ## Plex Management Components
 

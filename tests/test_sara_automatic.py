@@ -531,53 +531,71 @@ class TestSaraAutomatic:
 
         self._start_timing("Database Integrity Checks")
         self._log_progress("Beginning database integrity checks...")
-        
-        # Check the lineup contains anime episodes
+
+        # Get all lineup tables to validate
         db_path = os.environ.get("DB_PATH", getattr(self, "db_path", None))
         assert db_path is not None, "Database path not set in environment or self.db_path"
+
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'lineup_v%'")
+            all_lineup_tables = sorted([row[0] for row in cursor.fetchall()])
+
+        self._log_progress(f"Found {len(all_lineup_tables)} lineup tables to validate: {all_lineup_tables}")
+
         pattern = re.compile(r"S\d{2}E\d{2}")
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute("SELECT FULL_FILE_PATH FROM lineup_v8")
-                rows = cursor.fetchall()
-            except Exception as e:
-                raise AssertionError(f"Failed to query lineup_v8: {e}")
-        count = sum(1 for (val,) in rows if pattern.search(str(val)))
-        min_rows = self.config["minimum_anime_rows"]
-        assert count >= min_rows, (
-            f"Expected at least {min_rows} anime episodes in lineup_v8 (identified by SxxExx pattern in FULL_FILE_PATH), "
-            f"but found only {count}. This likely means your anime did not make it to the final broadcast lineup."
-        )
-        self._log_progress(f"Database check: Found {count} anime episodes in lineup_v8 with SxxExx pattern in FULL_FILE_PATH.")
 
-        # Check lineup_v8_cutless anime has time stamps
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute("SELECT FULL_FILE_PATH, startTime, endTime FROM lineup_v8_cutless")
-                cutless_rows = cursor.fetchall()
-            except Exception as e:
-                raise AssertionError(f"Failed to query lineup_v8_cutless: {e}")
+        # Check each lineup table contains minimum anime episodes
+        for table_name in all_lineup_tables:
+            if '_cutless' in table_name or '_uncut' in table_name:
+                continue  # Skip cutless/uncut for this check
 
-        anime_cutless_issues = [
-            (val, start, end)
-            for (val, start, end) in cutless_rows
-            if pattern.search(str(val)) and (start is None and end is None)
-        ]
-        assert not anime_cutless_issues, (
-            f"Found {len(anime_cutless_issues)} anime episode(s) in lineup_v8_cutless with SxxExx pattern in FULL_FILE_PATH, "
-            f"but both startTime and endTime are NULL. Since timestamp files are generated automatically, "
-            f"each anime episode should have at least a startTime or endTime."
-        )
-        self._log_progress(
-            f"Database check: All anime episodes in lineup_v8_cutless have at least a startTime or endTime."
-        )
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                try:
+                    cursor.execute(f"SELECT FULL_FILE_PATH FROM {table_name}")
+                    rows = cursor.fetchall()
+                except Exception as e:
+                    raise AssertionError(f"Failed to query {table_name}: {e}")
+
+            count = sum(1 for (val,) in rows if pattern.search(str(val)))
+            min_rows = self.config["minimum_anime_rows"]
+            assert count >= min_rows, (
+                f"Expected at least {min_rows} anime episodes in {table_name} (identified by SxxExx pattern in FULL_FILE_PATH), "
+                f"but found only {count}. This likely means your anime did not make it to the final broadcast lineup."
+            )
+            self._log_progress(f"Database check: Found {count} anime episodes in {table_name} with SxxExx pattern in FULL_FILE_PATH.")
+
+        # Check all cutless lineup tables have timestamps
+        cutless_tables = [t for t in all_lineup_tables if '_cutless' in t]
+        for table_name in cutless_tables:
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                try:
+                    cursor.execute(f"SELECT FULL_FILE_PATH, startTime, endTime FROM {table_name}")
+                    cutless_rows = cursor.fetchall()
+                except Exception as e:
+                    raise AssertionError(f"Failed to query {table_name}: {e}")
+
+            anime_cutless_issues = [
+                (val, start, end)
+                for (val, start, end) in cutless_rows
+                if pattern.search(str(val)) and (start is None and end is None)
+            ]
+            assert not anime_cutless_issues, (
+                f"Found {len(anime_cutless_issues)} anime episode(s) in {table_name} with SxxExx pattern in FULL_FILE_PATH, "
+                f"but both startTime and endTime are NULL. Since timestamp files are generated automatically, "
+                f"each anime episode should have at least a startTime or endTime."
+            )
+            self._log_progress(
+                f"Database check: All anime episodes in {table_name} have at least a startTime or endTime."
+            )
 
         # Check duration column consistency in cutless tables
         self._verify_duration_consistency(db_path)
 
-        for table_name in ["lineup_v8", "lineup_v8_cutless"]:
+        # Validate bump placement rules for all lineup tables
+        for table_name in all_lineup_tables:
             with sqlite3.connect(db_path) as conn:
                 cursor = conn.cursor()
                 try:
@@ -672,7 +690,7 @@ class TestSaraAutomatic:
             from tests.validators.ChainValidator import ChainValidator
             chain_validator = ChainValidator()
             strict = os.environ.get("STRICT_CHAIN_VALIDATION", "0").lower() in {"1", "true", "yes"}
-            for chain_table in ["lineup_v8", "lineup_v8_cutless"]:
+            for chain_table in all_lineup_tables:
                 # Episode-aware validation
                 chain_violations = chain_validator.validate_table_with_episodes(chain_table)
                 if strict:
@@ -783,7 +801,15 @@ class TestSaraAutomatic:
         """Verify that any row with start/end times also has a duration value"""
         self._log_progress("Checking duration column consistency in cutless tables...")
 
-        cutless_tables = ["lineup_v8_cutless"]  # Can add more cutless tables as needed
+        # Dynamically discover all cutless tables
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'lineup_v%_cutless'")
+            cutless_tables = sorted([row[0] for row in cursor.fetchall()])
+
+        if not cutless_tables:
+            self._log_progress("No cutless tables found - skipping duration consistency checks")
+            return
 
         for table_name in cutless_tables:
             with sqlite3.connect(db_path) as conn:

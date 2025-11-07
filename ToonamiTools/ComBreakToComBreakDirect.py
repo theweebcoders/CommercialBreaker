@@ -5,11 +5,10 @@ from __future__ import annotations
 import time
 from urllib.parse import urlparse
 
-import requests
-
 import config
 from API.utils.DatabaseManager import get_db_manager
 from API.utils.ErrorManager import get_error_manager
+from API.utils.NetworkUtils import CurlHttpClient, RequestException
 
 
 class ComBreakToComBreakDirect:
@@ -87,10 +86,10 @@ class ComBreakToComBreakDirect:
         status_url = f"{self.base_url}/status"
         for _ in range(retries):
             try:
-                response = requests.get(status_url, timeout=2)
+                response = CurlHttpClient.get(status_url, timeout=2)
                 if response.status_code == 200:
                     return True
-            except requests.RequestException:
+            except RequestException:
                 pass
             time.sleep(delay)
         return False
@@ -139,13 +138,13 @@ class ComBreakToComBreakDirect:
             payload["commercial_folder"] = self.commercial_folder
 
         try:
-            response = requests.post(
+            response = CurlHttpClient.post(
                 f"{self.base_url}/channels",
-                json=payload,
+                json_data=payload,
                 headers={"Content-Type": "application/json"},
                 timeout=300,
             )
-        except requests.RequestException as exc:
+        except RequestException as exc:
             raise RuntimeError(f"Failed to reach ComBreakDirect: {exc}") from exc
 
         if response.status_code >= 400:

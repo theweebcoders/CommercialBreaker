@@ -34,7 +34,7 @@ pip install -r requirements.txt
 ### DizqueTV Package Installation Failure
 **Error**: `ModuleNotFoundError: No module named 'm3u8'` or `error: subprocess-exited-with-error` during `pip install`
 
-**Problem**: The dizquetv package (required for Cutless Mode) has a build-time import issue. Its `setup.py` imports code from the package itself (`from dizqueTV._info import __version__`), which triggers imports of the entire dizqueTV module. This module imports dependencies like `m3u8`, `PlexAPI`, `numpy`, and `objectrest` at the top level - but these dependencies aren't installed yet because pip is still trying to build the dizquetv package!
+**Problem**: The dizquetv package (required for Cutless Mode) has a build-time import issue. Its `setup.py` imports code from the package itself (`from dizqueTV._info import __version__`), which triggers imports of the entire dizqueTV module. This module imports dependencies like `m3u8`, `PlexAPI`, and `objectrest` at the top level - but these dependencies aren't installed yet because pip is still trying to build the dizquetv package!
 
 **Solution**: Install dependencies in the correct order:
 

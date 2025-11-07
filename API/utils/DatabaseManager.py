@@ -286,7 +286,177 @@ class DatabaseManager:
         query = f"DELETE FROM {table_name} WHERE {where}"
         cursor = self.execute(query, where_params)
         return cursor.rowcount
-    
+
+    def fetchall_as_dicts(self, query: str, params: Optional[Tuple] = None) -> List[Dict[str, Any]]:
+        """
+        Execute a query and fetch all results as a list of dictionaries.
+
+        Args:
+            query: SQL query to execute
+            params: Optional parameters for the query
+
+        Returns:
+            List[Dict[str, Any]]: All result rows as dictionaries
+        """
+        def _fetchall_as_dicts():
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            if params:
+                cursor.execute(query, params)
+            else:
+                cursor.execute(query)
+            columns = [desc[0] for desc in cursor.description]
+            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+        return self._execute_with_retry(_fetchall_as_dicts)
+
+    def fetchone_as_dict(self, query: str, params: Optional[Tuple] = None) -> Optional[Dict[str, Any]]:
+        """
+        Execute a query and fetch one result as a dictionary.
+
+        Args:
+            query: SQL query to execute
+            params: Optional parameters for the query
+
+        Returns:
+            Optional[Dict[str, Any]]: Single result row as dictionary or None
+        """
+        def _fetchone_as_dict():
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            if params:
+                cursor.execute(query, params)
+            else:
+                cursor.execute(query)
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            columns = [desc[0] for desc in cursor.description]
+            return dict(zip(columns, row))
+
+        return self._execute_with_retry(_fetchone_as_dict)
+
+    def drop_table(self, table_name: str):
+        """
+        Drop a table if it exists.
+
+        Args:
+            table_name: Name of the table to drop
+        """
+        query = f"DROP TABLE IF EXISTS {table_name}"
+        self.execute(query)
+
+    def bulk_insert_dicts(self, table_name: str, data: List[Dict[str, Any]]) -> int:
+        """
+        Bulk insert a list of dictionaries into a table.
+        All dictionaries must have the same keys.
+
+        Args:
+            table_name: Name of the table
+            data: List of dictionaries with column names as keys
+
+        Returns:
+            int: Number of rows inserted
+        """
+        if not data:
+            return 0
+
+        # Get columns from first row
+        columns = list(data[0].keys())
+        column_names = ', '.join([f'"{col}"' for col in columns])
+        placeholders = ', '.join('?' * len(columns))
+        query = f"INSERT INTO {table_name} ({column_names}) VALUES ({placeholders})"
+
+        # Convert dicts to tuples in correct column order
+        values = [tuple(row[col] for col in columns) for row in data]
+        self.executemany(query, values)
+        return len(data)
+
+    def create_table_from_dicts(self, table_name: str, data: List[Dict[str, Any]],
+                                  if_exists: str = 'fail'):
+        """
+        Create a table from a list of dictionaries.
+        Column types are inferred from the first row's values.
+        All rows are normalized to have the same column set.
+
+        Args:
+            table_name: Name of the table to create
+            data: List of dictionaries (must have at least one element)
+            if_exists: What to do if table exists: 'fail', 'replace', or 'append'
+        """
+        if not data:
+            raise ValueError("Cannot create table from empty data list")
+
+        # Check if table exists
+        exists = self.table_exists(table_name)
+
+        if exists:
+            if if_exists == 'fail':
+                raise ValueError(f"Table {table_name} already exists")
+            elif if_exists == 'replace':
+                self.drop_table(table_name)
+            elif if_exists == 'append':
+                # Just insert the data
+                self.bulk_insert_dicts(table_name, data)
+                return
+
+        # Collect ALL columns from ALL rows to ensure complete schema
+        all_columns = set()
+        for row in data:
+            all_columns.update(row.keys())
+        all_columns = sorted(all_columns)  # Sort for consistent ordering
+
+        # Build normalized rows so each dict shares identical column ordering
+        normalized_data = []
+        for row in data:
+            normalized_row = {}
+            for col in all_columns:
+                normalized_row[col] = row.get(col)
+            normalized_data.append(normalized_row)
+
+        # Replace original data with normalized version
+        data[:] = normalized_data
+
+        # Infer column types from first row (now has all columns in consistent order)
+        first_row = data[0]
+        columns = []
+        for key in all_columns:  # Use all_columns order for consistency
+            value = first_row[key]
+            if isinstance(value, int):
+                col_type = 'INTEGER'
+            elif isinstance(value, float):
+                col_type = 'REAL'
+            elif value is None:
+                col_type = 'TEXT'  # Default to TEXT for None
+            else:
+                col_type = 'TEXT'
+            columns.append(f'"{key}" {col_type}')
+
+        schema = ', '.join(columns)
+        self.create_table(table_name, schema)
+
+        # Insert the data
+        self.bulk_insert_dicts(table_name, data)
+
+    def replace_table_data(self, table_name: str, data: List[Dict[str, Any]]):
+        """
+        Replace all data in a table with new data.
+        Drops the table and recreates it with the new data.
+
+        Args:
+            table_name: Name of the table
+            data: List of dictionaries with new data
+        """
+        if not data:
+            # If no data, clear the table but preserve the schema
+            if self.table_exists(table_name):
+                self.execute(f"DELETE FROM {table_name}")
+            return
+
+        # Drop and recreate
+        self.drop_table(table_name)
+        self.create_table_from_dicts(table_name, data, if_exists='fail')
+
     def close_thread_connection(self):
         """Close the connection for the current thread."""
         if hasattr(self._local, 'connection') and self._local.connection:

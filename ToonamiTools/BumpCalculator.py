@@ -2,8 +2,6 @@ import os
 from pathlib import Path
 from typing import Callable, Iterable, List, Optional
 
-import pandas as pd
-
 from API.utils.DatabaseManager import get_db_manager
 from API.utils.ErrorManager import get_error_manager
 from ComBreak.DurationManager import get_duration_manager
@@ -42,11 +40,10 @@ class BumpCalculator:
             return
 
         try:
-            with self.db_manager.transaction() as conn:
-                df = pd.read_sql_query(
-                    "SELECT FULL_FILE_PATH FROM nice_list WHERE TRIM(IFNULL(FULL_FILE_PATH, '')) <> ''",
-                    conn,
-                )
+            rows = self.db_manager.fetchall(
+                "SELECT FULL_FILE_PATH FROM nice_list WHERE TRIM(IFNULL(FULL_FILE_PATH, '')) <> ''"
+            )
+            file_paths = [row[0] for row in rows]
         except Exception as exc:
             self.error_manager.send_error_level(
                 source="BumpCalculator",
@@ -57,7 +54,7 @@ class BumpCalculator:
             )
             return
 
-        if df.empty:
+        if not file_paths:
             self.error_manager.send_warning(
                 source="BumpCalculator",
                 operation="run",
@@ -67,7 +64,7 @@ class BumpCalculator:
             )
             return
 
-        unique_paths = self._deduplicate_paths(df["FULL_FILE_PATH"].dropna().tolist())
+        unique_paths = self._deduplicate_paths(file_paths)
         total = len(unique_paths)
 
         if total == 0:
@@ -109,14 +106,16 @@ class BumpCalculator:
             )
             return
 
-        durations_df = pd.DataFrame(duration_rows)
-        durations_df.drop_duplicates(subset="FULL_FILE_PATH", keep="last", inplace=True)
+        # Deduplicate by FULL_FILE_PATH, keeping last occurrence
+        seen = {}
+        for row in duration_rows:
+            seen[row["FULL_FILE_PATH"]] = row
+        duration_rows = list(seen.values())
 
-        self._status(f"Storing durations for {len(durations_df)} bumps...")
+        self._status(f"Storing durations for {len(duration_rows)} bumps...")
 
         try:
-            with self.db_manager.transaction() as conn:
-                durations_df.to_sql("bump_durations", conn, if_exists="replace", index=False)
+            self.db_manager.replace_table_data('bump_durations', duration_rows)
         except Exception as exc:
             self.error_manager.send_error_level(
                 source="BumpCalculator",

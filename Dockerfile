@@ -1,7 +1,7 @@
 # Base image for dependencies
 FROM python:3.11-slim as deps
 
-# Install system dependencies including Tk, OpenCV requirements, and FFmpeg
+# Install system dependencies including Tk, FFmpeg, and curl
 RUN apt-get update && apt-get install -y \
     build-essential \
     python3-tk \
@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     ffmpeg \
     git \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create and set working directory
@@ -22,19 +23,15 @@ WORKDIR /app
 COPY requirements/ requirements/
 COPY requirements.txt .
 
-# Create modified requirements files without ttkthemes and pystray
-RUN grep -v "ttkthemes" requirements/runtime.txt > requirements/runtime_docker.txt
-RUN grep -v "pystray" requirements/graphics.txt > requirements/graphics_docker.txt
-
 # Install wheel and setuptools first to ensure proper wheel building
 RUN pip install --no-cache-dir wheel setuptools
 
 # Install pre-dependencies
 RUN cd requirements && pip install --no-cache-dir -r pre_deps.txt
 
-# Install Python dependencies using the modified requirements files
+# Install Python dependencies (exclude pystray - requires GUI)
+RUN grep -v "pystray" requirements/runtime.txt > requirements/runtime_docker.txt
 RUN cd requirements && pip install --no-cache-dir -r runtime_docker.txt
-RUN pip install --no-cache-dir -r requirements/graphics_docker.txt
 
 # Final stage
 FROM deps AS final

@@ -69,8 +69,11 @@ Before installing, ensure you have the following:
 
 - **Python 3.11 or higher**
 - **Git**
+- **curl** (usually pre-installed on macOS/Linux, included in Windows 10+)
 - **Active internet connection** (for IMDB/Wikipedia lookups)
 - **FFmpeg, FFprobe, and FFplay** (see installation options below)
+
+**Note**: The application has minimal external dependencies. Most functionality uses Python standard library with only a few required packages.
 
 ### Installing Prerequisites
 
@@ -200,6 +203,7 @@ pip install -r requirements.txt
 **Module not found errors**
 - Ensure all dependencies are installed: `pip install -r requirements.txt`
 - Check that you're using the correct Python version
+- The codebase has minimal dependencies. If you encounter import errors, they're likely limited to a few core packages: remi, flask, psutil, and sv_ttk.
 
 ### Getting Help
 
