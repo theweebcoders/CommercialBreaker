@@ -92,12 +92,61 @@ CommercialBreaker & Toonami Tools is a modular Python application designed to au
 ├─────────────────┬─────────────────────┬───────────────────────┤
 │   Plex API      │   Platform APIs     │  ComBreakDirect       │
 │                 │                     │                       │
-│ • Authentication│ • External REST     │ • Self-contained      │
+│ • OAuth Auth    │ • External REST     │ • Self-contained      │
 │ • Library Scan  │ • Channel Creation  │ • Direct streaming    │
 │ • Timestamps    │                     │ • M3U/XMLTV gen       │
-│ • File Paths    │                     │ • Plex discovery      │
+│ • Smart Retry   │                     │ • Plex discovery      │
 └─────────────────┴─────────────────────┴───────────────────────┘
 ```
+
+### Plex Integration
+
+CommercialBreaker includes a Plex client implementation located in `API/utils/`:
+
+```
+Plex Client Architecture
+
+┌─────────────────────────────────────────────────────────┐
+│                 PlexConnectionHelper.py                 │
+│  • Smart connection retry (local → direct → relay)     │
+│  • Server discovery and connection management          │
+│  • Automatic failover between connection URLs          │
+└────────────────┬────────────────────────────────────────┘
+                 │
+      ┌──────────┴──────────┐
+      │                     │
+      ▼                     ▼
+┌──────────────────┐  ┌──────────────────┐
+│ PlexClient.py    │  │ PlexServer.py    │
+│                  │  │                  │
+│ • PlexAuthClient │  │ • SimplePlexServ.│
+│ • OAuth PIN flow │  │ • Library access │
+│ • Account client │  │ • Section queries│
+│ • Resource list  │  │ • Episode data   │
+└──────────────────┘  └──────────────────┘
+         │                      │
+         └──────────┬───────────┘
+                    ▼
+         ┌────────────────────────┐
+         │   CurlHttpClient       │
+         │   (ToonamiTools/)      │
+         │  • HTTP operations     │
+         │  • Stdlib based        │
+         └────────────────────────┘
+```
+
+**Key Benefits**:
+- **Minimal Dependencies**: Uses Python stdlib `urllib` and `CurlHttpClient`
+- **Connection Reliability**: Automatically tries all available server URLs
+- **Lightweight**: Only implements features actually used by CommercialBreaker
+- **Stability**: Direct control over Plex API interactions
+
+**Integration Points**:
+- `LoginToPlex.py` - OAuth authentication and server selection
+- `GetTimestampPlex.py` - Fetch "Skip Intro" timestamps
+- `PlexAutoSplitter.py` - Split merged episodes
+- `RenameSplitPlex.py` - Rename split episodes to match file names
+
 ---
 
 ## In-Memory Message Broker

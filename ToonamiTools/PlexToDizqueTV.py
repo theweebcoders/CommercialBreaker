@@ -2,18 +2,19 @@ import re
 import os
 import sys
 import config
+from typing import Optional, Callable
 from API.utils.DatabaseManager import get_db_manager
 from API.utils.ErrorManager import get_error_manager
 from API.utils.NetworkUtils import CurlHttpClient, RequestException, Timeout, ConnectionError
-from plexapi.server import PlexServer
+from API.utils.PlexConnectionHelper import PlexConnectionHelper
 from .utils import show_name_mapper
 from .utils.DizqueTVHelpers import create_program_dict_from_plex_item, create_default_channel_settings
 
 
 class PlexToDizqueTVSimplified:
-    def __init__(self, plex_url, plex_token, anime_library, toonami_library, table, dizquetv_url, channel_number, cutless_mode):
+    def __init__(self, plex_url, plex_token, anime_library, toonami_library, table, dizquetv_url, channel_number, cutless_mode, status_callback: Optional[Callable[[str], None]] = None):
         self.error_manager = get_error_manager()
-        
+
         # Store all parameters directly from arguments - no DB interaction
         self.plex_url = plex_url
         self.plex_token = plex_token
@@ -24,19 +25,34 @@ class PlexToDizqueTVSimplified:
         self.channel_number = channel_number
         # Determine cutless mode based on command-line arguments
         self.cutless_mode = cutless_mode
-        
+        # Status callback for UI integration
+        self.status_callback = status_callback
+
         # These will be initialized in run()
         self.plex = None
         self.df = None
         self.anime_media = {}
         self.toonami_media = {}
 
+    def _status(self, message: str) -> None:
+        """Send status update to callback and print to console."""
+        print(message)
+        if self.status_callback:
+            try:
+                self.status_callback(message)
+            except Exception as exc:
+                print(f"Warning: status callback failed: {exc}")
+
     def run(self, df=None):
-        print("Initializing the connection to Plex and dizqueTV...")
-        
-        # Connect to Plex
+        self._status("Initializing the connection to Plex and dizqueTV...")
+
+        # Connect to Plex with smart reconnection
         try:
-            self.plex = PlexServer(self.plex_url, self.plex_token)
+            self.plex = PlexConnectionHelper.connect_smart(
+                plex_token=self.plex_token,
+                plex_url=self.plex_url,
+                timeout=15
+            )
         except Exception as e:
             self.error_manager.send_error_level(
                 source="PlexToDizqueTV",
@@ -52,7 +68,7 @@ class PlexToDizqueTVSimplified:
             response = CurlHttpClient.get(f"{self.dizquetv_url}/api/channels", timeout=10)
             if response.status_code != 200:
                 raise Exception(f"DizqueTV returned status code {response.status_code}")
-            print("Connected to DizqueTV successfully.")
+            self._status("Connected to DizqueTV successfully.")
         except (Timeout, ConnectionError, RequestException) as e:
             self.error_manager.send_error_level(
                 source="PlexToDizqueTV",
@@ -66,10 +82,10 @@ class PlexToDizqueTVSimplified:
         # Use provided dataframe or load from table name
         if df is not None:
             self.df = df
-            print("Using provided DataFrame for lineup data.")
+            self._status("Using provided DataFrame for lineup data.")
         else:
             # The caller should provide the dataframe, but this provides backward compatibility
-            print(f"Loading data from table '{self.table}' in database.")
+            self._status(f"Loading data from table '{self.table}' in database.")
             db_manager = get_db_manager()
             
             # Check if table exists
@@ -85,15 +101,33 @@ class PlexToDizqueTVSimplified:
 
             self.df = db_manager.fetchall_as_dicts(f"SELECT * FROM {self.table}")
 
+        # Build a set of needed show titles for efficient filtering (cutless mode only)
+        if self.cutless_mode:
+            needed_shows = set()
+            for row in self.df:
+                file_path = row['FULL_FILE_PATH']
+                filename = self.get_filename_from_path(file_path)
+                show_title, _, _ = self.parse_show_info(filename)
+                if show_title:
+                    # Normalize: lowercase and strip whitespace
+                    normalized = show_title.lower().strip()
+                    needed_shows.add(normalized)
+
+            self.needed_shows = needed_shows
+            self._status(f"Identified {len(needed_shows)} unique shows needed from lineup")
+        else:
+            self.needed_shows = None
+
         # Initialize libraries
         self._init_libraries()
-        
-        print("Processing media items for dizqueTV...")
-        
+
+        total_items = len(self.df)
+        self._status(f"Processing {total_items} media items for dizqueTV...")
+
         # Process each file in the database
         to_add = []
         missing_files = []
-        
+
         for index, row in enumerate(self.df):
             file_path = row['FULL_FILE_PATH']
             filename = self.get_filename_from_path(file_path)
@@ -102,6 +136,12 @@ class PlexToDizqueTVSimplified:
             plex_item = self.get_media_item(file_path)
 
             if plex_item:
+                # Progress indicator: every 10 items
+                if (index + 1) % 10 == 0 or index == 0:
+                    percent = ((index + 1) / total_items) * 100
+                    self._status(f"[Progress: {index + 1}/{total_items} ({percent:.1f}%)]")
+
+                # Only print individual items to console, not to status callback (too verbose)
                 print(f"Converting Plex item: {plex_item.title}")
 
                 try:
@@ -128,24 +168,27 @@ class PlexToDizqueTVSimplified:
             else:
                 print(f"Warning: Could not find {filename} in Plex libraries")
                 missing_files.append(filename)
-        
+
+        # Final progress
+        self._status(f"[Progress: {total_items}/{total_items} (100.0%)] - Conversion complete")
+
         if missing_files:
             print("\n===== MISSING FILES =====")
             print(f"Failed to find {len(missing_files)} files in Plex:")
             for missing_file in missing_files:
                 print(f"  - {missing_file}")
-                
+
             error_msg = f"Failed to find {len(missing_files)} files in Plex. See above for details."
             raise Exception(error_msg)
-        
-        print(f"Identified {len(to_add)} media items to add to the dizqueTV channel.")
-        
+
+        self._status(f"Identified {len(to_add)} media items to add to the dizqueTV channel.")
+
         # Skip channel update if no programs were found
         if not to_add:
-            print("No programs to add. Exiting.")
+            self._status("No programs to add. Exiting.")
             return
-        
-        print("Checking and updating the dizqueTV channel...")
+
+        self._status("Checking and updating the dizqueTV channel...")
 
         # Get existing channel or create new one
         channel_data = None
@@ -153,9 +196,9 @@ class PlexToDizqueTVSimplified:
             response = CurlHttpClient.get(f"{self.dizquetv_url}/api/channel/{self.channel_number}", timeout=10)
             if response.status_code == 200:
                 channel_data = response.json()
-                print(f"Found existing channel: {channel_data.get('name', 'Unknown')}")
+                self._status(f"Found existing channel: {channel_data.get('name', 'Unknown')}")
             elif response.status_code == 404:
-                print("Channel not found. Creating a new one...")
+                self._status("Channel not found. Creating a new one...")
             else:
                 raise Exception(f"Unexpected status code {response.status_code}")
         except (Timeout, ConnectionError, RequestException) as e:
@@ -185,7 +228,7 @@ class PlexToDizqueTVSimplified:
                 )
                 if response.status_code not in [200, 201]:
                     raise Exception(f"Failed to create channel: status {response.status_code}")
-                print("Channel created successfully.")
+                self._status("Channel created successfully.")
             except (Timeout, ConnectionError, RequestException) as e:
                 self.error_manager.send_error_level(
                     source="PlexToDizqueTV",
@@ -197,7 +240,7 @@ class PlexToDizqueTVSimplified:
                 raise
         else:
             # Update existing channel - clear old programs and add new ones
-            print("Clearing old programs and adding new ones...")
+            self._status("Clearing old programs and adding new ones...")
             channel_data['programs'] = to_add
 
             # Calculate total duration
@@ -212,7 +255,7 @@ class PlexToDizqueTVSimplified:
                 )
                 if response.status_code != 200:
                     raise Exception(f"Failed to update channel: status {response.status_code}")
-                print("Channel updated successfully.")
+                self._status("Channel updated successfully.")
             except (Timeout, ConnectionError, RequestException) as e:
                 self.error_manager.send_error_level(
                     source="PlexToDizqueTV",
@@ -223,28 +266,43 @@ class PlexToDizqueTVSimplified:
                 )
                 raise
 
-        print("Operation complete.")
+        self._status("Operation complete.")
 
     def _init_libraries(self):
-        """Initialize Plex libraries and cache all media for faster lookup"""
+        """Initialize Plex libraries and cache media"""
         self.anime_media = {}
         self.toonami_media = {}
 
         # Get anime library media only if cutless mode is True (original behavior)
         if self.cutless_mode:
             try:
-                print(f"Loading Anime library: {self.anime_library}")
+                self._status(f"Loading Anime library: {self.anime_library}")
                 anime_section = self.plex.library.section(self.anime_library)
 
                 # Get all shows in the anime library
                 anime_shows = anime_section.all()
-                print(f"Found {len(anime_shows)} shows in Anime library")
+                self._status(f"Found {len(anime_shows)} shows in Anime library")
 
                 # For each show, get all episodes
                 for show in anime_shows:
+                    # Filter to only shows we need (if needed_shows is set)
+                    if self.needed_shows:
+                        normalized_title = show.title.lower().strip()
+
+                        # O(1) hash lookup - primary check
+                        if normalized_title not in self.needed_shows:
+                            # Also try fuzzy substring match for safety (show names might not match exactly)
+                            matches_needed = any(
+                                needed_show in normalized_title or normalized_title in needed_show
+                                for needed_show in self.needed_shows
+                            )
+                            if not matches_needed:
+                                continue  # Skip this show
+
                     try:
                         # For TV shows, episodes are organized by seasons
                         if hasattr(show, 'episodes') and callable(getattr(show, 'episodes')):
+                            print(f"  Loading episodes for: {show.title}")
                             for episode in show.episodes():
                                 try:
                                     # Get the file path and map it to the episode
@@ -267,13 +325,13 @@ class PlexToDizqueTVSimplified:
             except Exception as e:
                 print(f"Error loading Anime library: {e}")
         else:
-            print("Cutless mode is False, skipping Anime library loading.")
+            self._status("Cutless mode is False, skipping Anime library loading.")
 
-        # Get toonami library media
+        # Get toonami library media (bumps/content) - always load all since it's small
         try:
-            print(f"Loading Toonami library: {self.toonami_library}")
+            self._status(f"Loading Toonami library: {self.toonami_library}")
             toonami_section = self.plex.library.section(self.toonami_library)
-            
+
             # For a standard library with videos, get all videos directly
             for video in toonami_section.all():
                 try:
@@ -287,8 +345,8 @@ class PlexToDizqueTVSimplified:
                     print(f"Error accessing media for {video.title}: {e}")
         except Exception as e:
             print(f"Error loading Toonami library: {e}")
-        
-        print(f"Loaded {len(self.anime_media)} anime media items and {len(self.toonami_media)} toonami media items")
+
+        self._status(f"Loaded {len(self.anime_media)} anime media items and {len(self.toonami_media)} toonami media items")
 
     def get_filename_from_path(self, path):
         """Extract the filename from a file path"""

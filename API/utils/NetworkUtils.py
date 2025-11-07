@@ -1,9 +1,6 @@
 """
 NetworkUtils - Minimal network operations using only stdlib + subprocess.
 
-This module replaces external dependencies (requests, beautifulsoup4) with
-lightweight implementations
-
 Components:
 - CurlHttpClient: HTTP operations via subprocess + curl
 - WikipediaTableParser: Regex-based HTML table extraction

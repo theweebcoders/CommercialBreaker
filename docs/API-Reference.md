@@ -1178,6 +1178,345 @@ def login_to_plex(self):
     thread.start()
 ```
 
+## Plex Client API
+
+The Plex client implementation provides OAuth authentication, account management, and server operations. Located in `API/utils/`, it uses Python's standard library `urllib` and `CurlHttpClient`.
+
+### PlexClient Module (`API/utils/PlexClient.py`)
+
+#### Class: PlexAuthClient
+
+Handles Plex OAuth authentication using the PIN flow.
+
+```python
+from API.utils.PlexClient import PlexAuthClient
+
+auth_client = PlexAuthClient()
+```
+
+**Methods:**
+
+```python
+def start_auth(self) -> tuple[str, str]:
+    """
+    Initiate OAuth PIN authentication flow.
+
+    Returns:
+        tuple: (auth_url, pin_id)
+            - auth_url: URL for user to visit and approve access
+            - pin_id: PIN identifier for polling
+
+    Example:
+        auth_url, pin_id = auth_client.start_auth()
+        print(f"Visit: {auth_url}")
+    """
+
+def poll_for_token(self, pin_id: str, timeout: int = 120) -> str | None:
+    """
+    Poll for authentication token after user approval.
+
+    Args:
+        pin_id: PIN identifier from start_auth()
+        timeout: Maximum seconds to wait (default: 120)
+
+    Returns:
+        str: Plex authentication token, or None if timeout
+
+    Example:
+        token = auth_client.poll_for_token(pin_id, timeout=120)
+        if token:
+            print("Authentication successful!")
+    """
+
+def get_token(self) -> str | None:
+    """
+    Complete authentication flow convenience method.
+    Combines start_auth() and poll_for_token().
+
+    Returns:
+        str: Authentication token or None
+
+    Example:
+        token = auth_client.get_token()
+    """
+```
+
+#### Class: PlexAccountClient
+
+Manages Plex account operations and server discovery.
+
+```python
+from API.utils.PlexClient import PlexAccountClient
+
+account = PlexAccountClient(token)
+```
+
+**Methods:**
+
+```python
+def get_resources(self) -> list['PlexResource']:
+    """
+    Retrieve all Plex resources (servers, players, etc.) for the account.
+
+    Returns:
+        list[PlexResource]: List of resources with connection info
+
+    Example:
+        resources = account.get_resources()
+        for resource in resources:
+            if resource.provides == 'server':
+                print(f"Server: {resource.name}")
+                for conn in resource.connections:
+                    print(f"  URL: {conn['uri']}")
+    """
+
+def get_servers(self) -> list['PlexResource']:
+    """
+    Get only server resources (filters out players, etc.).
+
+    Returns:
+        list[PlexResource]: Server resources only
+
+    Example:
+        servers = account.get_servers()
+        server_names = [s.name for s in servers]
+    """
+```
+
+#### Class: PlexResource
+
+Represents a Plex server or device resource.
+
+**Attributes:**
+```python
+class PlexResource:
+    name: str                    # Resource name
+    client_identifier: str       # Unique identifier
+    provides: str               # Resource type ('server', 'player', etc.)
+    owned: bool                 # Whether user owns this resource
+    connections: list[dict]     # List of connection URLs and metadata
+```
+
+**Example Usage:**
+```python
+resources = account.get_resources()
+for resource in resources:
+    if resource.provides == 'server' and resource.owned:
+        print(f"Server: {resource.name}")
+        print(f"ID: {resource.client_identifier}")
+        for conn in resource.connections:
+            print(f"  {conn['uri']} (local: {conn['local']})")
+```
+
+### PlexServer Module (`API/utils/PlexServer.py`)
+
+#### Class: SimplePlexServer
+
+Minimal Plex Media Server client.
+
+```python
+from API.utils.PlexServer import SimplePlexServer
+
+server = SimplePlexServer(base_url, token, client_identifier=None)
+```
+
+**Methods:**
+
+```python
+def get_libraries(self) -> list['SimplePlexLibrary']:
+    """
+    Get all libraries on the server.
+
+    Returns:
+        list[SimplePlexLibrary]: List of library objects
+
+    Example:
+        libraries = server.get_libraries()
+        for lib in libraries:
+            print(f"Library: {lib.title} (type: {lib.type})")
+    """
+
+def get_library_by_name(self, name: str) -> 'SimplePlexLibrary' | None:
+    """
+    Get library by name.
+
+    Args:
+        name: Library name to find
+
+    Returns:
+        SimplePlexLibrary or None if not found
+    """
+```
+
+#### Class: SimplePlexLibrary
+
+Represents a Plex library.
+
+**Attributes:**
+- `title`: Library name
+- `type`: Library type ('movie', 'show', etc.)
+- `key`: Library key
+
+**Methods:**
+
+```python
+def get_sections(self) -> list['SimplePlexSection']:
+    """Get all sections in this library"""
+
+def get_section_by_title(self, title: str) -> 'SimplePlexSection' | None:
+    """Get section by title"""
+```
+
+#### Class: SimplePlexSection
+
+Represents a library section.
+
+**Methods:**
+
+```python
+def get_shows(self) -> list['SimplePlexShow']:
+    """Get all TV shows in this section"""
+
+def get_show_by_title(self, title: str) -> 'SimplePlexShow' | None:
+    """Get show by title"""
+```
+
+#### Class: SimplePlexShow
+
+Represents a TV show.
+
+**Attributes:**
+- `title`: Show title
+- `rating_key`: Plex rating key
+- `key`: Show key
+
+**Methods:**
+
+```python
+def get_episodes(self) -> list['SimplePlexEpisode']:
+    """
+    Get all episodes for this show.
+
+    Returns:
+        list[SimplePlexEpisode]: All episodes across all seasons
+    """
+```
+
+#### Class: SimplePlexEpisode
+
+Represents an episode.
+
+**Attributes:**
+- `title`: Episode title
+- `rating_key`: Plex rating key
+- `key`: Episode key
+- `index`: Episode number
+- `parent_index`: Season number
+- `media`: List of media parts
+
+### PlexConnectionHelper Module (`API/utils/PlexConnectionHelper.py`)
+
+#### Class: PlexConnectionHelper
+
+Smart connection management with automatic retry logic.
+
+```python
+from API.utils.PlexConnectionHelper import PlexConnectionHelper
+
+helper = PlexConnectionHelper(token)
+```
+
+**Methods:**
+
+```python
+def discover_servers(self) -> list['PlexResource']:
+    """
+    Discover all available Plex servers for the authenticated account.
+
+    Returns:
+        list[PlexResource]: List of server resources
+
+    Example:
+        servers = helper.discover_servers()
+        print(f"Found {len(servers)} servers")
+    """
+
+def connect_smart(self, resource: 'PlexResource') -> 'SimplePlexServer' | None:
+    """
+    Smart connect to a Plex resource with automatic URL retry.
+
+    Tries connection URLs in this order:
+    1. Local network URLs (fastest)
+    2. Direct connections
+    3. Relay URLs (fallback)
+
+    Args:
+        resource: PlexResource object from discover_servers()
+
+    Returns:
+        SimplePlexServer or None if all connections fail
+
+    Example:
+        servers = helper.discover_servers()
+        for server_resource in servers:
+            server = helper.connect_smart(server_resource)
+            if server:
+                print(f"Connected to {server_resource.name}")
+                break
+    """
+
+def connect_with_server_name(self, server_name: str) -> 'SimplePlexServer' | None:
+    """
+    Discover and connect to a server by name.
+    Convenience method that combines discovery and smart connection.
+
+    Args:
+        server_name: Name of the Plex server
+
+    Returns:
+        SimplePlexServer or None if server not found or connection fails
+
+    Example:
+        server = helper.connect_with_server_name("My Plex Server")
+        if server:
+            libraries = server.get_libraries()
+    """
+```
+
+**Connection Strategy:**
+
+The `connect_smart()` method implements intelligent connection retry:
+
+1. Sorts connections by preference (local > direct > relay)
+2. Attempts each connection URL with timeout
+3. Returns first successful connection
+4. Logs all connection attempts for debugging
+
+**Example: Complete Authentication Flow:**
+
+```python
+from API.utils.PlexClient import PlexAuthClient
+from API.utils.PlexConnectionHelper import PlexConnectionHelper
+
+# 1. Authenticate
+auth = PlexAuthClient()
+token = auth.get_token()  # User visits auth URL and approves
+
+# 2. Connect to server
+helper = PlexConnectionHelper(token)
+server = helper.connect_with_server_name("My Server")
+
+# 3. Access libraries
+if server:
+    libraries = server.get_libraries()
+    for lib in libraries:
+        if lib.type == 'show':
+            sections = lib.get_sections()
+            for section in sections:
+                shows = section.get_shows()
+                print(f"Found {len(shows)} shows in {section.title}")
+```
+
 ## ToonamiTools Module APIs
 
 ### Authentication Classes

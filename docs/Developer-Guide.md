@@ -41,7 +41,10 @@ CommercialBreaker/
 │       ├── MessageBroker.py    # In-memory pub/sub for real-time updates
 │       ├── DatabaseManager.py  # Thread-safe database operations
 │       ├── ErrorManager.py     # Centralized error handling and history
-│       └── NetworkManager.py   # Network validation & config persistence
+│       ├── NetworkManager.py   # Network validation & config persistence
+│       ├── PlexClient.py       # Custom Plex OAuth and account client
+│       ├── PlexServer.py       # Lightweight Plex Media Server client
+│       └── PlexConnectionHelper.py # Smart connection retry logic
 ├── GUI/                    # User interfaces
 │   ├── TOM.py              # Primary Tkinter GUI
 │   ├── Absolution.py       # Web interface (REMI)
@@ -64,6 +67,225 @@ CommercialBreaker/
 │   ├── commercialinjector.py # Bump insertion
 │   └── ...
 └── ExtraTools/             # Case use utilities
+```
+
+## Plex Client Architecture
+
+CommercialBreaker includes a Plex client implementation that uses minimal dependencies and provides reliable connection handling through smart retry logic.
+
+### Architecture Overview
+
+The Plex integration consists of three main components:
+
+1. **PlexClient.py** - OAuth authentication and account management
+2. **PlexServer.py** - Minimal Plex Media Server client
+3. **PlexConnectionHelper.py** - Smart connection retry logic
+
+### Design Rationale
+
+- **Minimal Dependencies**: Uses Python stdlib `urllib` and `CurlHttpClient`
+- **Focused Implementation**: Only includes features actually used by CommercialBreaker
+- **Connection Reliability**: Smart retry logic automatically tries all available URLs (local, relay, direct)
+- **Stability**: Direct control over Plex API interactions
+- **Performance**: Lightweight implementation with minimal overhead
+
+### Component Details
+
+#### PlexClient.py
+
+Handles Plex authentication and account management:
+
+```python
+from API.utils.PlexClient import PlexAuthClient, PlexAccountClient
+
+# OAuth authentication
+auth_client = PlexAuthClient()
+auth_url, pin_id = auth_client.start_auth()
+# User visits auth_url and approves
+
+# Poll for token
+token = auth_client.poll_for_token(pin_id)
+
+# Account management
+account = PlexAccountClient(token)
+resources = account.get_resources()  # Returns list of PlexResource objects
+
+for resource in resources:
+    if resource.provides == 'server':
+        print(f"Server: {resource.name}")
+        print(f"  Connections: {resource.connections}")
+```
+
+**Key Classes:**
+- `PlexAuthClient`: Handles OAuth PIN flow
+- `PlexAccountClient`: Manages account operations and server discovery
+- `PlexResource`: Represents Plex servers/devices with connection info
+
+#### PlexServer.py
+
+Minimal Plex Media Server client with only needed functionality:
+
+```python
+from API.utils.PlexServer import SimplePlexServer
+
+# Connect to server
+server = SimplePlexServer(base_url, token)
+
+# Get libraries
+libraries = server.get_libraries()
+
+# Get library sections
+for library in libraries:
+    sections = library.get_sections()
+    for section in sections:
+        print(f"Section: {section.title}")
+
+        # Get shows
+        shows = section.get_shows()
+        for show in shows:
+            # Get episodes
+            episodes = show.get_episodes()
+```
+
+**Key Classes:**
+- `SimplePlexServer`: Main server interface
+- `SimplePlexLibrary`: Library container
+- `SimplePlexSection`: Library section (TV Shows, Movies, etc.)
+- `SimplePlexShow`: TV show with episode access
+- `SimplePlexEpisode`: Individual episode with metadata
+
+#### PlexConnectionHelper.py
+
+Smart connection logic with automatic URL retry:
+
+```python
+from API.utils.PlexConnectionHelper import PlexConnectionHelper
+
+# Initialize helper
+helper = PlexConnectionHelper(token)
+
+# Smart connect - tries all URLs automatically
+server = helper.connect_smart(plex_resource)
+# Returns SimplePlexServer or None if all connections fail
+
+# Connect by server name
+server = helper.connect_with_server_name(server_name)
+# Discovers server, tries all URLs, returns working connection
+```
+
+**Connection Strategy:**
+1. Try local network URLs first (fastest)
+2. Fall back to direct connections
+3. Use relay URLs as last resort
+4. Returns first successful connection
+5. Logs all attempts for debugging
+
+### Usage in ToonamiTools
+
+The custom Plex client is integrated throughout ToonamiTools:
+
+```python
+# In LoginToPlex.py
+from API.utils.PlexClient import PlexAuthClient, PlexAccountClient
+from API.utils.PlexConnectionHelper import PlexConnectionHelper
+
+# Authenticate
+auth_client = PlexAuthClient()
+token = auth_client.get_token()
+
+# Get servers with smart connection
+helper = PlexConnectionHelper(token)
+server = helper.connect_with_server_name(server_name)
+
+# Use server
+libraries = server.get_libraries()
+```
+
+### Migration from plexapi
+
+**Old Code:**
+```python
+from plexapi.myplex import MyPlexAccount
+from plexapi.server import PlexServer
+
+account = MyPlexAccount(token)
+server = account.resource(server_name).connect()
+```
+
+**New Code:**
+```python
+from API.utils.PlexConnectionHelper import PlexConnectionHelper
+
+helper = PlexConnectionHelper(token)
+server = helper.connect_with_server_name(server_name)
+```
+
+### HTTP Client Layer
+
+All HTTP operations use `CurlHttpClient` from ToonamiTools:
+
+```python
+from ToonamiTools.CurlHttpClient import CurlHttpClient
+
+client = CurlHttpClient()
+response = client.get(url, headers=headers)
+data = response.json()
+```
+
+**Benefits:**
+- Consistent HTTP handling across the codebase
+- Uses Python stdlib for HTTP operations
+- Built-in error handling and retry logic
+
+### Debugging Tips
+
+**Connection Issues:**
+```python
+# Enable verbose logging to see all connection attempts
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
+# The connection helper logs each URL attempt
+helper = PlexConnectionHelper(token)
+server = helper.connect_smart(resource)  # Check logs for failures
+```
+
+**Authentication Issues:**
+```python
+# Manually test token
+from API.utils.PlexClient import PlexAccountClient
+
+account = PlexAccountClient(token)
+resources = account.get_resources()
+print(f"Found {len(resources)} resources")
+```
+
+### Testing
+
+The Plex client can be tested independently:
+
+```python
+# Test authentication flow
+from API.utils.PlexClient import PlexAuthClient
+
+auth = PlexAuthClient()
+url, pin_id = auth.start_auth()
+print(f"Visit: {url}")
+# After approving...
+token = auth.poll_for_token(pin_id, timeout=120)
+print(f"Token: {token}")
+
+# Test connection helper
+from API.utils.PlexConnectionHelper import PlexConnectionHelper
+
+helper = PlexConnectionHelper(token)
+servers = helper.discover_servers()
+print(f"Discovered {len(servers)} servers")
+
+for server in servers:
+    connected = helper.connect_smart(server)
+    print(f"{server.name}: {'Connected' if connected else 'Failed'}")
+```
 
 ### ComBreakDirect Streaming Architecture (Alpha)
 

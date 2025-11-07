@@ -80,6 +80,35 @@ pip install -r requirements.txt
 3. **Manual token entry**: Use Plex token directly if OAuth fails
 4. **Firewall/VPN**: Check if network restrictions block access
 
+**Smart Connection Retry**: CommercialBreaker automatically tries all available connection URLs for your Plex server:
+- Local network URLs (fastest)
+- Direct connections
+- Relay URLs (fallback)
+
+If connection fails after trying all URLs, check the application logs to see which URLs were attempted.
+
+### Plex Connection Timeouts
+**Problem**: Connection to Plex server times out or is unreliable
+
+**Automatic Handling**:
+CommercialBreaker includes smart connection retry logic that handles most timeout issues automatically:
+- Tries local network URLs first (192.168.x.x, 10.x.x.x)
+- Falls back to direct public IPs
+- Uses Plex relay URLs as last resort
+- Logs all connection attempts for debugging
+
+**Manual Solutions** (if automatic retry doesn't resolve):
+1. **Check network stability**: Ensure consistent connection to your network
+2. **Plex server status**: Verify Plex server is running and responsive
+3. **Router/firewall**: Ensure ports are properly forwarded for direct connections
+4. **Relay URL issues**: If only relay works, consider port forwarding for better performance
+5. **Review logs**: Check console output to see which connection URLs were tried
+
+**Understanding Connection Priority**:
+- **Local URLs** (best): Direct connection on same network, fastest response
+- **Direct URLs** (good): Public IP with port forwarding, reliable
+- **Relay URLs** (fallback): Routed through Plex servers, can timeout under load
+
 ### Library Not Found
 **Problem**: Selected library doesn't appear or is empty
 

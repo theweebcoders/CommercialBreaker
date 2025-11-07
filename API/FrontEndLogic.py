@@ -680,17 +680,22 @@ class LogicController():
                 
                 # Get token either from get_token or from server_list
                 plex_token = self.get_token()
+                client_identifier = None
                 if plex_token is None and hasattr(self, 'server_list'):
                     plex_token = self.server_list.plex_token
-                
+                    client_identifier = self.server_list.client_identifier
+
                 if plex_token is None:
                     raise Exception("Could not fetch Plex Token")
-                    
-                # Create library manager
-                self.library_manager = ToonamiTools.PlexLibraryManager(selected_server, plex_token)
+
+                # Create library manager (pass client_identifier for consistent API calls)
+                self.library_manager = ToonamiTools.PlexLibraryManager(selected_server, plex_token, client_identifier)
                 plex_url = self.library_manager.run()
                 self._set_data("plex_url", plex_url)
-                
+                self._set_data("plex_server_name", selected_server)  # Store server name for reconnection
+                if client_identifier:
+                    self._set_data("plex_client_identifier", client_identifier)  # Store for reconnection
+
                 if plex_url is None:
                     raise Exception("Could not fetch Plex URL")
                 
@@ -1282,14 +1287,15 @@ class LogicController():
 
                 if platform_type == 'dizquetv':
                     ptod = ToonamiTools.PlexToDizqueTVSimplified(
-                        plex_url=plex_url, 
-                        plex_token=plex_token, 
+                        plex_url=plex_url,
+                        plex_token=plex_token,
                         anime_library=anime_library,
-                        toonami_library=toonami_library, 
-                        table=table, 
-                        dizquetv_url=platform_url, 
+                        toonami_library=toonami_library,
+                        table=table,
+                        dizquetv_url=platform_url,
                         channel_number=int(channel_number),
-                        cutless_mode=cutless_enabled
+                        cutless_mode=cutless_enabled,
+                        status_callback=self._broadcast_status_update
                     )
                     ptod.run()
                 elif platform_type == 'tunarr':
@@ -1455,14 +1461,15 @@ class LogicController():
         
         if platform_type == 'dizquetv':
             ptod = ToonamiTools.PlexToDizqueTVSimplified(
-                plex_url=plex_url, 
-                plex_token=plex_token, 
+                plex_url=plex_url,
+                plex_token=plex_token,
                 anime_library=anime_library,
-                toonami_library=toonami_library, 
-                table=table, 
-                dizquetv_url=platform_url, 
+                toonami_library=toonami_library,
+                table=table,
+                dizquetv_url=platform_url,
                 channel_number=int(channel_number),
-                cutless_mode=cutless_enabled
+                cutless_mode=cutless_enabled,
+                status_callback=self._broadcast_status_update
             )
             ptod.run()
         elif platform_type == 'tunarr':

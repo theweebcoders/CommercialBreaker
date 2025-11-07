@@ -47,61 +47,135 @@ The tools work together in a specific sequence to create your Toonami channel:
 - **Clydes** (`CLI/clydes.py`): Startup prompt to change network; instructs re‑run after persisting.
 
 ---
-## Authentication & Setup Components
+## Plex Client Utilities
+
+These utilities provide Plex integration with minimal dependencies.
+
+### PlexClient
+**File**: `API/utils/PlexClient.py`
+**Classes**: `PlexAuthClient`, `PlexAccountClient`, `PlexResource`
+**Purpose**: Handles Plex OAuth authentication and account management.
+
+**Key Components**:
+
+**`PlexAuthClient` Class**:
+- **Purpose**: Manages OAuth PIN-based authentication flow
+- **Key Methods**:
+  - `start_auth()` - Initiates OAuth flow, returns auth URL and PIN ID
+  - `poll_for_token(pin_id)` - Polls for user approval, returns auth token
+  - `get_token()` - Convenience method combining auth flow
+- **Implementation**: Uses Python stdlib `urllib` for HTTP operations
+- **Inputs**: None (OAuth is interactive)
+- **Outputs**: Plex authentication token
+
+**`PlexAccountClient` Class**:
+- **Purpose**: Manages Plex account operations and server discovery
+- **Key Methods**:
+  - `get_resources()` - Returns list of all Plex resources (servers, players, etc.)
+  - `get_servers()` - Returns only server resources
+- **Implementation**: Makes authenticated requests to Plex.tv API
+- **Inputs**: Plex authentication token
+- **Outputs**: List of `PlexResource` objects
+
+**`PlexResource` Class**:
+- **Purpose**: Represents a Plex server or device
+- **Attributes**:
+  - `name` - Resource name
+  - `client_identifier` - Unique ID
+  - `provides` - Resource type ('server', 'player', etc.)
+  - `owned` - Ownership status
+  - `connections` - List of connection URLs with metadata
+
+### PlexServer
+**File**: `API/utils/PlexServer.py`
+**Classes**: `SimplePlexServer`, `SimplePlexLibrary`, `SimplePlexSection`, `SimplePlexShow`, `SimplePlexEpisode`
+**Purpose**: Provides minimal Plex Media Server client functionality.
+
+**Key Components**:
+
+**`SimplePlexServer` Class**:
+- **Purpose**: Main server interface
+- **Key Methods**:
+  - `get_libraries()` - Returns all libraries
+  - `get_library_by_name(name)` - Find library by name
+- **Implementation**: Makes requests to Plex server API
+- **Inputs**: Server base URL, auth token, optional client identifier
+- **Outputs**: Library objects
+
+**`SimplePlexLibrary`, `SimplePlexSection`, `SimplePlexShow`, `SimplePlexEpisode` Classes**:
+- **Purpose**: Represent Plex library hierarchy
+- **Implementation**: Each class provides methods to navigate down the hierarchy
+- **Example Flow**: Server → Libraries → Sections → Shows → Episodes
+
+### PlexConnectionHelper
+**File**: `API/utils/PlexConnectionHelper.py`
+**Class**: `PlexConnectionHelper`
+**Purpose**: Smart connection management with automatic URL retry.
+
+**Key Features**:
+- **Smart Connection Logic**: Automatically tries all available server URLs
+- **Connection Priority**: Local network → Direct connections → Relay URLs
+- **Automatic Failover**: Returns first successful connection
+- **Connection Discovery**: Finds all available Plex servers
+
+**Key Methods**:
+- `discover_servers()` - Gets list of available Plex servers
+- `connect_smart(resource)` - Connects to server trying all URLs
+- `connect_with_server_name(name)` - Discovers and connects by name
+
+**Connection Strategy**:
+1. Sorts connection URLs by type (local, direct, relay)
+2. Attempts each URL with timeout
+3. Returns first successful connection
+4. Logs all connection attempts
 
 ### LoginToPlex
 **File**: `ToonamiTools/LoginToPlex.py`
 **Classes**: `PlexServerList`, `PlexLibraryManager`, `PlexLibraryFetcher`
-**Purpose**: Authenticates with Plex, retrieves a list of available Plex servers, and fetches libraries from a selected server. This information is crucial for other tools that interact with the user's Plex media.
+**Purpose**: High-level wrapper for Plex authentication workflow. Uses the Plex client utilities to authenticate, discover servers, and fetch libraries.
 
 **Key Features & Process**:
 
 **`PlexServerList` Class**:
--   **Purpose**: Handles the initial Plex authentication and retrieves a list of servers associated with the user's account.
--   **Authentication (`GetPlexToken` method)**:
-    -   Uses the `plexauth` library to initiate an OAuth flow with Plex.tv.
-    -   Constructs a payload with `X-Plex-*` headers identifying the application ("Commercial Breaker").
-    -   Obtains an authentication URL (`auth_url`) which the user must open in a browser to grant access.
-    -   Supports a callback mechanism (`auth_url_callback`) to pass the `auth_url` to the GUI or other handlers (e.g., for display or automatic opening). If no callback is provided, it defaults to opening the URL in a web browser and printing it to the console.
-    -   Waits for the user to authenticate and then retrieves the Plex access token.
-    -   Stores the token (`self.plex_token`) and the list of server names (`self.plex_servers`).
--   **Server Listing (`GetPlexServerList` method)**:
-    -   Calls `GetPlexToken` to ensure authentication.
-    -   Uses the obtained token to connect to `MyPlexAccount` (from `plexapi.myplex`).
-    -   Fetches the user's resources (Plex servers) and populates `self.plex_servers` with their names.
--   **Inputs**: User interaction for browser-based authentication.
--   **Outputs**:
-    -   Plex authentication token (stored and accessible via `self.plex_token`).
-    -   List of Plex server names (stored and accessible via `self.plex_servers`).
-    -   Authentication URL (passed to callback or opened in browser).
+- **Purpose**: Handles initial Plex authentication and retrieves server list
+- **Authentication Process**:
+  - Uses `PlexAuthClient` to initiate OAuth flow
+  - Obtains authentication URL for user to approve
+  - Supports callback mechanism for GUI integration
+  - Retrieves and stores Plex access token
+  - Uses `PlexAccountClient` to discover available servers
+- **Inputs**: User interaction for browser-based authentication
+- **Outputs**:
+  - Plex authentication token
+  - List of Plex server names
+  - Authentication URL (via callback or browser)
 
 **`PlexLibraryManager` Class**:
--   **Purpose**: Given a selected Plex server name and a token, it connects to that server and retrieves its base URL.
--   **Details Fetching (`GetPlexDetails` method)**:
-    -   Takes the selected server name and Plex token.
-    -   Connects to `MyPlexAccount` using the token.
-    -   Finds the specified server resource from the account's resources.
-    -   Connects to the selected Plex server (`selected_resource.connect()`).
-    -   Stores the server's base URL (`plex._baseurl`) in `self.plex_url`.
--   **Inputs**: Selected Plex server name, Plex authentication token.
--   **Outputs**: Plex server base URL (e.g., `http://localhost:32400`).
+- **Purpose**: Connects to selected Plex server and retrieves its URL
+- **Connection Process**:
+  - Takes selected server name and auth token
+  - Uses `PlexConnectionHelper.connect_with_server_name()` for smart connection
+  - Automatically handles connection retry with multiple URLs
+  - Stores server's base URL
+- **Inputs**: Selected Plex server name, Plex authentication token
+- **Outputs**: Plex server base URL (e.g., `http://192.168.1.100:32400`)
 
 **`PlexLibraryFetcher` Class**:
--   **Purpose**: Fetches a list of library names from a specific Plex server, given its URL and token.
--   **Library Fetching (`GetPlexLibraries` method)**:
-    -   Takes the Plex server URL and token.
-    -   Connects to the `PlexServer` using the provided URL and token.
-    -   Retrieves all library sections (`server.library.sections()`).
-    -   Populates `self.libraries` with the titles (names) of these libraries.
--   **Inputs**: Plex server base URL, Plex authentication token.
--   **Outputs**: List of library names available on the server.
+- **Purpose**: Fetches library list from Plex server
+- **Library Fetching**:
+  - Takes server URL and auth token
+  - Creates `SimplePlexServer` instance
+  - Calls `get_libraries()` to retrieve all library sections
+  - Populates list with library titles
+- **Inputs**: Plex server base URL, Plex authentication token
+- **Outputs**: List of library names available on server
 
 **Workflow Integration**:
-1.  `PlexServerList` is used first to log in and get available servers.
-2.  The user selects a server.
-3.  `PlexLibraryManager` uses the selected server name and token to get the server's URL.
-4.  `PlexLibraryFetcher` uses the server URL and token to get the list of libraries on that server.
-5.  The selected libraries (e.g., for anime, Toonami content) and Plex credentials (URL, token) are then stored (typically in `config.py` or a local database by `FrontEndLogic.py`) for use by other tools.
+1. `PlexServerList` authenticates and discovers servers
+2. User selects a server from the list
+3. `PlexLibraryManager` connects to selected server (with automatic retry)
+4. `PlexLibraryFetcher` retrieves available libraries
+5. Credentials and library selections stored for use by other tools
 
 ---
 
@@ -714,7 +788,7 @@ This is the final critical step for cutless mode, transforming standard lineups 
 **Key Features & Process**:
 -   **Initialization**:
     -   Takes Plex server URL (`plex_url`), Plex token (`plex_token`), the name of the Plex library to scan (`library_name`), and a directory to save the output (`save_dir`).
-    -   Connects to the Plex server using `plexapi.server.PlexServer`.
+    -   Connects to the Plex server using `SimplePlexServer` from `API.utils.PlexServer`.
 -   **Timestamp Extraction (`run` method)**:
     -   Retrieves all media items (shows/movies) from the specified Plex library section.
     -   For each media item, it iterates through its episodes.
@@ -901,7 +975,7 @@ Plex's automatic matching can sometimes incorrectly merge multiple video files (
 **Key Features & Process**:
 - **Initialization**:
     - Takes Plex URL, token, and a timeout value from `config.py`.
-    - Initializes a `PlexServer` instance from the `plexapi.server` library.
+    - Initializes a `SimplePlexServer` instance from `API.utils.PlexServer`.
     - Sets up a Selenium WebDriver (Chrome) with specific options (e.g., headless, disabling GPU, specific user agent).
 - **Library Iteration**:
     - The main method `split_plex_items_in_library(library_name, series_title=None, season_number=None, episode_number=None)` iterates through a specified Plex library.
@@ -924,7 +998,7 @@ Plex's automatic matching can sometimes incorrectly merge multiple video files (
     - `config.CHROME_DRIVER_PATH` specifies the path to the ChromeDriver executable.
 
 **Technical Approach**:
-- Combines `plexapi` for library navigation and item metadata retrieval.
+- Uses `SimplePlexServer` from `API.utils.PlexServer` for library navigation and item metadata retrieval.
 - Uses `selenium` for web browser automation to perform UI actions (clicking buttons) that are not directly available via the Plex API. This is necessary because the "Split Apart" functionality is primarily a Plex Web UI feature.
 
 **Usage**:
@@ -932,9 +1006,9 @@ Plex's automatic matching can sometimes incorrectly merge multiple video files (
 - Can be invoked programmatically by other scripts or run manually.
 
 **Dependencies**:
-- `plexapi`
 - `selenium`
 - Google Chrome browser and a compatible ChromeDriver.
+- Plex client utilities from `API.utils`
 
 **Limitations**:
 - Relies on the stability of Plex Web UI element selectors (XPaths). Changes in Plex's UI could break the splitting functionality.
@@ -949,7 +1023,7 @@ Plex's automatic matching can sometimes incorrectly merge multiple video files (
 **Key Features & Process**:
 -   **Initialization**:
     -   Takes Plex URL (`plex_url`), Plex token (`plex_token`), and the target `library_name`.
-    -   Initializes a `PlexServer` instance and gets the specified library section.
+    -   Initializes a `SimplePlexServer` instance from `API.utils.PlexServer` and gets the specified library section.
     -   Defines a regex pattern `self.pattern = r'\/([^\/]+)\.mp4$'` (or similar for other extensions if generalized) to extract the base filename (without extension and preceding path) from the full file path stored in Plex.
 -   **Title Updating (`update_titles` method)**:
     -   Iterates through all video items in the specified Plex library (`self.library.all()`).
@@ -969,7 +1043,7 @@ Plex's automatic matching can sometimes incorrectly merge multiple video files (
 -   **Actions**:
     -   Directly modifies the titles of items within the Plex library.
 -   **Dependencies**:
-    -   `plexapi` library.
+    -   Plex client utilities from `API.utils`
     -   A running Plex server with accessible credentials.
 
 **Significance**:
@@ -987,7 +1061,7 @@ Plex's automatic matching can sometimes incorrectly merge multiple video files (
 **Key Features & Process**:
 -   **Initialization**:
     -   Takes Plex URL/token, names of anime and Toonami Plex libraries, the database `table` name containing the lineup, DizqueTV URL, target `channel_number`, and a `cutless_mode` boolean flag.
-    -   Plex and DizqueTV API clients are initialized in the `run` method.
+    -   `SimplePlexServer` (from `API.utils.PlexServer`) and DizqueTV API clients are initialized in the `run` method.
 -   **Library Initialization (`_init_libraries` method)**:
     -   Caches media items from the specified Plex libraries (`anime_library` and `toonami_library`) into dictionaries (`self.anime_media`, `self.toonami_media`) mapping filenames to Plex item objects. This speeds up lookup.
     -   If `cutless_mode` is `False`, loading the `anime_library` is skipped (as cut content is expected to be in the `toonami_library`).
@@ -1035,7 +1109,7 @@ Plex's automatic matching can sometimes incorrectly merge multiple video files (
 **Key Features & Process**:
 -   **Initialization**:
     -   Takes Plex URL/token, Plex `library_name` (typically the Toonami library), database `table` name for the lineup, Tunarr URL, target `channel_number`, `flex_duration`, and an optional `channel_name`.
-    -   Connects to Plex.
+    -   Connects to Plex using `SimplePlexServer` from `API.utils.PlexServer`.
     -   Loads lineup data from the specified SQLite `table` into a DataFrame.
     -   Initializes `plex_source_info` by calling `get_plex_source_info` to find or create the Plex media source ID in Tunarr.
 -   **Tunarr Media Source Management (`get_plex_source_info`, `get_plex_media_source_id`, `create_plex_media_source`)**:

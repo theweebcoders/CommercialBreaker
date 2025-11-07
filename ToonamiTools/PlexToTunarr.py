@@ -6,8 +6,8 @@ from API.utils.DatabaseManager import get_db_manager
 from API.utils.ErrorManager import get_error_manager
 import logging
 from API.utils.NetworkUtils import CurlHttpClient, RequestException
+from API.utils.PlexConnectionHelper import PlexConnectionHelper
 from datetime import datetime
-from plexapi.server import PlexServer
 import config
 
 # ------------------------------------------------------------------
@@ -36,7 +36,19 @@ if DEBUG_MODE:
 class PlexToTunarr:
     def __init__(self, plex_url, plex_token, library_name, table, tunarr_url, channel_number, flex_duration, channel_name=None):
         self.error_manager = get_error_manager()
-        
+
+        # Store parameters first (needed for smart reconnection)
+        self.plex_url = plex_url
+        self.plex_token = plex_token
+        self.library_name = library_name
+        self.tunarr_url = tunarr_url.rstrip('/')
+        self.channel_number = channel_number
+        self.flex_duration = flex_duration
+        self.channel_name = channel_name or library_name
+        self.table = table
+        self.skip_reasons = {}  # Used to tally why items might be skipped if needed
+        self.plex = None  # Will be initialized in run()
+
         # Validate flex duration format
         if not re.match(r'^\d+:\d{2}$', flex_duration):
             self.error_manager.send_error_level(
@@ -47,20 +59,7 @@ class PlexToTunarr:
                 suggestion="Flex duration should be in format MM:SS (e.g., 02:30 for 2 minutes 30 seconds)"
             )
             raise ValueError("Invalid flex duration format")
-            
-        # Try to connect to Plex
-        try:
-            self.plex = PlexServer(plex_url, plex_token)
-        except Exception as e:
-            self.error_manager.send_error_level(
-                source="PlexToTunarr",
-                operation="__init__",
-                message="Cannot connect to Plex",
-                details=str(e),
-                suggestion="Check that your Plex server is running and your credentials are correct"
-            )
-            raise
-            
+
         # Test Tunarr connection - just see if we can reach it
         try:
             response = CurlHttpClient.get(f"{tunarr_url}/api/channels", timeout=5)
@@ -74,19 +73,9 @@ class PlexToTunarr:
                 suggestion="Make sure Tunarr is running and the URL is correct"
             )
             raise
-            
-        self.plex_url = plex_url
-        self.plex_token = plex_token
-        self.plex = PlexServer(plex_url, plex_token)
-        self.library_name = library_name
-        self.tunarr_url = tunarr_url.rstrip('/')
-        self.channel_number = channel_number
-        self.flex_duration = flex_duration
-        self.channel_name = channel_name or library_name
-        self.table = table
+
         self.df = self.load_db_data()
-        self.skip_reasons = {}  # Used to tally why items might be skipped if needed
-        self.plex_source_info = self.get_plex_source_info()
+        self.plex_source_info = None  # Will be initialized in run() after Plex connection
 
     # ------------------------------------------------------------------
     # Helper: Log skip messages.
@@ -530,6 +519,27 @@ class PlexToTunarr:
     # MAIN RUN LOGIC
     # ------------------------------------------------------------------
     def run(self):
+        # Connect to Plex with smart reconnection
+        try:
+            self.plex = PlexConnectionHelper.connect_smart(
+                plex_token=self.plex_token,
+                plex_url=self.plex_url,
+                timeout=15
+            )
+            logger.info("Successfully connected to Plex")
+        except Exception as e:
+            self.error_manager.send_error_level(
+                source="PlexToTunarr",
+                operation="run",
+                message="Cannot connect to Plex",
+                details=str(e),
+                suggestion="Check that your Plex server is running and your credentials are correct"
+            )
+            raise
+
+        # Now initialize plex_source_info after successful Plex connection
+        self.plex_source_info = self.get_plex_source_info()
+
         try:
             # Fetch all Plex media from the given library section.
             all_media = self.plex.library.section(self.library_name).all()
