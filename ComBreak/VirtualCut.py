@@ -2,6 +2,7 @@ import re
 from pathlib import Path
 from API.utils import get_db_manager
 from ComBreak.DurationManager import get_duration_manager
+from ToonamiTools.utils.FilenameParser import FilenameParser
 
 
 
@@ -71,14 +72,14 @@ class VirtualCut:
                     output_file_name_without_ext = output_file_prefix_path.stem
                     output_dir = output_file_prefix_path.parent
 
-                    # Extract show info from the original filename
+                    # Extract show info from the original filename using centralized parser
                     original_filename = Path(input_file).name
                     show_name = "Unknown Show"
                     season_episode = "S00E00"
-                    pattern = r'^(.+?) - (S\d{2}E\d{2})'
-                    if match := re.search(pattern, original_filename):
-                        show_name = match.group(1).strip()
-                        season_episode = match.group(2)
+                    parsed = FilenameParser.parse_episode_filename(original_filename)
+                    if parsed:
+                        show_name = parsed['show_name']
+                        season_episode = parsed['season_episode']
 
                     # Get video duration using DurationManager
                     duration_manager = get_duration_manager()

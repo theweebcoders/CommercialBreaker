@@ -289,6 +289,540 @@ def clear_error_messages(self) -> None:
     """Clear all error messages from all UIs"""
 ```
 
+---
+
+## S.A.R.A. Validation System API
+
+The S.A.R.A. (System Analysis and Reporting Assistant) validation system provides comprehensive database validation and diagnostics. Located in `/API/validators/`, it consists of a main orchestrator (`DatabaseValidator`), base validator class (`BaseValidator`), 20 specialized validators, and supporting data structures.
+
+**Complete Documentation**: See [S.A.R.A. Validation System](S.A.R.A-Validation-System.md) for full technical details, architecture diagrams, and usage examples.
+
+### DatabaseValidator Class
+
+**Location**: `/API/validators/DatabaseValidator.py`
+
+Main orchestrator for all validation operations.
+
+#### Initialization
+
+```python
+from API.validators.DatabaseValidator import DatabaseValidator
+
+# Create validator with status callback
+def status_update(message: str):
+    print(f"[VALIDATION] {message}")
+
+validator = DatabaseValidator(status_callback=status_update)
+
+# Or without callback
+validator = DatabaseValidator()
+```
+
+#### Core Methods
+
+```python
+def run_full_validation(self) -> Dict[str, Any]:
+    """
+    Run comprehensive validation of the entire database.
+
+    Executes all 20 validators in pipeline order, consolidates issues,
+    generates summary statistics, and broadcasts status updates.
+
+    Returns:
+        Dictionary containing:
+            - results: List of ValidationResult objects
+            - issues: Flat list of consolidated ValidationIssue dicts
+            - summary: Summary statistics
+            - pipeline_status: PipelineStatus object
+            - timestamp: ISO format timestamp
+
+    Example:
+        >>> validator = DatabaseValidator(status_callback=print)
+        >>> results = validator.run_full_validation()
+        >>> print(results['summary']['summary_text'])
+        "18/20 steps completed, 16/18 valid | 2 errors | 3 warnings"
+        >>> for issue in results['issues']:
+        ...     if issue['level'] == 'CRITICAL':
+        ...         print(f"{issue['step']}: {issue['message']}")
+    """
+
+def get_pipeline_status(self) -> PipelineStatus:
+    """
+    Get high-level status of the pipeline without full validation.
+
+    Quick check to determine which steps have been completed.
+    Uses each validator's has_completed() method for accurate detection.
+
+    Returns:
+        PipelineStatus object with:
+            - completed_steps: List[str] of completed step names
+            - current_step: Optional[str] next incomplete step
+            - is_cutless_mode: bool for cutless mode detection
+            - total_steps: int total number of validators
+            - metadata: Dict with phase info, versions, etc.
+
+    Example:
+        >>> status = validator.get_pipeline_status()
+        >>> print(f"Pipeline: {status.completion_percentage():.1f}% complete")
+        >>> print(f"Mode: {'Cutless' if status.is_cutless_mode else 'Traditional'}")
+        >>> print(f"Phase: {status.metadata['phase_info']['current_phase_name']}")
+    """
+
+def validate_specific_step(self, step_name: str) -> Optional[ValidationResult]:
+    """
+    Validate a specific pipeline step by name.
+
+    Args:
+        step_name: Name of the step (e.g., "ToonamiChecker", "CommercialBreaker")
+
+    Returns:
+        ValidationResult for that step, or None if step not found
+
+    Example:
+        >>> result = validator.validate_specific_step("CommercialBreaker")
+        >>> if result and not result.is_valid:
+        ...     print(f"Commercial detection has {len(result.issues)} issues")
+        ...     for issue in result.issues:
+        ...         print(f"  - {issue.message}")
+    """
+
+def detect_processing_mode(self) -> Dict[str, Any]:
+    """
+    Detect the processing mode and platform from database state.
+
+    Returns:
+        Dictionary with:
+            - mode: 'cutless' or 'traditional'
+            - platform: 'DizqueTV', 'Tunarr', 'ComBreakDirect', or 'unknown'
+            - confidence: 'high', 'medium', 'low'
+            - indicators: List[str] of evidence used for detection
+            - warnings: List[str] of compatibility warnings
+
+    Example:
+        >>> mode_info = validator.detect_processing_mode()
+        >>> if mode_info['warnings']:
+        ...     for warning in mode_info['warnings']:
+        ...         print(f"⚠ {warning}")
+    """
+
+def get_step_names(self) -> List[str]:
+    """
+    Get list of all step names in pipeline order.
+
+    Returns:
+        List of step names (e.g., ["PlatformSelection", "PlexAuth", ...])
+    """
+```
+
+---
+
+### BaseValidator Class
+
+**Location**: `/API/validators/BaseValidator.py`
+
+Abstract base class that all step validators inherit from. Provides common utilities and enforces consistent interface.
+
+#### Creating a Custom Validator
+
+```python
+from API.validators.BaseValidator import BaseValidator
+from API.validators.ValidationResult import ValidationResult, ValidationLevel
+
+class MyStepValidator(BaseValidator):
+    """Validates MyStep output"""
+
+    @property
+    def step_name(self) -> str:
+        return "MyStep"
+
+    @property
+    def required_tables(self) -> List[str]:
+        return ["my_table"]
+
+    @property
+    def pipeline_order(self) -> int:
+        return 10  # Position in pipeline
+
+    def validate(self) -> ValidationResult:
+        result = self.create_result(is_completed=False, is_valid=True)
+
+        # Validate table structure
+        if not self.validate_table_structure(
+            result,
+            "my_table",
+            required_columns=["id", "data"],
+            min_rows=1
+        ):
+            return result
+
+        result.is_completed = True
+
+        # Add custom validation logic...
+
+        return result
+```
+
+#### Common Validation Utilities
+
+```python
+# Table operations
+def check_table_exists(self, table_name: str) -> bool:
+    """Check if a table exists in the database"""
+
+def get_row_count(self, table_name: str) -> int:
+    """Get number of rows in a table"""
+
+def get_column_names(self, table_name: str) -> List[str]:
+    """Get list of column names for a table"""
+
+def check_required_columns(self, table_name: str, required_columns: List[str]) -> List[str]:
+    """Check if required columns exist. Returns list of missing columns."""
+
+def get_all_rows(self, table_name: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Get all rows from a table as dictionaries"""
+
+# Combined validation
+def validate_table_structure(self, result: ValidationResult, table_name: str,
+                            required_columns: List[str], min_rows: int = 1) -> bool:
+    """
+    Check table exists, has required columns, and minimum rows.
+    Adds issues to result if validation fails.
+    Returns True if all checks pass.
+    """
+
+# Bump detection (consistent with main tools)
+def is_bump(self, file_path: str) -> bool:
+    """Check if file path is a bump (not anime). Uses same logic as EpisodeFilter."""
+
+def is_anime(self, file_path: str) -> bool:
+    """Check if file path is anime (not a bump). Inverse of is_bump()."""
+
+# Mode and platform detection
+def is_cutless_mode(self) -> bool:
+    """Detect if database is using cutless mode"""
+
+def get_processing_metadata(self) -> Dict[str, Any]:
+    """
+    Get cached processing metadata.
+    Returns: {platform, is_cutless, mode, requires_bump_calculator}
+    """
+
+def get_available_versions(self) -> List[int]:
+    """Get list of Toonami versions (e.g., [2, 3, 8, 9])"""
+```
+
+#### Issue Management
+
+```python
+def create_result(self, is_completed: bool = False, is_valid: bool = True) -> ValidationResult:
+    """Create a ValidationResult for this step"""
+
+def add_issue(self, result: ValidationResult, level: ValidationLevel,
+             message: str, details: str, suggestion: str,
+             table: Optional[str] = None, row_index: Optional[int] = None):
+    """Add a validation issue to a result"""
+
+def add_info(self, result: ValidationResult, message: str):
+    """Add an informational message"""
+```
+
+---
+
+### ValidationResult Class
+
+**Location**: `/API/validators/ValidationResult.py`
+
+Represents the result of validating a single pipeline step.
+
+```python
+@dataclass
+class ValidationResult:
+    step_name: str                     # Which step was validated
+    is_valid: bool                     # Overall pass/fail status
+    is_completed: bool                 # Whether step has been run
+    issues: List[ValidationIssue]      # All validation issues
+    metadata: Dict[str, Any]           # Additional info (row counts, etc.)
+
+# Methods
+def add_issue(self, issue: ValidationIssue):
+    """Add issue. Automatically sets is_valid=False for ERROR/CRITICAL."""
+
+def get_issues_by_level(self, level: ValidationLevel) -> List[ValidationIssue]:
+    """Get all issues of a specific severity level"""
+
+def get_issue_counts(self) -> Dict[str, int]:
+    """Returns: {'critical': 0, 'error': 2, 'warning': 5, 'info': 3}"""
+
+def get_status_symbol(self) -> str:
+    """Returns: ○ (not run), ✗ (failed), ⚠ (warning), ✓ (success)"""
+
+def get_status_description(self) -> str:
+    """Human-readable status like 'Failed: 2 critical issue(s)'"""
+
+def to_dict(self) -> Dict[str, Any]:
+    """Convert to dictionary for JSON serialization"""
+```
+
+---
+
+### ValidationIssue Class
+
+**Location**: `/API/validators/ValidationResult.py`
+
+Represents a single validation issue with the five components of good errors.
+
+```python
+@dataclass
+class ValidationIssue:
+    level: ValidationLevel          # INFO, WARNING, ERROR, CRITICAL
+    step: str                       # Which validator found this
+    message: str                    # User-friendly description
+    details: str                    # Technical details
+    suggestion: str                 # How to fix it
+    table: Optional[str]            # Table name (if applicable)
+    row_index: Optional[int]        # Row number (if applicable)
+    timestamp: datetime             # When issue was detected
+
+# Methods
+def to_dict(self) -> Dict[str, Any]:
+    """Convert to dictionary for JSON serialization"""
+
+def __str__(self) -> str:
+    """Human-readable format: '[ERROR] Step → table: message'"""
+```
+
+**Example Issue:**
+```python
+ValidationIssue(
+    level=ValidationLevel.ERROR,
+    step="CommercialBreaker",
+    message="3 episodes missing commercial break timestamps",
+    details="Files: Naruto S01E05.mkv, Naruto S01E06.mkv, Bleach S02E03.mkv",
+    suggestion="Re-run CommercialBreaker in normal mode (not low power) to detect breaks",
+    table="cuts"
+)
+```
+
+---
+
+### ValidationLevel Enum
+
+```python
+class ValidationLevel(Enum):
+    INFO = "INFO"           # ℹ  Informational
+    WARNING = "WARNING"     # ⚠  Should be addressed
+    ERROR = "ERROR"         # ✗  Significant problem
+    CRITICAL = "CRITICAL"   # ⊗  Step cannot proceed
+
+def to_symbol(self) -> str:
+    """Get visual symbol (ℹ, ⚠, ✗, ⊗)"""
+```
+
+---
+
+### PipelineStatus Class
+
+```python
+@dataclass
+class PipelineStatus:
+    completed_steps: List[str]      # Names of completed steps
+    current_step: Optional[str]     # Next incomplete step
+    is_cutless_mode: bool           # Cutless mode detected
+    total_steps: int                # Total number of validators
+    metadata: Dict[str, Any]        # Phase info, versions, etc.
+
+def completion_percentage(self) -> float:
+    """Calculate percentage of pipeline completed (0-100)"""
+
+def to_dict(self) -> Dict[str, Any]:
+    """Convert to dictionary for JSON serialization"""
+```
+
+---
+
+### PhaseTracker Class
+
+**Location**: `/API/validators/PhaseTracker.py`
+
+Tracks pipeline progress through logical workflow phases.
+
+```python
+from API.validators.PhaseTracker import PhaseTracker
+
+tracker = PhaseTracker()
+
+def get_current_phase(self, completed_steps: List[str]) -> Dict:
+    """
+    Determine current phase from completed steps.
+
+    Returns dictionary with:
+        - If phase complete: {completed_phase, completed_phase_name, status: 'complete'}
+        - If in progress: {current_phase, current_phase_name, status: 'in_progress', progress}
+        - If not started: {current_phase: 0, status: 'not_started'}
+    """
+
+def get_phase_summary(self, phase_num: int, completed_steps: List[str],
+                     version_status: Optional[Dict] = None) -> str:
+    """Get human-readable summary for a phase with checklist"""
+
+def get_all_phases(self) -> Dict:
+    """Get all phase definitions"""
+```
+
+**Phase Definitions:**
+- **Phase 0**: Platform Setup (PlatformSelection, PlexAuth, FolderMaker)
+- **Phase 1**: Content Discovery (ToonamiChecker)
+- **Phase 2**: Prepare Uncut Content (LineupPrep, BumpEncoder, UncutEncoder, Multilineup, Merger, EpisodeFilter)
+- **Phase 3**: Commercial Detection (CommercialBreaker – GetPlexTimestamps remains an optional tool outside of S.A.R.A.)
+- **Phase 4**: Prepare Cut Anime (CommercialInjectorPrep, CommercialInjector, BlockMaker, PostCutBumpFilter, BumpCalculator, CutlessFinalizer)
+- **Phase 5**: Optional Tools (ExtraBumps, PlexAutoSplitter, PlexSplitRenamer)
+- **Phase 6**: Platform Export (PlexToDizqueTV, PlexToTunarr, ComBreakToComBreakDirect, FlexInjector)
+
+---
+
+### Integration with FrontEndLogic
+
+The S.A.R.A. validation system is integrated into `LogicController` for use by all interfaces.
+
+```python
+from API.FrontEndLogic import LogicController
+
+logic = LogicController()
+
+# Run full validation (background thread)
+logic.run_full_validation()
+
+# Get quick pipeline status
+status = logic.get_pipeline_status()
+print(f"{status.completion_percentage():.1f}% complete")
+```
+
+**Methods Added to LogicController:**
+
+```python
+def run_full_validation(self):
+    """
+    Run comprehensive database validation.
+
+    Creates DatabaseValidator with status callback for real-time updates.
+    Runs validation in background thread.
+    Broadcasts results through message broker.
+    """
+
+def get_pipeline_status(self) -> PipelineStatus:
+    """
+    Get quick pipeline status without full validation.
+
+    Returns PipelineStatus object with completion info.
+    Used by UI to show progress indicators.
+    """
+```
+
+---
+
+### Usage Examples
+
+**Full Validation:**
+```python
+from API.validators.DatabaseValidator import DatabaseValidator
+
+validator = DatabaseValidator(status_callback=print)
+results = validator.run_full_validation()
+
+# Check summary
+summary = results['summary']
+print(f"Completion: {summary['completion_percentage']:.1f}%")
+print(f"Valid: {summary['valid_steps']}/{summary['completed_steps']}")
+print(f"Issues: {summary['critical_count']} critical, {summary['error_count']} errors")
+
+# Process issues
+for issue in results['issues']:
+    if issue['level'] in ['CRITICAL', 'ERROR']:
+        print(f"\n{issue['level']} in {issue['step']}")
+        print(f"  {issue['message']}")
+        print(f"  Fix: {issue['suggestion']}")
+```
+
+**Quick Status Check:**
+```python
+validator = DatabaseValidator()
+status = validator.get_pipeline_status()
+
+print(f"Pipeline: {status.completion_percentage():.1f}% complete")
+print(f"Current step: {status.current_step}")
+print(f"Mode: {'Cutless' if status.is_cutless_mode else 'Traditional'}")
+print(f"Completed: {', '.join(status.completed_steps)}")
+```
+
+**Validate Specific Step:**
+```python
+result = validator.validate_specific_step("CommercialBreaker")
+
+if result:
+    if result.is_completed and result.is_valid:
+        print("✓ Commercial detection completed successfully")
+    elif result.is_completed:
+        print(f"✗ Commercial detection has {len(result.issues)} issues")
+    else:
+        print("○ Commercial detection not run yet")
+```
+
+**Mode Detection:**
+```python
+mode_info = validator.detect_processing_mode()
+
+print(f"Mode: {mode_info['mode']}")
+print(f"Platform: {mode_info['platform']}")
+print(f"Confidence: {mode_info['confidence']}")
+
+if mode_info['warnings']:
+    print("\n⚠ Warnings:")
+    for warning in mode_info['warnings']:
+        print(f"  • {warning}")
+```
+
+---
+
+### All Step Validators
+
+The system includes 18 step validators and 2 integrity validators:
+
+**Phase 0 (Platform Setup):**
+- `PlatformSelectionValidator` - Validates platform type configuration
+- `PlexAuthValidator` - Validates Plex authentication (conditional)
+- `FolderMakerValidator` - Validates folder paths and permissions
+
+**Phase 1 (Content Discovery):**
+- `ToonamiCheckerValidator` - Validates show/episode detection
+
+**Phase 2 (Prepare Uncut Content):**
+- `LineupPrepValidator` - Validates bump preparation
+- `BumpEncoderValidator` - Validates bump encoding
+- `UncutEncoderValidator` - Validates uncut content
+- `MultilineupValidator` - Validates multi-show bump organization
+- `MergerValidator` - Validates lineup merging (runs twice: uncut + cut)
+- `EpisodeFilterValidator` - Validates episode filtering
+
+**Phase 3 (Commercial Detection):**
+- `CommercialBreakerValidator` - Validates commercial break detection
+
+**Phase 4 (Prepare Cut Anime):**
+- `CommercialInjectorPrepValidator` - Validates injector prep (traditional mode only)
+- `CommercialInjectorValidator` - Validates commercial injection
+- `BlockMakerValidator` - Validates BLOCK_ID assignment
+- `PostCutBumpFilterValidator` - Validates postcut bump filtering (optional)
+- `BumpCalculatorValidator` - Validates bump duration calculation (cutless + ComBreakDirect)
+- `CutlessFinalizerValidator` - Validates cutless finalization (cutless mode only)
+
+**Integrity Validators:**
+- `LineupIntegrityValidator` - Validates bump placement rules
+- `ReferentialIntegrityValidator` - Validates cross-table consistency
+
+**Special Validators:**
+- `AppDataValidator` - Validates app_data configuration
+
+---
+
 ## DatabaseManager API
 
 The `DatabaseManager` class in `API/utils/DatabaseManager.py` provides thread-safe database operations with automatic retry logic, including methods for working with dictionary-based data structures.

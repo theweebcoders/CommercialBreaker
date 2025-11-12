@@ -783,6 +783,29 @@ class TestSaraAutomatic:
         self._log_progress("Full workflow test completed successfully")
         self._log_progress("="*80)
 
+        # Run validator on generated test DB
+        validation_results = self.logic.get_validation_results()
+        if validation_results:
+            self._log_progress("Validation results already present after workflow run.")
+        else:
+            self._log_progress("Triggering post-workflow validation run...")
+            self.logic.validate_database()
+            timeout = self.config.get("timeout", 120)
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                validation_results = self.logic.get_validation_results()
+                if validation_results:
+                    break
+                time.sleep(1)
+
+        assert validation_results is not None, "Validator did not produce results after workflow"
+        summary = validation_results.get("summary", {})
+        self._log_progress(f"Validator summary: {summary.get('summary_text', 'unknown')}")
+        issues = validation_results.get("issues", [])
+        if issues:
+            for issue in issues[:10]:
+                self._log_progress(f"Validator issue: [{issue.get('level')}] {issue.get('message')} - {issue.get('details')}")
+
         # Clean up mocks
         self._cleanup_mocks()
 

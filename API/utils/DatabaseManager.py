@@ -457,12 +457,26 @@ class DatabaseManager:
         self.drop_table(table_name)
         self.create_table_from_dicts(table_name, data, if_exists='fail')
 
+    def refresh_schema(self):
+        """
+        Refresh the database schema for the current thread.
+
+        This closes and reopens the thread's connection to ensure
+        the schema is read fresh from disk. This is useful when
+        another thread has created/modified tables.
+
+        Call this before checking table existence if you need to
+        see the most recent schema changes from other threads.
+        """
+        self.close_thread_connection()
+        # Next call to _get_connection() will create a fresh connection
+
     def close_thread_connection(self):
         """Close the connection for the current thread."""
         if hasattr(self._local, 'connection') and self._local.connection:
             self._local.connection.close()
             self._local.connection = None
-    
+
     def close_all_connections(self):
         """Close all connections (call only when shutting down)."""
         # Note: This only closes the current thread's connection

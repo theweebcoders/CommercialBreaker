@@ -5,6 +5,7 @@ from API.utils.ErrorManager import get_error_manager
 from itertools import cycle
 import config
 from .utils import show_name_mapper
+from .utils.FilenameParser import FilenameParser
 
 
 class UncutEncoder:
@@ -107,7 +108,8 @@ class UncutEncoder:
             if normalized_path.endswith((".mkv", ".mp4")):
                 match = pattern.search(normalized_path.replace('\\', '/'))
                 if match:
-                    show_name = match[1]
+                    # Extract show name from directory and strip any year in parentheses
+                    show_name = FilenameParser.strip_year_from_show_name(match[1])
                     season = int(match[3])  # Use S number from pattern
                     episode = int(match[4])  # Use E number from pattern
                     # Store path, extracted info for sorting
@@ -125,7 +127,9 @@ class UncutEncoder:
             self.file_paths.append(path)
             match = pattern.search(path.replace('\\', '/'))
             if match:
-                block_id = show_name_mapper.to_block_id(match[1])
+                # Strip year from show name before creating BLOCK_ID
+                show_name = FilenameParser.strip_year_from_show_name(match[1])
+                block_id = show_name_mapper.to_block_id(show_name)
                 season = match[3]
                 episode = match[4]
                 self.block_ids.append(f"{block_id}_S{season.zfill(2)}E{episode.zfill(2)}")

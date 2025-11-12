@@ -10,10 +10,10 @@ The tools work together in a specific sequence to create your Toonami channel:
 
 ```plaintext
 0. Platform Selection (UI) →
-1. LoginToPlex (Optional - Required for DizqueTV/Tunarr, Skipped for ComBreakDirect) → 2. FolderMaker → 3. ToonamiChecker → 4. LineupPrep → 5. BumpEncoder →
+1. LoginToPlex (Conditional - Required for DizqueTV/Tunarr, Skipped for ComBreakDirect) → 2. FolderMaker → 3. ToonamiChecker → 4. LineupPrep → 5. BumpEncoder →
 6. UncutEncoder → 7. Multilineup → 8. ShowScheduler (Merger) X4 → 9. EpisodeFilter (EpisodeFilter) → 10. GetPlexTimestamps (Optional) →
-11. CommercialBreaker →
-12. CommercialInjectorPrep → 13. CommercialInjector → 14. BlockMaker (BlockIDCreator) → 14a. PostCutBumpFilter (Optional - filters multi-show bumps) → 15. ShowScheduler (Merger) (again) X4 → 16. CutlessFinalizer (If using cutless mode) → 16a. BumpCalculator (Optional) → 17. ExtraBumps (FileProcessor) (Optional) → 18. PlexAutoSplitter (Optional) → 19. PlexSplitRenamer (Optional) → 20. PlexToDizqueTV/PlexToTunarr/ComBreakToComBreakDirect → 21. DizqueTVManager (FlexInjector) (If using DizqueTV) OR ComBreakDirect Server (If using ComBreakDirect)
+11. CommercialBreaker → 11a. VirtualCut (Conditional - Required for cutless mode) →
+12. CommercialInjectorPrep (Conditional - Required for traditional mode) → 13. CommercialInjector → 14. BlockMaker (BlockIDCreator) → 14a. PostCutBumpFilter → 15. ShowScheduler (Merger) (again) X4 → 16. CutlessFinalizer (Conditional - Required for cutless mode) → 16a. BumpCalculator (Conditional - Required for ComBreakDirect) → 17. ExtraBumps (FileProcessor) (Optional) 18. PlexAutoSplitter (Optional) → 19. PlexSplitRenamer (Optional) → 20. PlexToDizqueTV/PlexToTunarr/ComBreakToComBreakDirect → 21. DizqueTVManager (FlexInjector) (Conditional - Required for DizqueTV) → 22. ComBreakDirect Server (Conditional - Required for ComBreakDirect)
 ```
 
 ---

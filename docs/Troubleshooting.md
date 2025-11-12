@@ -69,6 +69,208 @@ pip install -r requirements.txt
 
 ---
 
+## Using S.A.R.A. Diagnostics
+
+**S.A.R.A. (System Analysis and Reporting Assistant)** is your first stop for troubleshooting. Before diving into specific issues, use S.A.R.A. to get a comprehensive analysis of your pipeline state.
+
+### When to Use S.A.R.A.
+
+**Use S.A.R.A. diagnostics when:**
+- Something isn't working and you don't know why
+- A step seems to have failed
+- Channel creation produces unexpected results
+- Processing appears stuck or incomplete
+- You need to understand what went wrong
+
+### Accessing S.A.R.A.
+
+**Panic Button**: Click any page title **5 times in 2 seconds**
+
+### Quick Diagnostic Workflow
+
+**Step 1: Open S.A.R.A. Diagnostics** (Page8)
+
+**Step 2: Check Pipeline Status**
+- Look at the completion checklist
+- Find the last successful step (✓)
+- Find the failing step (✗)
+- Note which step hasn't run yet (○)
+
+**Step 3: Run Full Validation**
+- Click "Run Full Validation" button
+- Wait for results (5-30 seconds)
+- Read through issues from top to bottom
+
+**Step 4: Follow Suggestions**
+- Start with CRITICAL issues (⊗)
+- Then address ERRORs (✗)
+- Review WARNINGs (⚠) as needed
+- Each issue includes specific fix suggestions
+
+**Step 5: Copy Results for Help**
+- Click "Copy All Results" button
+- Include in bug reports or support requests
+
+### Interpreting Validation Results
+
+#### CRITICAL Issues (⊗)
+
+**"Table 'xyz' does not exist"**
+- **Meaning**: Step hasn't been run yet
+- **Fix**: Run the step from the interface
+
+**"Platform type not set in app_data"**
+- **Meaning**: Platform selection incomplete
+- **Fix**: Select platform on Page1 (DizqueTV, Tunarr, or ComBreakDirect)
+
+#### ERROR Issues (✗)
+
+**"X episodes missing commercial break timestamps"**
+- **Meaning**: Commercial detection didn't find break points
+- **Fix**: Re-run CommercialBreaker in normal mode (not low power)
+- **Note**: Some episodes may not have detectable breaks
+
+**"Table 'xyz' has insufficient data"**
+- **Meaning**: Step ran but didn't process any content
+- **Fix**: Check input folders have files, verify file naming
+
+**"Missing required columns"**
+- **Meaning**: Database schema is outdated or corrupt
+- **Fix**: Re-run the step to rebuild table
+
+**"BLOCK_ID not found in lineup_prep_out"**
+- **Meaning**: Lineup references a bump that doesn't exist
+- **Fix**: Re-run "Prepare Toonami Channel" to rebuild lineup
+
+#### WARNING Issues (⚠)
+
+**"Episode repeated in lineup"**
+- **Meaning**: Same episode appears multiple times
+- **Usually OK**: Marathon format often repeats episodes
+- **Fix**: Only address if unintentional
+
+**"Cutless mode active but platform is Tunarr"**
+- **Meaning**: Platform incompatibility
+- **Fix**: Change to DizqueTV or disable cutless mode
+
+**"Multibump not followed by anime"**
+- **Meaning**: Lineup placement rule violation
+- **Fix**: Re-run Merger to rebuild lineup
+
+#### INFO Messages (ℹ)
+
+These are informational only - no action required:
+- "3 versions detected" - Normal if using multiple Toonami versions
+- "Cutless mode active" - Confirmation of your mode selection
+- Platform and configuration confirmations
+
+### Common Validation Scenarios
+
+#### Scenario: "Everything shows as incomplete"
+
+**Symptoms:**
+```
+○ PlatformSelection - Not run yet
+○ PlexAuth - Not run yet
+○ FolderMaker - Not run yet
+...
+```
+
+**Diagnosis**: Pipeline hasn't been started yet
+
+**Fix**:
+1. Go to Page1
+2. Select your platform
+3. Authenticate with Plex (if required)
+4. Set up folder paths
+5. Run "Prepare Toonami Channel"
+
+#### Scenario: "Stopped at CommercialBreaker"
+
+**Symptoms:**
+```
+✓ ToonamiChecker - Completed successfully
+✓ LineupPrep - Completed successfully
+...
+✗ CommercialBreaker - Failed: 15 episodes missing timestamps
+○ CommercialInjector - Not run yet
+```
+
+**Diagnosis**: Commercial detection didn't find breaks in some episodes
+
+**Fix**:
+1. Check which episodes are missing timestamps (listed in details)
+2. Verify episodes are actual anime (not bumps)
+3. Try different detection modes:
+   - **Normal mode**: Most thorough
+   - **Fast mode**: Skips silent black frame detection
+   - **Low power mode**: Only checks chapters/Plex
+4. For episodes without detectable breaks:
+   - May have different commercial break patterns
+   - May need manual timestamp entry
+   - Can skip these episodes if necessary
+
+#### Scenario: "Platform compatibility warning"
+
+**Symptoms:**
+```
+⚠ WARNING: Cutless mode active but platform is Tunarr (unsupported)
+```
+
+**Diagnosis**: Tunarr doesn't support cutless mode
+
+**Fix**:
+- **Option 1**: Change platform to DizqueTV (requires custom fork) or ComBreakDirect
+- **Option 2**: Disable cutless mode and use traditional cutting
+- **Note**: Can't use cutless with Tunarr
+
+#### Scenario: "Stale data warning"
+
+**Symptoms:**
+```
+⚠ WARNING: Stale cutless tables detected: lineup_v2_cutless, lineup_v3_cutless
+```
+
+**Diagnosis**: Database contains tables from previous run with different mode
+
+**Fix**:
+- These old tables can be safely ignored
+- Or delete them if you want to clean up:
+  ```sql
+  DROP TABLE IF EXISTS lineup_v2_cutless;
+  DROP TABLE IF EXISTS lineup_v3_cutless;
+  ```
+
+### Using S.A.R.A. with Other Troubleshooting
+
+After running S.A.R.A. diagnostics:
+1. **If S.A.R.A. identifies the problem**: Follow its suggestions
+2. **If issues persist**: Refer to specific sections below
+3. **If S.A.R.A. shows no issues**: Problem may be outside database (files, network, etc.)
+
+S.A.R.A. validates the database state - it doesn't check:
+- Physical file existence (though some validators do sample checks)
+- Network connectivity
+- FFmpeg installation
+- Disk space
+- File permissions
+
+For these issues, see specific troubleshooting sections below.
+
+### S.A.R.A. Performance Tips
+
+**For large databases (many shows/episodes):**
+- Use "Refresh Status" for quick checks during processing
+- Run "Full Validation" only when needed (after major steps)
+- Full validation may take 15-30 seconds with large databases
+
+**During active processing:**
+- S.A.R.A. runs in background thread
+- Won't interfere with other operations
+- Results appear in real-time as validation progresses
+
+---
+
 ## Configuration Issues
 
 ### Plex Authentication Failed

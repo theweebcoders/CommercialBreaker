@@ -688,8 +688,13 @@ class LogicController():
                 if plex_token is None:
                     raise Exception("Could not fetch Plex Token")
 
-                # Create library manager (pass client_identifier for consistent API calls)
-                self.library_manager = ToonamiTools.PlexLibraryManager(selected_server, plex_token, client_identifier)
+                # Create library manager (pass client_identifier for consistent API calls and status_callback for retry updates)
+                self.library_manager = ToonamiTools.PlexLibraryManager(
+                    selected_server,
+                    plex_token,
+                    client_identifier,
+                    status_callback=self._broadcast_status_update
+                )
                 plex_url = self.library_manager.run()
                 self._set_data("plex_url", plex_url)
                 self._set_data("plex_server_name", selected_server)  # Store server name for reconnection
@@ -698,14 +703,18 @@ class LogicController():
 
                 if plex_url is None:
                     raise Exception("Could not fetch Plex URL")
-                
+
                 # Use either direct URL or one from library manager
                 url_to_use = plex_url
                 if hasattr(self.library_manager, 'plex_url'):
                     url_to_use = self.library_manager.plex_url
-                
-                # Create library fetcher
-                self.library_fetcher = ToonamiTools.PlexLibraryFetcher(url_to_use, plex_token)
+
+                # Create library fetcher (pass status_callback for retry updates)
+                self.library_fetcher = ToonamiTools.PlexLibraryFetcher(
+                    url_to_use,
+                    plex_token,
+                    status_callback=self._broadcast_status_update
+                )
                 self.library_fetcher.run()
 
                 # Update the list of libraries
@@ -986,9 +995,13 @@ class LogicController():
                         suggestion="This indicates no multi-show bumps were found in your bump collection. Please add multi-show bumps and try again."
                     )
                     raise RuntimeError("No multibump tables available for lineup creation")
-                
+
+                # Ensure all database writes are committed and visible to other threads
+                # This triggers a commit and schema refresh for clean handoff to UI threads
+                self.db_manager.execute("PRAGMA schema_version")
+
                 self._broadcast_status_update(f"Content preparation complete!")
-                
+
             except RuntimeError as e:
                 # Handle expected errors (like no multibumps)
                 self._broadcast_status_update(f"ERROR: {str(e)}")
@@ -1542,3 +1555,134 @@ class LogicController():
         flex_injector.main()
         self.filter_complete_event.set()
         self._broadcast_status_update("Flex content added!")
+
+    # ==================== Database Validation Methods ====================
+
+    def validate_database(self):
+        """
+        Run comprehensive database validation in a background thread.
+
+        Validates all pipeline steps and checks for data integrity issues.
+        Results are broadcast through the error manager and status updates.
+        """
+        # Clear previous results so UIs don't show stale data while validation runs
+        self._last_validation_results = None
+
+        def validation_thread():
+            try:
+                from API.validators import DatabaseValidator
+
+                self._broadcast_status_update("Starting database validation...")
+
+                # Create validator with status callback
+                validator = DatabaseValidator(
+                    status_callback=self._broadcast_status_update
+                )
+
+                # Run full validation
+                results = validator.run_full_validation()
+
+                # Broadcast summary
+                summary = results.get('summary', {})
+                summary_text = summary.get('summary_text', 'Validation complete')
+                self._broadcast_status_update(f"Validation complete: {summary_text}")
+
+                # Store validation results for retrieval
+                self._last_validation_results = results
+
+            except Exception as e:
+                self.error_manager.send_critical(
+                    source="FrontEndLogic",
+                    operation="validate_database",
+                    message="Database validation failed",
+                    details=str(e),
+                    suggestion="Check validator implementation or database structure"
+                )
+                self._broadcast_status_update(f"Validation error: {str(e)}")
+
+        # Start validation in background thread
+        thread = threading.Thread(target=validation_thread)
+        thread.daemon = True
+        thread.start()
+
+    def get_pipeline_status(self):
+        """
+        Get quick pipeline status without full validation.
+
+        This is a lightweight check to determine which steps have been completed.
+        Does not run in a background thread - returns immediately.
+
+        Returns:
+            dict: Pipeline status including completed steps, current step, and mode
+        """
+        try:
+            from API.validators import DatabaseValidator
+
+            validator = DatabaseValidator()
+            pipeline_status = validator.get_pipeline_status()
+
+            return pipeline_status.to_dict()
+
+        except Exception as e:
+            self.error_manager.send_error_level(
+                source="FrontEndLogic",
+                operation="get_pipeline_status",
+                message="Failed to get pipeline status",
+                details=str(e),
+                suggestion="Check validator implementation"
+            )
+            return {
+                'completed_steps': [],
+                'current_step': None,
+                'is_cutless_mode': False,
+                'total_steps': 0,
+                'completion_percentage': 0,
+                'metadata': {}
+            }
+
+    def get_validation_results(self):
+        """
+        Get results from the last validation run.
+
+        Returns:
+            dict: Validation results, or None if no validation has been run yet
+        """
+        return getattr(self, '_last_validation_results', None)
+
+    def validate_specific_step(self, step_name: str):
+        """
+        Validate a specific pipeline step.
+
+        Args:
+            step_name: Name of the step to validate (e.g., "ToonamiChecker")
+        """
+        def validation_thread():
+            try:
+                from API.validators import DatabaseValidator
+
+                self._broadcast_status_update(f"Validating {step_name}...")
+
+                validator = DatabaseValidator(
+                    status_callback=self._broadcast_status_update
+                )
+
+                result = validator.validate_specific_step(step_name)
+
+                if result:
+                    status_desc = result.get_status_description()
+                    self._broadcast_status_update(f"{step_name}: {status_desc}")
+                else:
+                    self._broadcast_status_update(f"Step '{step_name}' not found")
+
+            except Exception as e:
+                self.error_manager.send_error_level(
+                    source="FrontEndLogic",
+                    operation="validate_specific_step",
+                    message=f"Failed to validate {step_name}",
+                    details=str(e),
+                    suggestion="Check step name and validator implementation"
+                )
+
+        thread = threading.Thread(target=validation_thread)
+        thread.daemon = True
+        thread.start()

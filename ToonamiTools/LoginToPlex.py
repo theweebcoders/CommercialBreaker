@@ -1,6 +1,8 @@
 import webbrowser
 import sys
 import socket
+import time
+import config
 from API.utils.PlexServer import SimplePlexServer as PlexServer
 from API.utils.ErrorManager import get_error_manager
 from API.utils.PlexClient import PlexAuthClient, PlexAccountClient, PlexAuthError
@@ -209,12 +211,13 @@ class PlexLibraryManager:
     This class is responsible for managing the Plex library. It fetches and stores the details of a selected Plex server.
     This is important to the program as it allows the user to select a Plex server and use the libraries on that server in the program.
     """
-    def __init__(self, selected_server, plex_token, client_identifier=None):
+    def __init__(self, selected_server, plex_token, client_identifier=None, status_callback=None):
         self.selected_server = selected_server
         self.plex_token = plex_token  # Storing the token
         self.client_identifier = client_identifier  # Storing the client identifier
         self.plex_url = None
         self.error_manager = get_error_manager()
+        self.status_callback = status_callback  # Optional callback for status updates
         """
         Takes the selected Plex server, the Plex token, and optionally a client identifier as arguments.
         """
@@ -224,54 +227,88 @@ class PlexLibraryManager:
         Fetches and stores the details of the selected Plex server. It uses the Plex token to authenticate with the Plex account and connect to the selected server. The base URL of the server is then stored for future use.
         This is important to retain user's selection so it can be stored for future use.
         """
-        try:
-            account = PlexAccountClient(token=self.plex_token, client_identifier=self.client_identifier)
-            selected_resource = next(
-                (resource for resource in account.resources() if resource.name == self.selected_server),
-                None
-            )
+        max_attempts = config.PLEX_RETRY_ATTEMPTS
+        retry_delay = config.PLEX_RETRY_DELAY
+        timeout = config.PLEX_SERVER_CONNECTION_TIMEOUT
 
-            if selected_resource is None:
-                self.error_manager.send_error_level(
-                    source="PlexLibraryManager",
-                    operation="GetPlexDetails",
-                    message=f"Plex server '{self.selected_server}' not found",
-                    details="The selected server is not available in the account resources",
-                    suggestion="Check if the server name is correct and the server is online"
+        for attempt in range(1, max_attempts + 1):
+            try:
+                if self.status_callback and attempt > 1:
+                    self.status_callback(f"Connecting to Plex server '{self.selected_server}'... (attempt {attempt}/{max_attempts})")
+                elif self.status_callback:
+                    self.status_callback(f"Connecting to Plex server '{self.selected_server}'...")
+
+                account = PlexAccountClient(token=self.plex_token, client_identifier=self.client_identifier)
+                selected_resource = next(
+                    (resource for resource in account.resources() if resource.name == self.selected_server),
+                    None
                 )
-                raise ValueError(f"Server '{self.selected_server}' not found")
 
-            # Connect to the server and get base URL
-            plex = selected_resource.connect()
-            self.plex_url = plex.baseurl  # Storing the URL
+                if selected_resource is None:
+                    self.error_manager.send_error_level(
+                        source="PlexLibraryManager",
+                        operation="GetPlexDetails",
+                        message=f"Plex server '{self.selected_server}' not found",
+                        details="The selected server is not available in the account resources",
+                        suggestion="Check if the server name is correct and the server is online"
+                    )
+                    raise ValueError(f"Server '{self.selected_server}' not found")
 
-        except PlexAuthError as e:
-            self.error_manager.send_error_level(
-                source="PlexLibraryManager",
-                operation="GetPlexDetails",
-                message=f"Cannot connect to Plex server '{self.selected_server}'",
-                details=f"Connection failed: {str(e)}",
-                suggestion="Check if the Plex server is running and accessible on your network"
-            )
-            raise
-        except ConnectionError as e:
-            self.error_manager.send_error_level(
-                source="PlexLibraryManager",
-                operation="GetPlexDetails",
-                message=f"Cannot connect to Plex server '{self.selected_server}'",
-                details=f"Connection failed: {str(e)}",
-                suggestion="Check if the Plex server is running and accessible on your network"
-            )
-            raise
-        except Exception as e:
-            self.error_manager.send_error_level(
-                source="PlexLibraryManager",
-                operation="GetPlexDetails",
-                message="Failed to get Plex server details",
-                details=f"Error accessing server '{self.selected_server}': {str(e)}",
-                suggestion="Verify the server is online and your Plex token is valid"
-            )
-            raise
+                # Connect to the server and get base URL with configured timeout
+                plex = selected_resource.connect(timeout=timeout)
+                self.plex_url = plex.baseurl  # Storing the URL
+
+                if self.status_callback:
+                    self.status_callback(f"Successfully connected to Plex server '{self.selected_server}'")
+
+                # Success - break out of retry loop
+                return
+
+            except ValueError:
+                # Server not found - don't retry
+                raise
+            except PlexAuthError as e:
+                if attempt == max_attempts:
+                    self.error_manager.send_error_level(
+                        source="PlexLibraryManager",
+                        operation="GetPlexDetails",
+                        message=f"Cannot connect to Plex server '{self.selected_server}' after {max_attempts} attempts",
+                        details=f"Connection failed: {str(e)}",
+                        suggestion="Check if the Plex server is running and accessible on your network"
+                    )
+                    raise
+                # Wait before retry
+                if self.status_callback:
+                    self.status_callback(f"Connection attempt {attempt} failed, retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            except (ConnectionError, TimeoutError) as e:
+                if attempt == max_attempts:
+                    self.error_manager.send_error_level(
+                        source="PlexLibraryManager",
+                        operation="GetPlexDetails",
+                        message=f"Cannot connect to Plex server '{self.selected_server}' after {max_attempts} attempts",
+                        details=f"Connection failed: {str(e)}",
+                        suggestion="Check if the Plex server is running and accessible on your network"
+                    )
+                    raise
+                # Wait before retry
+                if self.status_callback:
+                    self.status_callback(f"Connection attempt {attempt} failed, retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            except Exception as e:
+                if attempt == max_attempts:
+                    self.error_manager.send_error_level(
+                        source="PlexLibraryManager",
+                        operation="GetPlexDetails",
+                        message=f"Failed to get Plex server details after {max_attempts} attempts",
+                        details=f"Error accessing server '{self.selected_server}': {str(e)}",
+                        suggestion="Verify the server is online and your Plex token is valid"
+                    )
+                    raise
+                # Wait before retry
+                if self.status_callback:
+                    self.status_callback(f"Connection attempt {attempt} failed, retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
 
     def run(self):
         self.GetPlexDetails()
@@ -284,49 +321,79 @@ class PlexLibraryFetcher:
     It uses the Plex token to authenticate with the Plex account and connect to the server using its base URL.
     The libraries are then fetched and stored for future use.
     """
-    def __init__(self, plex_url, plex_token):
+    def __init__(self, plex_url, plex_token, status_callback=None):
         self.plex_url = plex_url
         self.plex_token = plex_token
         self.libraries = []
         self.error_manager = get_error_manager()
+        self.status_callback = status_callback  # Optional callback for status updates
 
     """
     Takes the base URL of the selected Plex server and the Plex token as arguements.
     """
 
     def GetPlexLibraries(self):
-        try:
-            server = PlexServer(self.plex_url, self.plex_token)
-            libraries = server.library.sections()
-            self.libraries = [library.title for library in libraries]
-            
-            if not self.libraries:
-                self.error_manager.send_warning(
-                    source="PlexLibraryFetcher",
-                    operation="GetPlexLibraries",
-                    message="No libraries found on Plex server",
-                    details="The Plex server has no configured libraries",
-                    suggestion="Add libraries to your Plex server or check server configuration"
-                )
-                
-        except ConnectionError as e:
-            self.error_manager.send_error_level(
-                source="PlexLibraryFetcher",
-                operation="GetPlexLibraries",
-                message="Cannot connect to Plex server",
-                details=f"Failed to connect to {self.plex_url}: {str(e)}",
-                suggestion="Check if the Plex server is running and the URL is correct"
-            )
-            raise
-        except Exception as e:
-            self.error_manager.send_error_level(
-                source="PlexLibraryFetcher",
-                operation="GetPlexLibraries",
-                message="Failed to fetch Plex libraries",
-                details=f"Error accessing libraries from {self.plex_url}: {str(e)}",
-                suggestion="Verify your Plex token is valid and the server is accessible"
-            )
-            raise
+        max_attempts = config.PLEX_RETRY_ATTEMPTS
+        retry_delay = config.PLEX_RETRY_DELAY
+        base_timeout = config.PLEX_LIBRARY_FETCH_TIMEOUT
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                if self.status_callback and attempt > 1:
+                    self.status_callback(f"Fetching Plex libraries... (attempt {attempt}/{max_attempts})")
+                elif self.status_callback:
+                    self.status_callback(f"Fetching Plex libraries...")
+
+                # Increase timeout with each retry attempt
+                current_timeout = base_timeout + (attempt - 1) * 20
+
+                server = PlexServer(self.plex_url, self.plex_token)
+                libraries = server.library.sections(timeout=current_timeout)
+                self.libraries = [library.title for library in libraries]
+
+                if not self.libraries:
+                    self.error_manager.send_warning(
+                        source="PlexLibraryFetcher",
+                        operation="GetPlexLibraries",
+                        message="No libraries found on Plex server",
+                        details="The Plex server has no configured libraries",
+                        suggestion="Add libraries to your Plex server or check server configuration"
+                    )
+
+                if self.status_callback:
+                    self.status_callback(f"Successfully fetched {len(self.libraries)} libraries from Plex server")
+
+                # Success - break out of retry loop
+                return
+
+            except (ConnectionError, TimeoutError) as e:
+                if attempt == max_attempts:
+                    self.error_manager.send_error_level(
+                        source="PlexLibraryFetcher",
+                        operation="GetPlexLibraries",
+                        message=f"Cannot connect to Plex server after {max_attempts} attempts",
+                        details=f"Failed to connect to {self.plex_url}: {str(e)}",
+                        suggestion="Check if the Plex server is running and the URL is correct"
+                    )
+                    raise
+                # Wait before retry
+                if self.status_callback:
+                    self.status_callback(f"Library fetch attempt {attempt} failed, retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            except Exception as e:
+                if attempt == max_attempts:
+                    self.error_manager.send_error_level(
+                        source="PlexLibraryFetcher",
+                        operation="GetPlexLibraries",
+                        message=f"Failed to fetch Plex libraries after {max_attempts} attempts",
+                        details=f"Error accessing libraries from {self.plex_url}: {str(e)}",
+                        suggestion="Verify your Plex token is valid and the server is accessible"
+                    )
+                    raise
+                # Wait before retry
+                if self.status_callback:
+                    self.status_callback(f"Library fetch attempt {attempt} failed, retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
 
     def run(self):
         self.GetPlexLibraries()

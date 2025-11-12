@@ -42,7 +42,16 @@ BUMPS_FOLDER=/path/to/your/bumps
 SPECIAL_BUMPS_FOLDER=/path/to/your/special_bumps
 WORKING_FOLDER=/path/to/your/working
 COMMERCIAL_FOLDER=/path/to/your/commercials  # For ComBreakDirect pre-rendered breaks
+
+# Optional database configuration
+DB_FOLDER_PATH=/path/to/your/database        # For database persistence across container restarts
+DB_PATH=/app/database/Toonami.db              # Internal database path (usually don't need to change)
 ```
+
+**Database Configuration**:
+- `DB_FOLDER_PATH`: Recommended for database persistence across container restarts
+- `DB_PATH`: Internal database path (defaults to `/app/database/Toonami.db`)
+- `_pre_rendered_breaks` folder: Auto-created for ComBreakDirect, prevents startup race conditions
 
 ### Path Requirements
 

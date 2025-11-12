@@ -11,6 +11,7 @@ Components:
 """
 
 from typing import List, Optional, Dict, Any
+import config
 from API.utils.NetworkUtils import CurlHttpClient, RequestException, Timeout, ConnectionError as NetConnectionError
 
 
@@ -85,13 +86,13 @@ class SimplePlexServer:
 
         return full_url
 
-    def query(self, key: str, timeout: int = 30) -> Dict[str, Any]:
+    def query(self, key: str, timeout: Optional[int] = None) -> Dict[str, Any]:
         """
         Query the Plex server API.
 
         Args:
             key: API endpoint path (e.g., '/library/sections')
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (defaults to config.PLEX_LIBRARY_FETCH_TIMEOUT)
 
         Returns:
             Parsed JSON response
@@ -99,6 +100,8 @@ class SimplePlexServer:
         Raises:
             PlexServerError: If the request fails
         """
+        if timeout is None:
+            timeout = config.PLEX_LIBRARY_FETCH_TIMEOUT
         url = f"{self._baseurl}{key}"
         headers = {
             'X-Plex-Token': self._token,
@@ -172,9 +175,12 @@ class SimplePlexLibrary:
         self._server = server
         self._sections_cache = None
 
-    def sections(self) -> List['SimplePlexSection']:
+    def sections(self, timeout: Optional[int] = None) -> List['SimplePlexSection']:
         """
         Get all library sections.
+
+        Args:
+            timeout: Request timeout in seconds (defaults to config.PLEX_LIBRARY_FETCH_TIMEOUT)
 
         Returns:
             List of SimplePlexSection objects
@@ -183,7 +189,7 @@ class SimplePlexLibrary:
             PlexServerError: If sections cannot be fetched
         """
         if self._sections_cache is None:
-            data = self._server.query('/library/sections')
+            data = self._server.query('/library/sections', timeout=timeout)
             directories = data.get('MediaContainer', {}).get('Directory', [])
             self._sections_cache = [SimplePlexSection(self._server, section) for section in directories]
 

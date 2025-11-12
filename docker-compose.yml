@@ -13,7 +13,11 @@ services:
       - SPECIAL_BUMP_FOLDER=/app/special_bump
       - WORKING_FOLDER=/app/working
       - COMMERCIAL_FOLDER=/app/commercials
+      - DB_PATH=/app/data/Toonami.db
     volumes:
+      - type: bind
+        source: ${DB_FOLDER_PATH:-./data/database}
+        target: /app/data
       - type: bind
         source: ${ANIME_FOLDER_PATH:-./data/anime}
         target: /app/anime

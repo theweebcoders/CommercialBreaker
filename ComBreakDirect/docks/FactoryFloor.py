@@ -20,6 +20,7 @@ from typing import Dict
 
 import config
 from ..utilities import resolve_storage_path
+from ToonamiTools.utils.FilenameParser import FilenameParser
 
 
 class FactoryFloor:
@@ -240,9 +241,7 @@ class FactoryFloor:
         return consolidated
 
     def _extract_show_metadata_from_block_id(self, programs, block_id):
-        """Extract show metadata from file paths within a BLOCK_ID group."""
-        import re
-
+        """Extract show metadata from file paths within a BLOCK_ID group using centralized parser."""
         # Find an anime file within this BLOCK_ID (not bumps/commercials)
         for program in programs:
             if program.get('block_id') != block_id:
@@ -261,24 +260,16 @@ class FactoryFloor:
             # Extract metadata from file path
             filename = file_path.split('/')[-1]  # Get filename after last slash
 
-            # Use regex to find " - S##E## " pattern (case insensitive)
-            season_episode_match = re.search(r'\s-\s[Ss](\d+)[Ee](\d+)\s-\s(.+?)\.', filename)
-            if season_episode_match:
-                season = int(season_episode_match.group(1))
-                episode = int(season_episode_match.group(2))
-                raw_episode_title = season_episode_match.group(3)
-
+            # Use centralized parser (handles years in parentheses automatically)
+            parsed = FilenameParser.parse_episode_filename(filename)
+            if parsed:
                 # Clean episode title by removing quality terms at the end
-                episode_title = self._clean_episode_title(raw_episode_title)
-
-                # Extract show name (everything before " - S##E##")
-                show_name_match = re.search(r'^(.+?)\s-\s[Ss]\d+[Ee]\d+', filename)
-                show_name = show_name_match.group(1) if show_name_match else "Unknown Show"
+                episode_title = self._clean_episode_title(parsed.get('description', ''))
 
                 return {
-                    'show_name': show_name,
-                    'season': season,
-                    'episode': episode,
+                    'show_name': parsed['show_name'],
+                    'season': parsed['season'],
+                    'episode': parsed['episode'],
                     'episode_title': episode_title
                 }
 

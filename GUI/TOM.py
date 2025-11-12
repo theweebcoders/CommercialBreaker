@@ -36,6 +36,7 @@ class Page1(ttk.Frame):
 
         title = ttk.Label(self, text="Choose Your Platform", font=("Helvetica", 24))
         title.pack(pady=(20, 10))
+        controller.add_panic_button_to_label(title)
 
         subtitle = ttk.Label(
             self,
@@ -321,6 +322,7 @@ class PlexDetailsPage(ttk.Frame):
 
         label = ttk.Label(self, text="Login with Plex", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
+        controller.add_panic_button_to_label(label)
 
         self.platform_summary = ttk.Label(self, text="", wraplength=520, justify="center")
         self.platform_summary.pack(pady=(0, 15), padx=20)
@@ -484,6 +486,7 @@ class Page2(ttk.Frame):
 
         label = ttk.Label(self, text="Enter your details:", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
+        controller.add_panic_button_to_label(label)
 
         self.platform_summary = ttk.Label(self, text="", wraplength=520, justify="center")
         self.platform_summary.pack(pady=(0, 15), padx=20)
@@ -603,6 +606,7 @@ class Page3(ttk.Frame):
 
         label = ttk.Label(self, text="Select your folders:", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
+        controller.add_panic_button_to_label(label)
 
         # Add status_label initialization
         self.status_label = tk.Label(self, text="Status: Idle",
@@ -705,6 +709,7 @@ class Page4(ttk.Frame):
 
         label = ttk.Label(self, text="Prepare Your Content:", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
+        controller.add_panic_button_to_label(label)
 
         self.prepare_content_label = ttk.Label(self, text="Prepare my shows and bumps to be cut")
         self.prepare_content_label.pack(pady=3)
@@ -777,8 +782,8 @@ class Page4(ttk.Frame):
 
     def on_continue_button_click(self):
         self.logic.on_continue_fourth()
-        if self.logic._get_data("platform_type") == 'combreakdirect':
-            # Always prepopulate selection for ComBreakDirect
+        # Always prepopulate selection for ComBreakDirect or cutless mode
+        if self.logic._get_data("platform_type") == 'combreakdirect' or FlagManager.cutless:
             self.filtered_files_action.set("prepopulate")
             self.logic.move_filtered(prepopulate=True)
         self.controller.show_frame("Page5")
@@ -790,6 +795,7 @@ class Page4(ttk.Frame):
         platform_type = self.logic._get_data("platform_type")
         show_plex_controls = platform_type != 'combreakdirect'
         is_combreakdirect = platform_type == 'combreakdirect'
+        is_cutless_active = FlagManager.cutless
 
         if show_plex_controls:
             if not self.get_plex_timestamps_label.winfo_manager():
@@ -802,7 +808,8 @@ class Page4(ttk.Frame):
             if self.get_plex_timestamps_button.winfo_manager():
                 self.get_plex_timestamps_button.pack_forget()
 
-        if is_combreakdirect:
+        # Hide Move Files option for ComBreakDirect or when cutless mode is active
+        if is_combreakdirect or is_cutless_active:
             if self.filtered_action_frame.winfo_manager():
                 self.filtered_action_frame.pack_forget()
             if self.process_filtered_button.winfo_manager():
@@ -919,7 +926,12 @@ class Page5(ttk.Frame):
             self.cutless = True
         else:
             self.cutless = False
-        
+
+        # Add simple title (no panic button - Page5 layout is too complex)
+        # Users can access diagnostics from any other page
+        title = ttk.Label(self, text=f"{config.network} Commercial Breaker", font=("Helvetica", 18))
+        title.pack(pady=(5, 5), padx=10)
+
         self.create_widgets()
 
     def tkraise(self):
@@ -1505,6 +1517,7 @@ class Page6(ttk.Frame):
         self.controller = controller
         label = ttk.Label(self, text="Choose Your Action:", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
+        controller.add_panic_button_to_label(label)
         self.logic = logic
 
         self.logic.subscribe_to_updates('status_updates', self.update_status_label_handler)
@@ -1694,6 +1707,7 @@ class Page7(ttk.Frame):
 
         label = ttk.Label(self, text=f"Make a new {config.network} Channel:", font=("Helvetica", 24))
         label.pack(pady=10, padx=10)
+        controller.add_panic_button_to_label(label)
         
         self.toonami_version = tk.StringVar()
         self.toonami_version.set("Please select version")
@@ -1852,6 +1866,314 @@ class Page7(ttk.Frame):
         flex_duration = self.flex_duration_entry.get()
         self.logic.add_flex(channel_number, flex_duration)
 
+
+class Page8(ttk.Frame):
+    """S.A.R.A. Database Diagnostics and Validation Page"""
+
+    def __init__(self, parent, controller, logic):
+        ttk.Frame.__init__(self, parent)
+        self.controller = controller
+        self.logic = logic
+
+        # Subscribe to status updates
+        self.logic.subscribe_to_updates('status_updates', self.update_status_label_handler)
+
+        # Title
+        title = ttk.Label(self, text="S.A.R.A. Database Diagnostics", font=("Helvetica", 24))
+        title.pack(pady=(20, 10))
+        controller.add_panic_button_to_label(title)
+
+        # Description
+        description = ttk.Label(
+            self,
+            text="Monitor your pipeline progress and validate data integrity",
+            wraplength=520,
+            justify="center",
+        )
+        description.pack(pady=(0, 20), padx=20)
+
+        # Buttons frame
+        button_frame = ttk.Frame(self)
+        button_frame.pack(pady=10)
+
+        self.validate_button = ttk.Button(
+            button_frame,
+            text="Run Full Validation",
+            command=self.run_validation
+        )
+        self.validate_button.pack(side="left", padx=5)
+
+        self.refresh_button = ttk.Button(
+            button_frame,
+            text="Refresh Status",
+            command=self.refresh_status
+        )
+        self.refresh_button.pack(side="left", padx=5)
+
+        self.copy_button = ttk.Button(
+            button_frame,
+            text="Copy All Results",
+            command=self.copy_all_results
+        )
+        self.copy_button.pack(side="left", padx=5)
+
+        # Store validation results for copying
+        self.last_validation_results = None
+
+        # Pipeline Status Section
+        pipeline_frame = ttk.LabelFrame(self, text="Pipeline Status", padding=10)
+        pipeline_frame.pack(pady=10, padx=20, fill="both", expand=True)
+
+        self.pipeline_status_label = ttk.Label(
+            pipeline_frame,
+            text="Loading pipeline status...",
+            justify="left"
+        )
+        self.pipeline_status_label.pack(pady=5, anchor="w")
+
+        # Results display area
+        results_frame = ttk.LabelFrame(self, text="Validation Results", padding=10)
+        results_frame.pack(pady=10, padx=20, fill="both", expand=True)
+
+        # Create text widget with scrollbar for results
+        self.results_text = tk.Text(results_frame, wrap=tk.WORD, height=15, width=70)
+        results_scrollbar = ttk.Scrollbar(results_frame, orient=tk.VERTICAL, command=self.results_text.yview)
+        self.results_text.configure(yscrollcommand=results_scrollbar.set)
+
+        self.results_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        results_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Status label at bottom
+        self.status_label = tk.Label(
+            self,
+            text="Status: Idle",
+            foreground='darkgray',
+            font=('Arial', 14, 'bold'),
+            relief='flat'
+        )
+        self.status_label.pack(pady=10, padx=10, fill='x')
+
+        # Back button
+        back_button_frame = ttk.Frame(self)
+        back_button_frame.pack(side="bottom", anchor="se", fill="x")
+
+        self.go_back_button = ttk.Button(
+            back_button_frame,
+            text="Go Back",
+            command=lambda: self.controller.show_frame("Page1")
+        )
+        self.go_back_button.pack(side="left", padx=5, pady=5)
+
+        # Initialize status
+        self.refresh_status()
+
+    def update_status_label_handler(self, status):
+        """Handler for status updates from the logic controller"""
+        self.status_label.config(text=f"Status: {status}")
+
+    def run_validation(self):
+        """Run full database validation"""
+        self.results_text.delete('1.0', tk.END)
+        self.results_text.insert('1.0', "Running validation...\n\n")
+        self.update_idletasks()
+
+        # Disable button during validation
+        self.validate_button.config(state='disabled', text="Validating...")
+
+        def validation_thread():
+            try:
+                # Call the validation method from LogicController
+                self.logic.validate_database()
+
+                # Poll for results
+                import time
+                time.sleep(2)  # Wait for validation to start
+                max_attempts = 300  # Allow up to 5 minutes for validation
+                for _ in range(max_attempts):
+                    results = self.logic.get_validation_results()
+                    if results:
+                        # Update UI on main thread
+                        self.after(0, self.display_validation_results, results)
+                        self.after(0, lambda: self.validate_button.config(state='normal', text="Run Full Validation"))
+                        return
+                    time.sleep(1)
+
+                # Timeout
+                self.after(0, lambda: self.results_text.insert(tk.END, "\n⚠️ Validation timed out before results were available\n"))
+                self.after(0, lambda: self.validate_button.config(state='normal', text="Run Full Validation"))
+
+            except Exception as e:
+                self.after(0, lambda: self.results_text.insert(tk.END, f"\n❌ Validation error: {str(e)}\n"))
+                self.after(0, lambda: self.validate_button.config(state='normal', text="Run Full Validation"))
+
+        thread = threading.Thread(target=validation_thread, daemon=True)
+        thread.start()
+
+    def display_validation_results(self, results):
+        """Display validation results in the text widget"""
+        # Store results for copying
+        self.last_validation_results = results
+
+        self.results_text.delete('1.0', tk.END)
+
+        if isinstance(results, dict):
+            # Format the results
+            self.results_text.insert('1.0', "=== S.A.R.A. Database Validation Results ===\n\n")
+
+            # Summary
+            if 'summary' in results:
+                summary = results['summary']
+                summary_text = summary.get('summary_text', 'Validation complete')
+                critical = summary.get('critical_count', 0)
+                errors = summary.get('error_count', 0)
+                warnings = summary.get('warning_count', 0)
+                info = summary.get('info_count', 0)
+                completion = summary.get('completion_percentage')
+                validation_pct = summary.get('validation_percentage')
+
+                self.results_text.insert(tk.END, f"{summary_text}\n")
+                if completion is not None:
+                    self.results_text.insert(tk.END, f"Completed Steps: {summary.get('completed_steps', 0)}/{summary.get('total_steps', 0)} ({completion:.1f}%)\n")
+                if validation_pct is not None:
+                    self.results_text.insert(tk.END, f"Valid Steps: {summary.get('valid_steps', 0)}/{summary.get('total_steps', 0)} ({validation_pct:.1f}%)\n")
+                self.results_text.insert(
+                    tk.END,
+                    f"Critical: {critical}  |  Errors: {errors}  |  Warnings: {warnings}  |  Info: {info}\n\n"
+                )
+
+            # Issues
+            if 'issues' in results and results['issues']:
+                self.results_text.insert(tk.END, "\n=== Issues Found ===\n\n")
+                for issue in results['issues']:
+                    level = issue.get('level', 'INFO')
+                    message = issue.get('message', '')
+                    self.results_text.insert(tk.END, f"[{level}] {message}\n")
+        else:
+            self.results_text.insert(tk.END, str(results))
+
+    def copy_all_results(self):
+        """Copy all validation results to clipboard"""
+        if not self.last_validation_results:
+            messagebox.showinfo("No Results", "No validation results to copy. Run validation first.")
+            return
+
+        try:
+            # Format results as text
+            text_output = self._format_results_as_text(self.last_validation_results)
+
+            # Copy to clipboard using Tkinter's clipboard
+            self.clipboard_clear()
+            self.clipboard_append(text_output)
+            self.update()  # Force clipboard update
+
+            # Visual feedback
+            original_text = self.copy_button.cget("text")
+            self.copy_button.config(text="Copied!", state='disabled')
+
+            # Reset after 2 seconds
+            def reset_button():
+                try:
+                    self.copy_button.config(text=original_text, state='normal')
+                except:
+                    pass
+
+            timer = threading.Timer(2.0, reset_button)
+            timer.start()
+
+            self.status_label.config(text="Status: Validation results copied to clipboard!")
+
+        except Exception as e:
+            messagebox.showerror("Copy Error", f"Error copying results: {str(e)}")
+
+    def _format_results_as_text(self, results):
+        """Format validation results as plain text - matches Absolution format exactly"""
+        lines = []
+        lines.append("=" * 80)
+        lines.append("S.A.R.A. DATABASE VALIDATION RESULTS")
+        lines.append("=" * 80)
+
+        # Summary
+        summary = results.get('summary', {})
+        lines.append(f"\n{summary.get('summary_text', 'Validation complete')}")
+        lines.append("")
+
+        # Issues grouped by level
+        issues = results.get('issues', [])
+
+        if not issues:
+            lines.append("✓ No issues found! Database is valid.")
+        else:
+            # Group by level
+            issues_by_level = {'CRITICAL': [], 'ERROR': [], 'WARNING': [], 'INFO': []}
+            for issue in issues:
+                level = issue.get('level', 'INFO')
+                issues_by_level[level].append(issue)
+
+            # Display each level
+            for level in ['CRITICAL', 'ERROR', 'WARNING', 'INFO']:
+                level_issues = issues_by_level[level]
+                if not level_issues:
+                    continue
+
+                lines.append(f"\n{level} ({len(level_issues)})")
+                lines.append("-" * 80)
+
+                for issue in level_issues:
+                    step = issue.get('step', 'Unknown')
+                    message = issue.get('message', '')
+                    details = issue.get('details', '')
+                    suggestion = issue.get('suggestion', '')
+
+                    lines.append(f"[{step}] {message}")
+                    if details:
+                        # Handle multi-line details properly
+                        if '\n' in details:
+                            lines.append("  Details:")
+                            for detail_line in details.split('\n'):
+                                lines.append(f"    {detail_line}")
+                        else:
+                            lines.append(f"  Details: {details}")
+                    if suggestion:
+                        lines.append(f"  → {suggestion}")
+                    lines.append("")  # Blank line between issues
+
+        lines.append("\n" + "=" * 80)
+
+        return "\n".join(lines)
+
+    def refresh_status(self):
+        """Refresh pipeline status display"""
+        self.pipeline_status_label.config(text="Refreshing status...")
+        self.update_idletasks()
+
+        def refresh_thread():
+            try:
+                # Get pipeline status
+                status_info = []
+                status_info.append(f"Database: {config.DATABASE_PATH}")
+                status_info.append(f"Platform: {self.logic._get_data('platform_type') or 'Not set'}")
+
+                # Check if tables exist
+                import sqlite3
+                conn = sqlite3.connect(config.DATABASE_PATH)
+                cursor = conn.cursor()
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+                tables = cursor.fetchall()
+                conn.close()
+
+                status_info.append(f"\nTotal tables: {len(tables)}")
+
+                # Update label on main thread
+                status_text = "\n".join(status_info)
+                self.pipeline_status_label.config(text=status_text)
+
+            except Exception as e:
+                self.pipeline_status_label.config(text=f"Error refreshing status: {str(e)}")
+
+        thread = threading.Thread(target=refresh_thread, daemon=True)
+        thread.start()
+
+
 class ErrorDisplay(ttk.Frame):
     def __init__(self, parent):
         super().__init__(parent)
@@ -1963,7 +2285,7 @@ class MainApplication(tk.Tk):
         self.frames = {}
         self.logic = LogicController()
 
-        for F in (Page1, PlexDetailsPage, Page2, Page3, Page4, Page5, Page6, Page7):
+        for F in (Page1, PlexDetailsPage, Page2, Page3, Page4, Page5, Page6, Page7, Page8):
             page_name = F.__name__
             frame = F(parent=container, controller=self, logic=self.logic)
             self.frames[page_name] = frame
@@ -2004,6 +2326,7 @@ class MainApplication(tk.Tk):
             "Page5": f"Commercial Breaker - {config.network} Will Be Right Back",
             "Page6": f"Create your {config.network} Channel - All aboard the Absolution",
             "Page7": f"Let's Make Another Channel! - {config.network}'s Back Bitches",
+            "Page8": "S.A.R.A. Database Diagnostics - System Status",
         }
 
         default_steps = {
@@ -2015,6 +2338,7 @@ class MainApplication(tk.Tk):
             "Page5": 5,
             "Page6": 6,
             "Page7": 7,
+            "Page8": "",  # Hidden page, no step number
         }
 
         cbdirect_steps = {
@@ -2024,6 +2348,7 @@ class MainApplication(tk.Tk):
             "Page5": 4,
             "Page6": 5,
             "Page7": 6,
+            "Page8": "",  # Hidden page, no step number
         }
 
         step_map = cbdirect_steps if platform_type == 'combreakdirect' else default_steps
@@ -2033,6 +2358,31 @@ class MainApplication(tk.Tk):
         self.current_page = page_name
         if hasattr(frame, 'refresh_platform_fields'):
             frame.refresh_platform_fields()
+
+    def add_panic_button_to_label(self, label_widget):
+        """Add hidden panic button functionality to a label: click 5 times to open diagnostics"""
+        import time
+
+        # Store click tracking on the label widget itself
+        label_widget._panic_click_count = 0
+        label_widget._panic_last_click = 0
+
+        def on_panic_click(event):
+            current_time = time.time()
+
+            # Reset if more than 2 seconds since last click
+            if current_time - label_widget._panic_last_click > 2.0:
+                label_widget._panic_click_count = 0
+
+            label_widget._panic_click_count += 1
+            label_widget._panic_last_click = current_time
+
+            # Navigate to diagnostics on 5th click
+            if label_widget._panic_click_count >= 5:
+                label_widget._panic_click_count = 0
+                self.show_frame("Page8")
+
+        label_widget.bind("<Button-1>", on_panic_click)
 
     def create_tray_icon(self):
         """Create a system tray icon for ComBreakDirect background mode"""

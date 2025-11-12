@@ -42,6 +42,7 @@ CommercialBreaker & Toonami Tools automate a continuous Toonami marathon by inte
 
 ### Technical Documentation
 - **[Architecture Overview](Architecture-Overview.md)** - System design and components
+- **[S.A.R.A. Validation System](S.A.R.A-Validation-System.md)** - Database validation and diagnostics
 - **[API Reference](API-Reference.md)** - Technical implementation details
 - **[Component Documentation](Component-Documentation.md)** - Individual tool descriptions
 - **[Developer Guide](Developer-Guide.md)** - Contributing and development info

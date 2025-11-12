@@ -1,6 +1,7 @@
 import os
 import re
 import time
+from ToonamiTools.utils.FilenameParser import FilenameParser
 
 
 def fast_video_scan(folder_path, progress_callback=None, status_callback=None):
@@ -62,11 +63,10 @@ def fast_video_scan(folder_path, progress_callback=None, status_callback=None):
                             # Check if file actually exists (handles broken symlinks)
                             if os.path.exists(full_file_path):
                                 file_count += 1
-                                # Extract show title from filename
-                                if matched_title := re.findall(
-                                    r'^(.*?)(?: - S\d{1,2}E\d{1,2})', file, re.IGNORECASE
-                                ):
-                                    show_title = matched_title[0].strip()
+                                # Extract show title from filename using centralized parser
+                                parsed = FilenameParser.parse_episode_filename(file)
+                                if parsed:
+                                    show_title = parsed['show_name']
                                     episode = file
                                     rel_path = os.path.relpath(root, folder_path)
                                     if show_title in episode_files:
@@ -111,10 +111,10 @@ def legacy_video_scan(folder_path):
                 # Check if file actually exists (handles broken symlinks)
                 if os.path.exists(full_file_path):
                     file_count += 1
-                    if matched_title := re.findall(
-                        r'^(.*?)(?: - S\d{1,2}E\d{1,2})', file, re.IGNORECASE
-                    ):
-                        show_title = matched_title[0].strip()
+                    # Extract show title from filename using centralized parser
+                    parsed = FilenameParser.parse_episode_filename(file)
+                    if parsed:
+                        show_title = parsed['show_name']
                         episode = file
                         rel_path = os.path.relpath(root, folder_path)
                         if show_title in episode_files:

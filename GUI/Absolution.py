@@ -1,5 +1,6 @@
 from ComBreak import CommercialBreakerLogic
 from API import LogicController
+from API.utils.FlagManager import FlagManager
 import config
 import threading
 import os
@@ -686,7 +687,29 @@ class BasePage(gui.Container):
 
     def add_page_title(self, container, title_text):
         page_title = gui.Label(title_text, style=Styles.title_label_style)
-        page_title.add_class('main-title') 
+        page_title.add_class('main-title')
+
+        # Add hidden panic button: Click title 5 times rapidly to access diagnostics
+        import time
+        self._title_click_count = 0
+        self._title_last_click = 0
+
+        def on_title_click(widget):
+            current_time = time.time()
+
+            # Reset if more than 2 seconds since last click
+            if current_time - self._title_last_click > 2.0:
+                self._title_click_count = 0
+
+            self._title_click_count += 1
+            self._title_last_click = current_time
+
+            # Navigate to diagnostics on 5th click
+            if self._title_click_count >= 5:
+                self._title_click_count = 0
+                self.app.navigate_to_diagnostics()
+
+        page_title.onclick.do(on_title_click)
         container.append(page_title)
         return page_title
 
@@ -1493,7 +1516,7 @@ class NavigationBar(gui.Container):
         home_button = self.add_button(right_container, "↻ Start Over", self.on_home_button_click)
         # Apply navigation style manually
         home_button.style.update(Styles.navigation_button_style)
-        
+
         # Center container for progress indicators
         center_container = gui.HBox(style={
             'align-items': 'center',
@@ -1599,7 +1622,11 @@ class NavigationBar(gui.Container):
     def on_home_button_click(self, widget):
         # Start over from Page1
         self.app.start_over()
-    
+
+    def on_diagnostics_button_click(self, widget):
+        # Navigate to diagnostics page
+        self.app.set_current_page('Page8')
+
     def on_indicator_click(self, widget):
         # Navigate to the clicked page
         page_id = widget.attributes.get('page_id')
@@ -2067,6 +2094,26 @@ class Page3(BasePage):
         default_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
         summary_url = default_url if self.selected_platform == 'combreakdirect' else stored_url
         self.platform_url_summary.set_text(f"Platform URL: {summary_url}")
+
+        # Preload Plex URL
+        stored_plex_url = self.logic._get_data("plex_url")
+        if stored_plex_url and not stored_plex_url.startswith("e.g."):
+            self.plex_url_entry.set_value(stored_plex_url)
+
+        # Preload Plex Token
+        stored_plex_token = self.logic._get_data("plex_token")
+        if stored_plex_token and not stored_plex_token.startswith("e.g."):
+            self.plex_token_entry.set_value(stored_plex_token)
+
+        # Preload Anime Library
+        stored_anime_library = self.logic._get_data("selected_anime_library")
+        if stored_anime_library and not stored_anime_library.startswith("e.g."):
+            self.plex_anime_library_entry.set_value(stored_anime_library)
+
+        # Preload Toonami Library
+        stored_toonami_library = self.logic._get_data("selected_toonami_library")
+        if stored_toonami_library and not stored_toonami_library.startswith("e.g."):
+            self.plex_toonami_library_entry.set_value(stored_toonami_library)
 class Page4(BasePage):
     def __init__(self, app, *args, **kwargs):
         super(Page4, self).__init__(app, 'Page4', *args, **kwargs)
@@ -2091,7 +2138,7 @@ class Page4(BasePage):
         self.get_plex_timestamps_button = self.add_button_with_style(self.main_container, "Get Plex Timestamps", self.get_plex_timestamps, 'primary')
 
         # Move Filtered Shows section with centered radio buttons
-        self.add_label(self.main_container, "Process Filtered Shows")
+        self.process_filtered_shows_label = self.add_label(self.main_container, "Process Filtered Shows")
         
         # Create a container for the radio buttons with centered layout
         self.filter_mode_container = gui.Container(style={
@@ -2162,7 +2209,8 @@ class Page4(BasePage):
         self.logic.move_filtered(self.filter_mode == "prepopulate")
 
     def on_continue_button_click(self, widget):
-        if self.logic._get_data("platform_type") == 'combreakdirect':
+        # Always prepopulate selection for ComBreakDirect or cutless mode
+        if self.logic._get_data("platform_type") == 'combreakdirect' or FlagManager.cutless:
             self.filter_mode = "prepopulate"
             self.logic.move_filtered(True)
         self.logic._broadcast_status_update("Idle")
@@ -2170,18 +2218,25 @@ class Page4(BasePage):
 
     def refresh_platform_type(self):
         platform_type = self.logic._get_data("platform_type")
+        is_cutless_active = FlagManager.cutless
         display = 'block' if platform_type != 'combreakdirect' else 'none'
         self.get_plex_timestamps_label.style['display'] = display
         self.get_plex_timestamps_button.style['display'] = display
-        if platform_type == 'combreakdirect':
+
+        # Hide Move Files option for ComBreakDirect or when cutless mode is active
+        if platform_type == 'combreakdirect' or is_cutless_active:
             self.filter_mode = "prepopulate"
             if hasattr(self, 'prepopulate_button'):
                 self.set_filter_mode("prepopulate")
+            if hasattr(self, 'process_filtered_shows_label'):
+                self.process_filtered_shows_label.style['display'] = 'none'
             if hasattr(self, 'filter_mode_container'):
                 self.filter_mode_container.style['display'] = 'none'
             if hasattr(self, 'process_button_container'):
                 self.process_button_container.style['display'] = 'none'
         else:
+            if hasattr(self, 'process_filtered_shows_label'):
+                self.process_filtered_shows_label.style['display'] = 'block'
             if hasattr(self, 'filter_mode_container'):
                 self.filter_mode_container.style['display'] = 'flex'
             if hasattr(self, 'process_button_container'):
@@ -3219,6 +3274,18 @@ class Page6(BasePage):
         if hasattr(self, 'get_plex_timestamps_button'):
             self.get_plex_timestamps_button.style['display'] = display_value
 
+    def refresh_platform_info(self):
+        """Preload saved channel configuration when returning to this page"""
+        # Preload channel number
+        stored_channel_number = self.logic._get_data("channel_number")
+        if stored_channel_number and not str(stored_channel_number).startswith("e.g."):
+            self.channel_number_entry.set_value(str(stored_channel_number))
+
+        # Preload flex duration
+        stored_flex_duration = self.logic._get_data("flex_duration")
+        if stored_flex_duration and not str(stored_flex_duration).startswith("e.g."):
+            self.flex_duration_entry.set_value(str(stored_flex_duration))
+
     #wrapper for the prepare_cut_anime method
     def prepare_cut_anime(self, widget):
         self.logic.prepare_cut_anime()
@@ -3357,6 +3424,18 @@ class Page7(BasePage):
                         child.style['display'] = 'block'
                         break
 
+    def refresh_platform_info(self):
+        """Preload saved channel configuration when returning to this page"""
+        # Preload channel number
+        stored_channel_number = self.logic._get_data("channel_number")
+        if stored_channel_number and not str(stored_channel_number).startswith("e.g."):
+            self.channel_number_entry.set_value(str(stored_channel_number))
+
+        # Preload flex duration
+        stored_flex_duration = self.logic._get_data("flex_duration")
+        if stored_flex_duration and not str(stored_flex_duration).startswith("e.g."):
+            self.flex_duration_entry.set_value(str(stored_flex_duration))
+
     def prepare_toonami_channel(self, widget):
         toonami_version = self.toonami_version_dropdown.get_value()
         start_from_last_episode = self.start_from_last_episode_checkbox.get_value()
@@ -3404,6 +3483,602 @@ class Page7(BasePage):
             except Exception as e:
                 print(f"Error processing cutless state: {e}")
 
+class Page8(BasePage):
+    """Database Diagnostics and Validation Page"""
+
+    def __init__(self, app, *args, **kwargs):
+        super(Page8, self).__init__(app, 'Page8', *args, **kwargs)
+        self.logic = LogicController()
+
+        # Diagnostics has much taller content than other pages, so build a dedicated
+        # scroll region that can grow independently of the main container.
+        self._setup_scrollable_body()
+
+        # Title and description
+        helper_text = gui.Label(
+            "S.A.R.A. Database Diagnostics - Monitor your pipeline progress and validate data integrity",
+            style={
+                'font-size': '14px',
+                'color': '#a5f3fc',
+                'text-align': 'center',
+                'margin': '10px 0 20px 0',
+                'background': 'transparent'
+            }
+        )
+        self.diagnostics_body.append(helper_text)
+
+        # Validation button
+        button_container = gui.HBox(style={
+            'justify-content': 'center',
+            'margin': '10px 0',
+            'background': 'transparent'
+        })
+        self.diagnostics_body.append(button_container)
+
+        self.validate_button = self.add_button_with_style(
+            button_container,
+            "Run Full Validation",
+            self.on_validate_click,
+            'primary'
+        )
+
+        self.refresh_button = self.add_button_with_style(
+            button_container,
+            "Refresh Status",
+            self.on_refresh_click,
+            'secondary'
+        )
+
+        self.copy_button = self.add_button_with_style(
+            button_container,
+            "Copy All Results",
+            self.on_copy_all_click,
+            'secondary'
+        )
+
+        # Hidden input for clipboard copy (like ComBreakDirect's input fields)
+        self.copy_input = gui.Input(input_type='text', style={
+            'position': 'absolute',
+            'left': '-9999px',
+            'width': '1px',
+            'height': '1px'
+        })
+        self.copy_input.attributes['id'] = 'validation_copy_field'
+        self.diagnostics_body.append(self.copy_input, 'copy_input')
+
+        # Store validation results for copying
+        self.last_validation_results = None
+
+        # Pipeline Status Section
+        self.pipeline_section = gui.VBox(style={
+            'margin': '20px 10px',
+            'padding': '15px',
+            'background': 'rgba(0, 30, 60, 0.4)',
+            'border': '1px solid rgba(0, 204, 255, 0.3)',
+            'border-radius': '5px'
+        })
+        self.diagnostics_body.append(self.pipeline_section)
+
+        pipeline_title = gui.Label(
+            "Pipeline Status",
+            style={
+                'font-size': '18px',
+                'color': '#00ccff',
+                'font-weight': 'bold',
+                'margin-bottom': '10px'
+            }
+        )
+        self.pipeline_section.append(pipeline_title)
+
+        self.pipeline_status_label = gui.Label(
+            "Loading pipeline status...",
+            style={
+                'font-size': '14px',
+                'color': '#a5f3fc',
+                'margin': '5px 0',
+                'font-family': 'monospace'
+            }
+        )
+        self.pipeline_section.append(self.pipeline_status_label)
+
+        # Steps checklist
+        self.steps_container = gui.VBox(style={
+            'margin': '10px 0',
+            'background': 'transparent'
+        })
+        self.pipeline_section.append(self.steps_container)
+
+        # Validation Results Section
+        self.results_section = gui.VBox(style={
+            'margin': '20px 10px',
+            'padding': '15px',
+            'background': 'rgba(0, 30, 60, 0.4)',
+            'border': '1px solid rgba(0, 204, 255, 0.3)',
+            'border-radius': '5px',
+            'display': 'none'  # Hidden until validation runs
+        })
+        self.diagnostics_body.append(self.results_section)
+
+        results_title = gui.Label(
+            "Validation Results",
+            style={
+                'font-size': '18px',
+                'color': '#00ccff',
+                'font-weight': 'bold',
+                'margin-bottom': '10px'
+            }
+        )
+        self.results_section.append(results_title)
+
+        self.results_label = gui.Label(
+            "",
+            style={
+                'font-size': '14px',
+                'color': '#a5f3fc',
+                'margin': '5px 0'
+            }
+        )
+        self.results_section.append(self.results_label)
+
+        # Issues list
+        self.issues_container = gui.VBox(style={
+            'margin': '10px 0',
+            'background': 'transparent',
+            'max-height': '400px',
+            'overflow-y': 'auto'
+        })
+        self.results_section.append(self.issues_container)
+
+        # Load initial status
+        self.update_pipeline_status()
+
+        # Subscribe to status updates
+        self.logic.subscribe_to_status_updates(self.on_status_update)
+
+    def _setup_scrollable_body(self):
+        """Create a viewport-aware scroll wrapper for diagnostics content."""
+        if hasattr(self, 'diagnostics_body'):
+            return
+
+        self.main_container.style.update({
+            'width': '100%',
+            'max-width': '1200px',
+            'align-items': 'stretch',
+            'justify-content': 'flex-start',
+            'overflow': 'visible'
+        })
+        if hasattr(self, 'page_title_label'):
+            self.page_title_label.style.update({
+                'align-self': 'center',
+                'text-align': 'center',
+                'width': '100%'
+            })
+
+        # ScrollArea is not available in all remi builds we run against, so we
+        # use a plain Container with overflow settings to behave the same way.
+        self.diagnostics_scroll_area = gui.Container(width='100%', height='100%')
+        self.diagnostics_scroll_area.style.update({
+            'width': '100%',
+            'background': 'transparent',
+            'overflow-y': 'auto',
+            'overflow-x': 'hidden',
+            'padding': '0 10px 90px 10px',
+            'box-sizing': 'border-box'
+        })
+
+        self.diagnostics_body = gui.VBox(style={
+            'width': '100%',
+            'max-width': '1100px',
+            'margin': '0 auto',
+            'align-items': 'stretch',
+            'background': 'transparent',
+            'gap': '10px'
+        })
+        self.diagnostics_scroll_area.append(self.diagnostics_body)
+        self.main_container.append(self.diagnostics_scroll_area)
+        self._install_scroll_resizer()
+
+    def _install_scroll_resizer(self):
+        if not hasattr(self, 'diagnostics_scroll_area'):
+            return
+
+        nav_lookup = f"document.getElementById('{self.nav_bar.identifier}')" if hasattr(self, 'nav_bar') else "null"
+        status_lookup = f"document.getElementById('{self.status_bar.identifier}')" if hasattr(self, 'status_bar') else "null"
+        scroll_id = self.diagnostics_scroll_area.identifier
+
+        js = """
+        (function() {
+            function resizeDiagScrollArea() {
+                var area = document.getElementById('%s');
+                if (!area) return;
+                var nav = %s;
+                var status = %s;
+                var navHeight = nav ? nav.offsetHeight : 0;
+                var statusHeight = status ? status.offsetHeight : 0;
+                var available = window.innerHeight - navHeight - statusHeight - 80;
+                if (available < 280) {
+                    available = Math.max(200, window.innerHeight - 120);
+                }
+                area.style.height = available + 'px';
+                area.style.maxHeight = available + 'px';
+            }
+            window.__resizeDiagScrollArea = resizeDiagScrollArea;
+            if (!window.__diagScrollResizeBound) {
+                window.addEventListener('resize', resizeDiagScrollArea);
+                window.__diagScrollResizeBound = true;
+            }
+            resizeDiagScrollArea();
+        })();
+        """ % (scroll_id, nav_lookup, status_lookup)
+        self.app.execute_javascript(js)
+
+    def _resize_scroll_area(self):
+        if hasattr(self, 'diagnostics_scroll_area'):
+            self.app.execute_javascript("""
+                if (window.__resizeDiagScrollArea) {
+                    window.__resizeDiagScrollArea();
+                }
+            """)
+
+    def _reset_scroll_position(self):
+        if hasattr(self, 'diagnostics_scroll_area'):
+            js = """
+                (function() {
+                    var area = document.getElementById('%s');
+                    if (area) area.scrollTop = 0;
+                })();
+            """ % self.diagnostics_scroll_area.identifier
+            self.app.execute_javascript(js)
+
+    def on_status_update(self, status_message):
+        """Handle status updates from validation"""
+        self.update_status_display(status_message)
+
+    def refresh_platform_info(self):
+        """
+        Called automatically when the page is shown.
+        Refreshes the pipeline status to show current database state.
+        """
+        self.update_pipeline_status()
+        self._resize_scroll_area()
+        self._reset_scroll_position()
+
+    def on_validate_click(self, widget):
+        """Start full validation"""
+        self.update_status_display("Starting validation...")
+        self.validate_button.attributes['disabled'] = 'true'
+        self.validate_button.set_text("Validating...")
+
+        # Start validation in background
+        self.logic.validate_database()
+
+        # Check for results periodically
+        def check_results():
+            time.sleep(2)  # Wait for validation to start
+            max_attempts = 300  # Allow up to 5 minutes for long validations
+            for _ in range(max_attempts):
+                results = self.logic.get_validation_results()
+                if results:
+                    self.display_validation_results(results)
+                    self.validate_button.attributes.pop('disabled', None)
+                    self.validate_button.set_text("Run Full Validation")
+                    return
+                time.sleep(1)
+
+            # Timeout
+            self.validate_button.attributes.pop('disabled', None)
+            self.validate_button.set_text("Run Full Validation")
+            self.update_status_display("Validation timed out before results were available")
+
+        thread = threading.Thread(target=check_results)
+        thread.daemon = True
+        thread.start()
+
+    def on_refresh_click(self, widget):
+        """Refresh pipeline status"""
+        self.update_pipeline_status()
+        self.update_status_display("Status refreshed")
+
+    def on_copy_all_click(self, widget):
+        """Copy all validation results to clipboard - exact same approach as ComBreakDirect"""
+        if not self.last_validation_results:
+            self.update_status_display("No validation results to copy. Run validation first.")
+            return
+
+        try:
+            # Format results as text
+            text_output = self._format_results_as_text(self.last_validation_results)
+
+            # Set the value of the hidden input (like ComBreakDirect sets input.value)
+            self.copy_input.set_value(text_output)
+
+            # Use EXACT same approach as ComBreakDirect - select the field and copy
+            js_code = """
+                const input = document.getElementById('validation_copy_field');
+                input.select();
+                document.execCommand('copy');
+            """
+
+            self.app.execute_javascript(js_code)
+
+            # Visual feedback on button (exactly like ComBreakDirect)
+            original_text = widget.get_text()
+            widget.set_text("Copied!")
+            widget.style['color'] = '#00ff00'
+
+            # Reset after 2 seconds (like ComBreakDirect)
+            def reset_button():
+                try:
+                    widget.set_text(original_text)
+                    widget.style['color'] = '#00ccff'
+                except:
+                    pass
+
+            import threading
+            timer = threading.Timer(2.0, reset_button)
+            timer.start()
+
+            self.update_status_display("Validation results copied to clipboard!")
+
+        except Exception as e:
+            self.update_status_display(f"Error copying results: {str(e)}")
+
+    def _format_results_as_text(self, results):
+        """Format validation results as plain text"""
+        lines = []
+        lines.append("=" * 80)
+        lines.append("S.A.R.A. DATABASE VALIDATION RESULTS")
+        lines.append("=" * 80)
+
+        # Summary
+        summary = results.get('summary', {})
+        lines.append(f"\n{summary.get('summary_text', 'Validation complete')}")
+        lines.append("")
+
+        # Issues grouped by level
+        issues = results.get('issues', [])
+
+        if not issues:
+            lines.append("✓ No issues found! Database is valid.")
+        else:
+            # Group by level
+            issues_by_level = {'CRITICAL': [], 'ERROR': [], 'WARNING': [], 'INFO': []}
+            for issue in issues:
+                level = issue.get('level', 'INFO')
+                issues_by_level[level].append(issue)
+
+            # Display each level
+            for level in ['CRITICAL', 'ERROR', 'WARNING', 'INFO']:
+                level_issues = issues_by_level[level]
+                if not level_issues:
+                    continue
+
+                lines.append(f"\n{level} ({len(level_issues)})")
+                lines.append("-" * 80)
+
+                for issue in level_issues:
+                    step = issue.get('step', 'Unknown')
+                    message = issue.get('message', '')
+                    details = issue.get('details', '')
+                    suggestion = issue.get('suggestion', '')
+
+                    lines.append(f"[{step}] {message}")
+                    if details:
+                        # Handle multi-line details properly
+                        if '\n' in details:
+                            lines.append("  Details:")
+                            for detail_line in details.split('\n'):
+                                lines.append(f"    {detail_line}")
+                        else:
+                            lines.append(f"  Details: {details}")
+                    if suggestion:
+                        lines.append(f"  → {suggestion}")
+                    lines.append("")  # Blank line between issues
+
+        lines.append("\n" + "=" * 80)
+
+        return "\n".join(lines)
+
+    def update_pipeline_status(self):
+        """Update the pipeline status display"""
+        try:
+            status = self.logic.get_pipeline_status()
+
+            # Update summary label
+            completed = len(status.get('completed_steps', []))
+            total = status.get('total_steps', 0)
+            percentage = status.get('completion_percentage', 0)
+            mode = "Cutless" if status.get('is_cutless_mode', False) else "Traditional"
+            current = status.get('current_step', 'Unknown')
+
+            summary = f"Progress: {completed}/{total} steps ({percentage:.1f}%) | Mode: {mode}"
+            if completed < total:
+                summary += f" | Current: {current}"
+
+            self.pipeline_status_label.set_text(summary)
+
+            # Update steps checklist
+            self.steps_container.empty()
+
+            completed_steps = set(status.get('completed_steps', []))
+            is_cutless = status.get('is_cutless_mode')
+
+            all_steps = [
+                "Platform/Folder Setup",
+                "ToonamiChecker",
+                "LineupPrep",
+                "BumpEncoder",
+                "UncutEncoder",
+                "Multilineup",
+                "ShowScheduler/Merger",
+                "CommercialBreaker",
+                "CommercialInjector/BlockMaker"
+            ]
+
+            if is_cutless:
+                all_steps.append("CutlessFinalizer")
+
+            all_steps.append("LineupIntegrity")
+
+            for step in all_steps:
+                is_completed = step in completed_steps
+                symbol = "✓" if is_completed else "○"
+                color = "#00ff00" if is_completed else "#666666"
+
+                step_label = gui.Label(
+                    f"{symbol} {step}",
+                    style={
+                        'font-size': '13px',
+                        'color': color,
+                        'margin': '2px 0',
+                        'font-family': 'monospace'
+                    }
+                )
+                self.steps_container.append(step_label)
+
+            self._resize_scroll_area()
+
+        except Exception as e:
+            self.pipeline_status_label.set_text(f"Error loading status: {str(e)}")
+
+    def display_validation_results(self, results):
+        """Display validation results"""
+        try:
+            # Store results for copying
+            self.last_validation_results = results
+
+            self.results_section.style['display'] = 'block'
+
+            summary = results.get('summary', {})
+            summary_text = summary.get('summary_text', 'Validation complete')
+
+            critical_count = summary.get('critical_count', 0)
+            error_count = summary.get('error_count', 0)
+            warning_count = summary.get('warning_count', 0)
+
+            self.results_label.set_text(summary_text)
+
+            # Clear previous issues
+            self.issues_container.empty()
+
+            # Display issues
+            issues = results.get('issues', [])
+
+            if not issues:
+                no_issues_label = gui.Label(
+                    "✓ No issues found! Database is valid.",
+                    style={
+                        'font-size': '14px',
+                        'color': '#00ff00',
+                        'margin': '10px 0',
+                        'font-weight': 'bold'
+                    }
+                )
+                self.issues_container.append(no_issues_label)
+            else:
+                # Group issues by level
+                issues_by_level = {
+                    'CRITICAL': [],
+                    'ERROR': [],
+                    'WARNING': [],
+                    'INFO': []
+                }
+
+                for issue in issues:
+                    level = issue.get('level', 'INFO')
+                    issues_by_level[level].append(issue)
+
+                # Display issues by level
+                for level in ['CRITICAL', 'ERROR', 'WARNING', 'INFO']:
+                    level_issues = issues_by_level[level]
+                    if not level_issues:
+                        continue
+
+                    # Level header
+                    level_color = {
+                        'CRITICAL': '#ff0000',
+                        'ERROR': '#ff6666',
+                        'WARNING': '#ffaa00',
+                        'INFO': '#00ccff'
+                    }[level]
+
+                    level_header = gui.Label(
+                        f"{level} ({len(level_issues)})",
+                        style={
+                            'font-size': '15px',
+                            'color': level_color,
+                            'font-weight': 'bold',
+                            'margin': '10px 0 5px 0'
+                        }
+                    )
+                    self.issues_container.append(level_header)
+
+                    # Display each issue
+                    for issue in level_issues[:10]:  # Limit to 10 per level
+                        issue_box = gui.VBox(style={
+                            'margin': '5px 0',
+                            'padding': '8px',
+                            'background': 'rgba(0, 0, 0, 0.3)',
+                            'border-left': f'3px solid {level_color}',
+                            'border-radius': '3px'
+                        })
+
+                        # Issue message
+                        msg_label = gui.Label(
+                            f"[{issue.get('step', 'Unknown')}] {issue.get('message', '')}",
+                            style={
+                                'font-size': '13px',
+                                'color': '#a5f3fc',
+                                'margin': '2px 0'
+                            }
+                        )
+                        issue_box.append(msg_label)
+
+                        # Details
+                        if issue.get('details'):
+                            details_label = gui.Label(
+                                f"Details: {issue.get('details')}",
+                                style={
+                                    'font-size': '12px',
+                                    'color': '#88b0c0',
+                                    'margin': '2px 0 2px 10px',
+                                    'font-style': 'italic'
+                                }
+                            )
+                            issue_box.append(details_label)
+
+                        # Suggestion
+                        if issue.get('suggestion'):
+                            suggestion_label = gui.Label(
+                                f"→ {issue.get('suggestion')}",
+                                style={
+                                    'font-size': '12px',
+                                    'color': '#66dd88',
+                                    'margin': '2px 0 0 10px'
+                                }
+                            )
+                            issue_box.append(suggestion_label)
+
+                        self.issues_container.append(issue_box)
+
+                    if len(level_issues) > 10:
+                        more_label = gui.Label(
+                            f"... and {len(level_issues) - 10} more {level} issues",
+                            style={
+                                'font-size': '12px',
+                                'color': '#888888',
+                                'margin': '5px 0',
+                                'font-style': 'italic'
+                            }
+                        )
+                        self.issues_container.append(more_label)
+
+            self._resize_scroll_area()
+
+        except Exception as e:
+            self.results_label.set_text(f"Error displaying results: {str(e)}")
+
+
 class MainApp(App):
     def __init__(self, *args, **kwargs):
         self.default_page_titles = {
@@ -3413,7 +4088,8 @@ class MainApp(App):
             "Page4": "Step 3 - Prepare Content - Intruder Alert",
             "Page5": "Step 4 - Commercial Breaker - Toonami Will Be Right Back",
             "Page6": "Step 5 - Create your Toonami Channel - All aboard the Absolution",
-            "Page7": "Step 6 - Let's Make Another Channel! - Toonami's Back Bitches"
+            "Page7": "Step 6 - Let's Make Another Channel! - Toonami's Back Bitches",
+            "Page8": "S.A.R.A. Database Diagnostics - System Status"
         }
         self.page_titles = dict(self.default_page_titles)
         
@@ -3524,7 +4200,7 @@ class MainApp(App):
         `;
         document.head.appendChild(style);
         """)
-        
+
         self.pages = {
             'Page1': Page1(self),
             'Page2': Page2(self),
@@ -3533,6 +4209,7 @@ class MainApp(App):
             'Page5': Page5(self),
             'Page6': Page6(self),
             'Page7': Page7(self),
+            'Page8': Page8(self),
         }
         
         self.set_current_page('Page1')
@@ -3617,7 +4294,11 @@ class MainApp(App):
         # Go to the previous page - we need to pop again since set_current_page will add it
         self.navigation_history.pop()
         self.set_current_page(previous_page)
-    
+
+    def navigate_to_diagnostics(self, widget=None):
+        """Hidden panic button callback: Navigate to diagnostics page (Page8)"""
+        self.set_current_page('Page8')
+
     def start_over(self):
         # Reset visited_manual_setup flag
         self.visited_manual_setup = False

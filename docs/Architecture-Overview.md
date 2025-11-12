@@ -49,7 +49,7 @@ CommercialBreaker & Toonami Tools is a modular Python application designed to au
         │    │  │   ┌───────────────────────────────────────────────────────────┐
         │    │  │   │                  Supporting API Modules                   │
         │    │  │   ├──────────────────────────┬────────────────────────────────┤
-        │    │  │   │  FlagManager.py          │  MessageBroker.py              │ 
+        │    │  │   │  FlagManager.py          │  MessageBroker.py              │
         │    │  │   │ • Platform compatibility │ • Real-time communication      │
         │    │  │   │ • Global Flags           │ • In-memory pub/sub            │
         │    │  │   ├──────────────────────────┼────────────────────────────────┤
@@ -57,6 +57,12 @@ CommercialBreaker & Toonami Tools is a modular Python application designed to au
         │    │  │   │ • Network validation     │ • Centralized error handling   │
         │    │  │   │ • Config persistence     │ • Error history tracking       │
         │    │  │   │   (update config.py)     │ • UI error broadcasting        │
+        │    │  │   ├──────────────────────────┼────────────────────────────────┤
+        │    │  │   │  DatabaseValidator       │  FilenameParser                │
+        │    │  │   │ • S.A.R.A. orchestration │ • Centralized parsing logic    │
+        │    │  │   │ • 20 step validators     │ • Episode name extraction      │
+        │    │  │   │ • Integrity validation   │ • Year handling (2002)         │
+        │    │  │   │ • Phase-aware tracking   │ • Consistent across tools      │
         │    │  │   ├──────────────────────────┴────────────────────────────────┤
         │    │  │   │  NetworkUtils.py                                          │
         │    │  │   │ • Curl-based HTTP client  • Wikipedia table parser        │
@@ -176,6 +182,179 @@ The system employs a centralized error handling mechanism via `ErrorManager.py`,
 - **Error History**: Maintains a history of errors for debugging and user support
 - **Modular Error Handling**: Each module can raise errors that are caught and processed by the ErrorManager
 - **Custom Error Types**: Allows for specific error handling based on module needs
+
+---
+
+## S.A.R.A. Validation System
+
+The **S.A.R.A. (System Analysis and Reporting Assistant)** validation system provides comprehensive database validation and diagnostics. It follows the philosophy: **"Validate everything, trust nothing."**
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    DatabaseValidator                        │
+│               (Main Orchestration Layer)                    │
+├─────────────────────────────────────────────────────────────┤
+│ • Coordinates 20 validators (18 step + 2 integrity)         │
+│ • Consolidates issues intelligently                         │
+│ • Reports to ErrorManager → broadcasts to all UIs           │
+│ • Phase-aware progress tracking                             │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    BaseValidator                            │
+│            (Abstract Base for All Validators)               │
+├─────────────────────────────────────────────────────────────┤
+│ • Database access utilities (via DatabaseManager)           │
+│ • Bump vs anime detection (consistent with main tools)      │
+│ • Mode detection (cutless vs traditional)                   │
+│ • Platform detection (DizqueTV, Tunarr, ComBreakDirect)     │
+│ • Issue creation and management                             │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+        ┌──────────────┼──────────────┬──────────────┐
+        │              │              │              │
+        ▼              ▼              ▼              ▼
+┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+│Step Validator│ │  Integrity   │ │PhaseTracker  │ │ValidationRes.│
+│  (18 total)  │ │ Validators   │ │              │ │              │
+│              │ │  (2 total)   │ │• Maps steps  │ │• Result      │
+│• Platform    │ │              │ │  to phases   │ │• Issue       │
+│• ToonamiCheck│ │• Lineup      │ │• Progress    │ │• Level       │
+│• LineupPrep  │ │  Integrity   │ │  tracking    │ │• Status      │
+│• CommercialBr│ │• Referential │ │• Conditional │ │              │
+│• (15 more)   │ │  Integrity   │ │  step logic  │ │              │
+└──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘
+```
+
+### Key Features
+
+**Step Validation:**
+- Each pipeline step has a dedicated validator
+- Validates table existence, structure, and data quality
+- Checks cross-table relationships and referential integrity
+- Detects platform compatibility issues
+
+**Integrity Validation:**
+- **LineupIntegrityValidator**: Validates bump placement rules (multibumps → anime, intro → matching BLOCK_ID, etc.)
+- **ReferentialIntegrityValidator**: Validates cross-table consistency (BLOCK_IDs exist, file paths valid, etc.)
+
+**Phase-Aware Tracking:**
+- Maps individual steps to logical workflow phases (0-6)
+- Tracks which phase is complete vs in-progress
+- Accounts for conditional steps (PlexAuth, BumpCalculator, etc.)
+
+**Issue Consolidation:**
+- Groups related issues to prevent overwhelming users
+- Three consolidation strategies:
+  1. Version-based (e.g., "Version 2: missing data, Version 3: invalid timestamps")
+  2. List-items (e.g., "3 folder issues: • ANIME_FOLDER missing • BUMPS_FOLDER missing • ...")
+  3. Generic numbered list for other multi-issue scenarios
+
+**Mode Detection:**
+- Automatically detects cutless vs traditional mode
+- Identifies platform (DizqueTV, Tunarr, ComBreakDirect)
+- Warns about incompatibilities (e.g., cutless mode with Tunarr)
+
+### UI Integration: Page8 Diagnostics
+
+S.A.R.A. is accessible through **Page8** in the GUI interfaces (TOM and Absolution):
+
+**Access Method:**
+- **Hidden Panic Button**: Click any page title 5 times in 2 seconds
+
+**Features:**
+- Pipeline status with completion checklist (✓/✗ for each step)
+- Run full validation button
+- Refresh status button
+- Copy results to clipboard (for bug reports)
+- Real-time status updates during validation
+- Grouped issues by severity (CRITICAL, ERROR, WARNING, INFO)
+
+### Hidden Panic Button
+
+**Implementation**: Track clicks on page title labels. 5 clicks within 2 seconds → navigate to Page8.
+
+**Purpose**: Provides quick access to diagnostics without memorizing menu structure, especially useful during critical errors.
+
+**Location**: Implemented on all pages except Page5 in TOM (complex layout).
+
+### Validation Output
+
+Each validation issue includes:
+- **Where**: Which step, table, and row (if applicable)
+- **What**: User-friendly message describing the problem
+- **Why**: Technical details for developers
+- **How to Fix**: Actionable suggestion
+- **When**: Timestamp
+
+**Example Issue:**
+```
+[ERROR] CommercialBreaker → cuts
+Message: 3 episodes missing commercial break timestamps
+Details: Files: Naruto S01E05.mkv, Naruto S01E06.mkv, Bleach S02E03.mkv
+Suggestion: Re-run CommercialBreaker in normal mode (not low power) to detect breaks
+```
+
+### Integration with FrontEndLogic
+
+**Methods Added to LogicController:**
+```python
+def run_full_validation(self):
+    """Run comprehensive database validation (background thread)"""
+
+def get_pipeline_status(self) -> PipelineStatus:
+    """Get quick pipeline status without full validation"""
+```
+
+**For complete S.A.R.A. documentation**, see [S.A.R.A. Validation System](S.A.R.A-Validation-System.md).
+
+---
+
+## Filename Parsing
+
+The `FilenameParser` utility provides centralized, consistent episode filename parsing across all modules.
+
+**Location**: `/ToonamiTools/utils/FilenameParser.py`
+
+**Features:**
+- Automatic year stripping from show names (e.g., "Naruto (2002)" → "Naruto")
+- Comprehensive SxxExx pattern extraction
+- Season and episode number parsing (handles single and double digits)
+- Validation and error reporting
+
+**Used By:**
+- VirtualCut (cutless mode operations)
+- DirectoryScanner (file discovery)
+- BlockMaker (BLOCK_ID generation)
+- PlexToDizqueTV (channel creation)
+- All validators (consistency check)
+
+**Benefits**:
+- Single source of truth for filename parsing
+- Consistent behavior across entire codebase
+- Automatic year handling from show names
+- Easier to maintain and test
+
+---
+
+## Plex Connection Reliability
+
+Enhanced Plex connection reliability with retry logic and progressive timeouts.
+
+**Improvements:**
+- **Retry Logic**: Up to 3 attempts with configurable delay
+- **Progressive Timeout**: Increases with each retry (base + 20s per attempt)
+- **Status Broadcasting**: Real-time updates to user during retries
+- **Configuration-Driven**: `config.PLEX_RETRY_ATTEMPTS`, `config.PLEX_RETRY_DELAY`, timeouts
+
+**Modified Files:**
+- `LoginToPlex.py` - PlexLibraryManager and PlexLibraryFetcher
+- `PlexServer.py` - SimplePlexServer with configurable timeout
+
+**Why**: Intermittent failures on slower networks or when servers are starting up. Retry logic makes connection more reliable without user intervention.
 
 ---
 

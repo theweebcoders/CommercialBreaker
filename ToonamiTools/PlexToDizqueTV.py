@@ -9,6 +9,7 @@ from API.utils.NetworkUtils import CurlHttpClient, RequestException, Timeout, Co
 from API.utils.PlexConnectionHelper import PlexConnectionHelper
 from .utils import show_name_mapper
 from .utils.DizqueTVHelpers import create_program_dict_from_plex_item, create_default_channel_settings
+from .utils.FilenameParser import FilenameParser
 
 
 class PlexToDizqueTVSimplified:
@@ -370,13 +371,15 @@ class PlexToDizqueTVSimplified:
             return self.anime_library
 
     def parse_show_info(self, filename):
-        """Parse show title, season, and episode from filename."""
+        """Parse show title, season, and episode from filename using centralized parser."""
         # Example: Fullmetal Alchemist - Brotherhood - S01E01 - Fullmetal Alchemist Bluray-1080p.mkv
-        match = re.search(r'^(.*?)[\-_ ]+S(\d{2})E(\d{2})', filename, re.IGNORECASE)
-        if match:
-            show_title = match.group(1).replace('.', ' ').replace('_', ' ').strip()
-            season = int(match.group(2))
-            episode = int(match.group(3))
+        # Also supports: Naruto (2002) - S01E28 - Description.mkv
+        parsed = FilenameParser.parse_episode_filename(filename)
+        if parsed:
+            # Apply same post-processing as before (replace dots/underscores with spaces)
+            show_title = parsed['show_name'].replace('.', ' ').replace('_', ' ').strip()
+            season = parsed['season']
+            episode = parsed['episode']
             return show_title, season, episode
         return None, None, None
 

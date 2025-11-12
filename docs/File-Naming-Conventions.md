@@ -312,4 +312,145 @@ Toonami 2 0 Gundam back 03 blue.mp4
 
 ---
 
+## Technical Implementation: FilenameParser
+
+CommercialBreaker uses a centralized `FilenameParser` utility for consistent episode filename parsing across all modules.
+
+### Location and Purpose
+
+**Module**: `ToonamiTools/utils/FilenameParser.py`
+
+**Why FilenameParser Exists**:
+- Provides single source of truth for filename parsing
+- Ensures consistent behavior across all modules
+- Easier to maintain and test than duplicate parsing logic
+
+### Key Features
+
+**Automatic Year Handling**:
+```python
+# Automatically strips release years from show names
+"Naruto (2002) - S01E05 - Title.mkv" → Show: "Naruto"
+"Attack on Titan (2013) - S01E01.mkv" → Show: "Attack on Titan"
+```
+
+**Comprehensive SxxExx Extraction**:
+- Handles both uppercase and lowercase (S01E05, s01e05)
+- Supports single and double-digit seasons/episodes
+- Validates format correctness
+
+**Show Name Normalization**:
+- Removes release years in parentheses
+- Trims whitespace
+- Validates show name is not empty
+
+### Usage Example
+
+```python
+from ToonamiTools.utils.FilenameParser import FilenameParser
+
+parser = FilenameParser()
+
+# Parse episode filename
+result = parser.parse_episode_filename("Naruto (2002) - S01E05 - Episode Title.mkv")
+
+# Returns:
+{
+    'show': 'Naruto',           # Year stripped automatically
+    'season': '01',             # Always two digits
+    'episode': '05',            # Always two digits
+    'full_pattern': 'S01E05',   # Original pattern
+    'description': 'Episode Title'  # Optional description
+}
+
+# Invalid filename returns None
+result = parser.parse_episode_filename("Invalid Filename.mkv")
+# Returns: None
+```
+
+### Modules Using FilenameParser
+
+**Core Processing**:
+- `VirtualCut.py` - Cutless mode operations
+- `DirectoryScanner.py` - File discovery and organization
+- `BlockMaker.py` - BLOCK_ID generation
+
+**Platform Integration**:
+- `PlexToDizqueTV.py` - Channel creation
+- `PlexToTunarr.py` - Channel creation
+
+**Validation System**:
+- All 20 validators use FilenameParser for consistency checks
+- Ensures validators detect same patterns as main tools
+
+### Validation Logic
+
+**FilenameParser validates**:
+1. **Pattern Presence**: SxxExx must exist in filename
+2. **Format Correctness**: Season and episode must be two digits
+3. **Show Name**: Must exist and be non-empty after extraction
+4. **No Ambiguity**: Only one SxxExx pattern per filename
+
+**Example Validation**:
+```python
+✅ "Naruto - S01E05 - Title.mkv"           # Valid
+✅ "Naruto (2002) - S01E05.mkv"            # Valid (year stripped)
+❌ "Naruto S01E05.mkv"                     # Invalid (missing hyphens)
+❌ "Naruto - S1E5 - Title.mkv"             # Invalid (single digits)
+❌ "Movie - Title.mkv"                     # Invalid (no pattern)
+```
+
+### Benefits for Users
+
+**Consistency**:
+- Same parsing logic everywhere
+- Predictable behavior across all tools
+- No "works here but not there" issues
+
+**Reliability**:
+- Comprehensive validation catches malformed names
+- Clear error messages when parsing fails
+- Prevents silent failures
+
+**Maintainability**:
+- Single place to fix bugs or update logic
+- All modules benefit from improvements
+- Easier to add new features
+
+### When FilenameParser is Used
+
+**Automatic During**:
+- Content discovery (scanning anime folders)
+- Episode filtering (separating bumps from anime)
+- Virtual cutting (cutless mode filename handling)
+- BLOCK_ID generation (show name extraction)
+- Channel creation (episode organization)
+- Validation (all 20 validators)
+
+**You Don't Call It Directly**:
+- FilenameParser is used internally by the application
+- Just ensure your files follow naming conventions
+- System handles parsing automatically
+
+### Error Reporting
+
+When FilenameParser detects issues:
+- S.A.R.A. validation shows which files failed parsing
+- Error messages indicate which naming rule violated
+- Suggestions provided for fixing filenames
+
+**Example S.A.R.A. Output**:
+```
+[WARNING] ToonamiChecker → Toonami_Episodes
+Message: 3 episode(s) have non-standard naming
+Details: Expected format: [SHOW] - S##E## - [title].ext
+Files affected:
+  • /anime/Naruto S01E05.mkv (missing hyphens)
+  • /anime/One Piece - S1E1.mkv (single digit season/episode)
+  • /anime/Bleach_S02E15.mkv (underscores instead of hyphens)
+Suggestion: Rename files to match required format. Use batch renaming tools if needed.
+```
+
+---
+
 Need help with naming? Check the [FAQ](FAQ.md) for additional examples and solutions, or join our [Discord community](https://discord.gg/S7NcUdhKRD) for assistance.

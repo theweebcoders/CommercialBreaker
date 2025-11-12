@@ -2,6 +2,7 @@ import os
 import re
 from API.utils.DatabaseManager import get_db_manager
 from API.utils.ErrorManager import get_error_manager
+from ToonamiTools.utils.FilenameParser import FilenameParser
 import config
 
 
@@ -52,21 +53,25 @@ class BlockIDCreator:
 
     @staticmethod
     def create_block_id(path):
+        """
+        Create BLOCK_ID from file path using centralized filename parser.
+
+        Extracts show name and season/episode, then formats as uppercase with underscores.
+        Automatically handles release years in parentheses (e.g., "Show (2002)").
+
+        Returns:
+            str: BLOCK_ID in format "SHOW_NAME-S##E##" or None if parsing fails
+        """
         # Extract filename from path
         filename = os.path.basename(path)
 
-        # Search for season and episode pattern in filename
-        season_episode_match = re.search(r'S\d{2}E\d{2}', filename)
-        if not season_episode_match:
+        # Parse filename using centralized parser (handles years automatically)
+        parsed = FilenameParser.parse_episode_filename(filename)
+        if not parsed:
             return None
 
-        season_episode = season_episode_match.group(0)
-
-        # Extract series name by taking everything before the season/episode pattern
-        series_part = filename[:season_episode_match.start()].strip()
-
-        # Remove trailing separators like " - "
-        series_name = re.sub(r'\s*-\s*$', '', series_part).strip()
+        series_name = parsed['show_name']
+        season_episode = parsed['season_episode']
 
         # Create block ID
         block_id = f'{series_name}-{season_episode}'

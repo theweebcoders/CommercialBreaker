@@ -2,6 +2,8 @@
 
 This guide will walk you through installing CommercialBreaker & Toonami Tools on your system.
 
+**Tip**: After installation, use **S.A.R.A. Diagnostics** (Page8) to validate your setup. See [User Guides - S.A.R.A. Diagnostics](User-Guides.md#sara-diagnostics-page8) for details.
+
 ## Quick Install (One command for all systems!)
 
 Open a terminal and paste this single command:
