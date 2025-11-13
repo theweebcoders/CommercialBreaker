@@ -194,28 +194,31 @@ class FilenameParser:
     @classmethod
     def strip_year_from_show_name(cls, show_name: str) -> str:
         """
-        Strip release year in parentheses from a show name.
+        Strip release year in parentheses and IMDB metadata from a show name.
 
         Utility method to clean show names that may already have been
-        partially processed. Removes years like "(2002)" from the end
-        of show names.
+        partially processed. Removes years like "(2002)" and IMDB metadata
+        like "{imdb-tt1234567}" or "[imdb-tt1234567]" from show names.
 
         Args:
-            show_name: Show name that may contain a year
+            show_name: Show name that may contain a year and/or IMDB metadata
 
         Returns:
-            Show name with year removed and trimmed
+            Show name with year and metadata removed and trimmed
 
         Examples:
             >>> FilenameParser.strip_year_from_show_name("Naruto (2002)")
             'Naruto'
 
+            >>> FilenameParser.strip_year_from_show_name("Naruto (2002) [imdb-tt0409591]")
+            'Naruto'
+
             >>> FilenameParser.strip_year_from_show_name("Naruto")
             'Naruto'
         """
-        # Pattern to match year at the end: optional whitespace, year in parens
-        year_pattern = re.compile(r'\s*\(\d{4}\)\s*$')
-        return year_pattern.sub('', show_name).strip()
+        # Remove everything from the year onwards (year + any trailing metadata)
+        result = re.sub(r'\s*\(\d{4}\).*$', '', show_name)
+        return result.strip()
 
     @classmethod
     def validate_filename(cls, filename: str) -> tuple[bool, Optional[str]]:
