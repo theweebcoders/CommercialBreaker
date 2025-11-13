@@ -2243,25 +2243,53 @@ class Page4(BasePage):
                 self.process_button_container.style['display'] = 'flex'
 
     def prepare_content(self, widget):
-        self.logic = LogicController()
+        """Kick off ToonamiChecker + FolderMaker work without freezing the WebUI."""
+        if not hasattr(self, 'logic') or self.logic is None:
+            self.logic = LogicController()
+
+        # Prevent duplicate scans if user double-clicks
+        running_thread = getattr(self, '_prepare_content_thread', None)
+        if running_thread and running_thread.is_alive():
+            self.logic._broadcast_status_update("Already preparing content. Please wait...")
+            return
+
         self.logic._broadcast_status_update("Preparing bumps...")
-        working_folder = self.logic._get_data("working_folder")
-        anime_folder = self.logic._get_data("anime_folder")
-        fmaker = ToonamiTools.FolderMaker(working_folder)
-        easy_checker = self.ToonamiChecker(anime_folder)
-        fmaker.run()
-        for i in range(25):
+
+        if hasattr(self, 'prepare_button'):
+            self.prepare_button.set_enabled(False)
+
+        def run_prepare_work():
             try:
-                unique_show_names, toonami_episodes = easy_checker.prepare_episode_data()
-                self.display_show_selection(unique_show_names, easy_checker, toonami_episodes)
-                self.logic._broadcast_status_update("Waiting for show selection...")
-                break
-            except Exception as e:
-                print(e)
-                time.sleep(2)
-        else:
-            self.logic._broadcast_status_update("Prepare content failed. Please try again.")
-            raise Exception("Failed to run easy_checker")
+                working_folder = self.logic._get_data("working_folder")
+                anime_folder = self.logic._get_data("anime_folder")
+                fmaker = ToonamiTools.FolderMaker(working_folder)
+                easy_checker = self.ToonamiChecker(
+                    anime_folder,
+                    status_callback=self.logic._broadcast_status_update
+                )
+
+                fmaker.run()
+
+                for i in range(25):
+                    try:
+                        unique_show_names, toonami_episodes = easy_checker.prepare_episode_data()
+                        self.display_show_selection(unique_show_names, easy_checker, toonami_episodes)
+                        self.logic._broadcast_status_update("Waiting for show selection...")
+                        break
+                    except Exception as e:
+                        print(e)
+                        time.sleep(2)
+                else:
+                    raise RuntimeError("Failed to run easy_checker")
+            except Exception as exc:
+                print(exc)
+                self.logic._broadcast_status_update(f"Prepare content failed: {exc}")
+            finally:
+                if hasattr(self, 'prepare_button'):
+                    self.prepare_button.set_enabled(True)
+
+        self._prepare_content_thread = threading.Thread(target=run_prepare_work, daemon=True)
+        self._prepare_content_thread.start()
 
     def prepare_content_continue(self):
         self.logic = LogicController()
