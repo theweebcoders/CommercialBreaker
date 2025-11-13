@@ -17,8 +17,6 @@ from .utils.NetworkManager import validate_network_name, update_config_network
 from .utils.NetworkUtils import CurlHttpClient, RequestException
 import os
 
-import run_server as cbd_run_server
-
 class LogicController():
     docker = FlagManager.docker
     cutless_in_args = FlagManager.cutless_in_args
@@ -547,6 +545,9 @@ class LogicController():
         return False
 
     def _ensure_combreakdirect_server(self):
+        # Lazy import to avoid circular dependency
+        import run_server as cbd_run_server
+
         base_url = self._combreakdirect_base_url()
         if self._is_combreakdirect_running(base_url):
             return
