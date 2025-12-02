@@ -1,6 +1,7 @@
 import re
 import os
 import sys
+import time
 import config
 from typing import Optional, Callable
 from API.utils.DatabaseManager import get_db_manager
@@ -110,8 +111,9 @@ class PlexToDizqueTVSimplified:
                 filename = self.get_filename_from_path(file_path)
                 show_title, _, _ = self.parse_show_info(filename)
                 if show_title:
-                    # Normalize: lowercase and strip whitespace
-                    normalized = show_title.lower().strip()
+                    # Normalize: remove all punctuation for fuzzy matching
+                    # This ensures "Fullmetal Alchemist - Brotherhood" matches "Fullmetal Alchemist: Brotherhood"
+                    normalized = show_name_mapper.clean(show_title, mode='fuzzy')
                     needed_shows.add(normalized)
 
             self.needed_shows = needed_shows
@@ -288,7 +290,9 @@ class PlexToDizqueTVSimplified:
                 for show in anime_shows:
                     # Filter to only shows we need (if needed_shows is set)
                     if self.needed_shows:
-                        normalized_title = show.title.lower().strip()
+                        # Use same aggressive normalization as needed_shows creation
+                        # This ensures "Fullmetal Alchemist: Brotherhood" matches "fullmetalalchemistbrotherhood"
+                        normalized_title = show_name_mapper.clean(show.title, mode='fuzzy')
 
                         # O(1) hash lookup - primary check
                         if normalized_title not in self.needed_shows:
@@ -389,36 +393,34 @@ class PlexToDizqueTVSimplified:
         original_title = show_title
         mapped_title = show_name_mapper.map(show_title, strategy='first_match')
 
-        def normalize(s):
-            return re.sub(r'[^a-z0-9]', '', s.lower())
-        
-        target = normalize(mapped_title)
-        
+        # Use fuzzy mode to remove all punctuation for matching
+        target = show_name_mapper.clean(mapped_title, mode='fuzzy')
+
         # Try exact match first
         for show in anime_section.all():
-            if normalize(show.title) == target:
+            if show_name_mapper.clean(show.title, mode='fuzzy') == target:
                 return show
-        
+
         # Try partial match if exact fails
         for show in anime_section.all():
-            if target in normalize(show.title):
+            if target in show_name_mapper.clean(show.title, mode='fuzzy'):
                 return show
-        
+
         # If we get here and we applied a mapping, try the original title as a fallback
         if original_title != mapped_title:
             print(f"Mapped title not found, trying original title: '{original_title}'")
-            target = normalize(original_title)
-            
+            target = show_name_mapper.clean(original_title, mode='fuzzy')
+
             # Exact match with original
             for show in anime_section.all():
-                if normalize(show.title) == target:
+                if show_name_mapper.clean(show.title, mode='fuzzy') == target:
                     return show
-                    
+
             # Partial match with original
             for show in anime_section.all():
-                if target in normalize(show.title):
+                if target in show_name_mapper.clean(show.title, mode='fuzzy'):
                     return show
-        
+
         return None
 
     def get_media_item(self, file_path):
@@ -482,19 +484,29 @@ class PlexToDizqueTVSimplified:
             # Fallback to parsing show info if not found by filename
             show_title, season, episode = self.parse_show_info(filename)
             if show_title and season and episode:
-                try:
-                    anime_section = self.plex.library.section(self.anime_library)
+                # Retry loop for flaky network connections
+                for attempt in range(1, config.PLEX_RETRY_ATTEMPTS + 1):
                     try:
-                        show = anime_section.get(show_title)
-                    except Exception:
-                        show = self.fuzzy_find_show(anime_section, show_title)
-                    if show:
-                        ep = show.episode(season=season, episode=episode)
-                        return ep
-                    else:
-                        print(f"Fuzzy match failed for show title: {show_title}")
-                except Exception as e:
-                    print(f"Could not find by show/season/episode: {show_title} S{season:02d}E{episode:02d}: {e}")
+                        anime_section = self.plex.library.section(self.anime_library)
+                        try:
+                            show = anime_section.get(show_title)
+                        except Exception:
+                            show = self.fuzzy_find_show(anime_section, show_title)
+                        if show:
+                            ep = show.episode(season=season, episode=episode)
+                            # Cache the successful lookup to avoid future API calls
+                            self.anime_media[filename] = ep
+                            self.anime_media[filename_no_ext] = ep
+                            return ep
+                        else:
+                            print(f"Fuzzy match failed for show title: {show_title}")
+                            break  # Don't retry if show not found - it won't suddenly appear
+                    except Exception as e:
+                        if attempt == config.PLEX_RETRY_ATTEMPTS:
+                            print(f"Could not find by show/season/episode: {show_title} S{season:02d}E{episode:02d}: {e}")
+                        else:
+                            print(f"  Retry {attempt}/{config.PLEX_RETRY_ATTEMPTS} for {show_title} S{season:02d}E{episode:02d}...")
+                            time.sleep(config.PLEX_RETRY_DELAY)
         else:
             # Try to find the file with extension
             if filename in self.toonami_media:

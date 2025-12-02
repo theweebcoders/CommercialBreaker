@@ -40,7 +40,8 @@ class ShowNameMapper:
             text: Text to clean
             mode: Cleaning mode:
                   - 'standard': Basic normalization (unidecode, lowercase, remove special chars)
-                  - 'matching': For comparison (remove all non-alphanumeric, lowercase)
+                  - 'matching': For comparison (remove non-alphanumeric except spaces, lowercase)
+                  - 'fuzzy': For fuzzy matching (remove ALL non-alphanumeric incl. spaces)
                   - 'display': For display (proper capitalization)
         
         Returns:
@@ -67,6 +68,12 @@ class ShowNameMapper:
             # 4) Collapse whitespace and lowercase
             cleaned = self._whitespace_pattern.sub(' ', cleaned).strip().lower()
             return cleaned
+
+        elif mode == 'fuzzy':
+            # For fuzzy show name matching where punctuation differences shouldn't matter
+            # E.g., "Fullmetal Alchemist: Brotherhood" matches "Fullmetal Alchemist - Brotherhood"
+            # Removes ALL non-alphanumeric characters including spaces
+            return re.sub(r'[^a-z0-9]', '', text.lower())
             
         elif mode == 'display':
             # For display (proper capitalization)
