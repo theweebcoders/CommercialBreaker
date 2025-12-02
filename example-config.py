@@ -50,6 +50,11 @@ plex_internal_path="/mnt/user/Media/Plex/"
 dizquetv_container_name = "dizquetv-1"
 dizquetv_channel_number = "1"
 
+# Plex connection settings
+PLEX_RETRY_ATTEMPTS = 3
+PLEX_RETRY_DELAY = 2  # seconds between retries
+PLEX_SERVER_CONNECTION_TIMEOUT = 30  # seconds
+PLEX_LIBRARY_FETCH_TIMEOUT = 120  # seconds (larger libraries need more time)
 
 START_BUFFER = 60
 END_BUFFER = 30  # Filter out timestamps within last 30 seconds of video
