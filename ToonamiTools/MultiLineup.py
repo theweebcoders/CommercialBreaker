@@ -14,6 +14,10 @@ class Multilineup:
         self.post_cut = post_cut
         self.source_suffix = '_postcut' if post_cut else ''
         self.reordered_suffix = '_reordered_postcut' if post_cut else '_reordered'
+        # Cache the source table once per reorder_table call instead of re-querying
+        # SQLite on every iteration of the (n+1)-deep selection loop.
+        self._table_cache = None
+        self._table_cache_name = None
 
     def weighted_selection(self, data):
         """Select one row from data using weights based on recent shows"""
@@ -33,15 +37,19 @@ class Multilineup:
 
     def unused_bumps(self, table_name):
         """Get all rows from table that haven't been used yet"""
-        all_data = self.db_manager.fetchall_as_dicts(f"SELECT rowid, * FROM {table_name}")
-
-        # Filter out used rows (by rowid)
-        unused = [row for row in all_data if row['rowid'] not in self.used_rows]
-        return unused
+        # Load the table once per reorder_table run; subsequent calls within the
+        # same selection loop filter the cached copy in memory.
+        if self._table_cache_name != table_name:
+            self._table_cache = self.db_manager.fetchall_as_dicts(f"SELECT rowid, * FROM {table_name}")
+            self._table_cache_name = table_name
+        return [row for row in self._table_cache if row['rowid'] not in self.used_rows]
 
     def get_next_row(self, table_name):
         """Get the next optimal bump based on show transitions"""
         data = self.unused_bumps(table_name)
+        # Precompute the set of SHOW_NAME_1 values once for O(1) follow-up
+        # lookups, replacing per-candidate any()-over-data scans.
+        show_name_1_set = {row.get('SHOW_NAME_1') for row in data}
         next_row = None
         last_resort_row = None
 
@@ -64,8 +72,7 @@ class Multilineup:
                     sorted_show_name_3 = sorted(show_name_3_counts.keys(), key=lambda x: show_name_3_counts[x])
 
                     for show_name_3 in sorted_show_name_3:
-                        # Check if there is at least one bump with SHOW_NAME_1 in the remaining bumps
-                        has_follow_up = any(row.get('SHOW_NAME_1') == show_name_3 for row in data)
+                        has_follow_up = show_name_3 in show_name_1_set
 
                         if has_follow_up:
                             candidates = [row for row in possible_next_rows if row.get('SHOW_NAME_3') == show_name_3]
@@ -216,7 +223,13 @@ class Multilineup:
 
     def reorder_table(self, base_table_name):
         """Reorder a table of bumps to create optimal show transitions"""
-        self.used_rows = set()  # Resetting used rows for the new table
+        # Reset per-table state
+        self.used_rows = set()
+        self.next_show_name = None
+        self.recent_shows = []
+        self._table_cache = None
+        self._table_cache_name = None
+
         source_table_name = base_table_name + self.source_suffix
         reordered_table_name = base_table_name + self.reordered_suffix
 
@@ -228,20 +241,55 @@ class Multilineup:
 
         print(f"Starting reordering for {source_table_name}")
 
+        # Collect rows in memory and bulk-write once at the end instead of
+        # opening a fresh SQLite transaction per row.
+        collected_rows = []
+
+        def track(row):
+            """Replicate the in-memory side effects formerly done in write_to_table."""
+            if row.get('PLACEMENT_2') == 'next':
+                self.next_show_name = row.get('SHOW_NAME_3')
+            else:
+                self.next_show_name = row.get('SHOW_NAME_1')
+            self.recent_shows.append(self.next_show_name)
+            if len(self.recent_shows) > 5:
+                self.recent_shows.pop(0)
+
         unused_data = self.unused_bumps(source_table_name)
         first_bump = self.find_optimal_first_bump(unused_data)
 
         if first_bump is not None:
-            self.write_to_table(first_bump, reordered_table_name)
+            collected_rows.append(first_bump)
             self.used_rows.add(first_bump['rowid'])
-            unused_data = self.unused_bumps(source_table_name)  # Refresh unused rows
+            track(first_bump)
+            unused_data = self.unused_bumps(source_table_name)
 
         while unused_data:
             next_row, rowid = self.get_next_row(source_table_name)
             if next_row is None:
                 break
-            self.write_to_table(next_row, reordered_table_name)
-            unused_data = self.unused_bumps(source_table_name)  # Refresh unused rows
+            collected_rows.append(next_row)
+            track(next_row)
+            unused_data = self.unused_bumps(source_table_name)
+
+        if collected_rows:
+            rows_to_save = [
+                {k: v for k, v in row.items() if k != 'rowid'}
+                for row in collected_rows
+            ]
+            try:
+                self.db_manager.replace_table_data(reordered_table_name, rows_to_save)
+            except Exception as e:
+                self.error_manager.send_error_level(
+                    source="Multilineup",
+                    operation="reorder_table",
+                    message=f"Failed to save reordered bumps to {reordered_table_name}",
+                    details=str(e),
+                    suggestion="Bulk save to database failed; verify database is accessible."
+                )
+                raise
+        elif self.db_manager.table_exists(reordered_table_name):
+            self.db_manager.drop_table(reordered_table_name)
 
         print(f"Finished reordering for {source_table_name}")
 

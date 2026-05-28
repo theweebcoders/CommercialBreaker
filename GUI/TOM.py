@@ -782,10 +782,6 @@ class Page4(ttk.Frame):
 
     def on_continue_button_click(self):
         self.logic.on_continue_fourth()
-        # Always prepopulate selection for ComBreakDirect or cutless mode
-        if self.logic._get_data("platform_type") == 'combreakdirect' or FlagManager.cutless:
-            self.filtered_files_action.set("prepopulate")
-            self.logic.move_filtered(prepopulate=True)
         self.controller.show_frame("Page5")
 
     def update_status_label(self, status):
@@ -1425,14 +1421,18 @@ class Page5(ttk.Frame):
         self.status_label.update()
 
     def _run_and_notify(self, task, done_callback, task_name, destructive_mode=False, cutless_mode=False, low_power_mode=False, fast_mode=False, reset_callback=None):
-        self.update_status(f"Started task: {task_name}")
-        if task_name == "Detect Black Frames":
-            task(self.input_path.get(), self.output_path.get(), self.update_progress, self.update_status, low_power_mode, fast_mode, reset_callback)
-        elif task_name == "Cut Video":
-            self.reset_progress_bar()
-            task(self.input_path.get(), self.output_path.get(), self.update_progress, self.update_status, destructive_mode, cutless_mode)
-        self.update_status(f"Finished task: {task_name}")
-        done_callback(task_name)
+        self.controller.logic._set_operation_state(True, task_name)
+        try:
+            self.update_status(f"Started task: {task_name}")
+            if task_name == "Detect Black Frames":
+                task(self.input_path.get(), self.output_path.get(), self.update_progress, self.update_status, low_power_mode, fast_mode, reset_callback)
+            elif task_name == "Cut Video":
+                self.reset_progress_bar()
+                task(self.input_path.get(), self.output_path.get(), self.update_progress, self.update_status, destructive_mode, cutless_mode)
+            self.update_status(f"Finished task: {task_name}")
+            done_callback(task_name)
+        finally:
+            self.controller.logic._set_operation_state(False, task_name)
 
     @staticmethod
     def done_cut_videos(task_name):
@@ -1577,6 +1577,14 @@ class Page6(ttk.Frame):
                                      relief='flat')
         self.status_label.pack(pady=10, padx=10, fill='x')
 
+        # Info label for ComBreakDirect users — shown/hidden in tkraise.
+        self.infinite_info_label = ttk.Label(
+            self,
+            text="This channel will extend automatically and never end.",
+            foreground="#0a84ff",
+            font=("Helvetica", 11, "italic"),
+        )
+
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", anchor="se", fill="x")
 
@@ -1588,30 +1596,32 @@ class Page6(ttk.Frame):
         self.continue_button = ttk.Button(button_frame, text="Continue",
                                     command=self.on_continue_button_click)
         self.continue_button.pack(side="right", padx=5, pady=5)
+        # Remember the pack kwargs so we can re-pack after pack_forget.
+        self._continue_pack_kwargs = {"side": "right", "padx": 5, "pady": 5}
 
     def tkraise(self):
         platform_type = self.logic._get_data("platform_type")
-        
+
         for widget in self.dynamic_buttons_frame.winfo_children():
             widget.destroy()
-            
+
         if platform_type == "tunarr":
-            self.create_toonami_channel_button_with_flex = ttk.Button(self.dynamic_buttons_frame, 
+            self.create_toonami_channel_button_with_flex = ttk.Button(self.dynamic_buttons_frame,
                                                                      text=f"Create {config.network} Channel with Flex",
                                                                      command=self.create_toonami_channel)
             self.create_toonami_channel_button_with_flex.pack(pady=3)
         elif platform_type == "combreakdirect":
-            self.create_toonami_channel_button = ttk.Button(self.dynamic_buttons_frame, 
+            self.create_toonami_channel_button = ttk.Button(self.dynamic_buttons_frame,
                                                            text="Create ComBreakDirect Channel",
                                                            command=self.create_toonami_channel)
             self.create_toonami_channel_button.pack(pady=3)
         else:
-            self.create_toonami_channel_button = ttk.Button(self.dynamic_buttons_frame, 
+            self.create_toonami_channel_button = ttk.Button(self.dynamic_buttons_frame,
                                                            text=f"Create {config.network} Channel",
                                                            command=self.create_toonami_channel)
             self.create_toonami_channel_button.pack(pady=3)
-            
-            self.add_flex_button = ttk.Button(self.dynamic_buttons_frame, 
+
+            self.add_flex_button = ttk.Button(self.dynamic_buttons_frame,
                                              text="Add Flex",
                                              command=self.add_flex)
             self.add_flex_button.pack(pady=3)
@@ -1622,7 +1632,23 @@ class Page6(ttk.Frame):
         else:
             if not self.create_prepare_plex_button.winfo_manager():
                 self.create_prepare_plex_button.pack(**self._prepare_plex_pack_kwargs)
-        
+
+        # ComBreakDirect channels auto-extend forever via the LineupExtender
+        # watchdog, so Page 7 (manual continuation) doesn't apply. Hide the
+        # Continue button and surface the info note. Other platforms keep
+        # the existing manual continuation flow unchanged.
+        is_combreakdirect = platform_type == 'combreakdirect'
+        if is_combreakdirect:
+            if self.continue_button.winfo_manager():
+                self.continue_button.pack_forget()
+            if not self.infinite_info_label.winfo_manager():
+                self.infinite_info_label.pack(pady=4)
+        else:
+            if self.infinite_info_label.winfo_manager():
+                self.infinite_info_label.pack_forget()
+            if not self.continue_button.winfo_manager():
+                self.continue_button.pack(**self._continue_pack_kwargs)
+
         super().tkraise()
 
     def update_status_label_handler(self, status):
@@ -1808,7 +1834,7 @@ class Page7(ttk.Frame):
         toonami_version = self.toonami_version.get()
         channel_number = self.channel_number_entry.get()
         flex_duration = self.flex_duration_entry.get()
-        self.logic.create_toonami_channel(toonami_version, channel_number, flex_duration)
+        self.logic.create_toonami_channel_cont(toonami_version, channel_number, flex_duration)
 
         # Check if ComBreakDirect is selected and subscribe to completion
         platform_type = self.logic._get_data("platform_type")
@@ -2284,6 +2310,9 @@ class MainApplication(tk.Tk):
 
         self.frames = {}
         self.logic = LogicController()
+        self.navigation_locked = False
+        self.navigation_lock_reason = None
+        self.logic.subscribe_to_operation_state(self._handle_operation_state)
 
         for F in (Page1, PlexDetailsPage, Page2, Page3, Page4, Page5, Page6, Page7, Page8):
             page_name = F.__name__
@@ -2312,7 +2341,41 @@ class MainApplication(tk.Tk):
         self.dark_mode = not self.dark_mode
         self.set_theme()
 
+    def _handle_operation_state(self, data):
+        try:
+            running = False
+            operation = None
+            if isinstance(data, dict):
+                running = bool(data.get('running'))
+                operation = data.get('operation')
+            else:
+                running = bool(data)
+            self.set_navigation_locked(running, operation)
+        except Exception as exc:
+            print(f"Failed to handle operation state: {exc}")
+
+    def set_navigation_locked(self, locked: bool, operation: str | None = None) -> None:
+        self.navigation_locked = locked
+        self.navigation_lock_reason = operation if locked else None
+
+        state = tk.DISABLED if locked else tk.NORMAL
+        for frame in self.frames.values():
+            for attr in ('continue_button', 'go_back_button'):
+                button = getattr(frame, attr, None)
+                if button:
+                    button.config(state=state)
+
+        if locked:
+            self.logic._broadcast_status_update(
+                f"Navigation locked while {operation or 'an operation'} runs"
+            )
+
     def show_frame(self, page_name):
+        if getattr(self, 'navigation_locked', False):
+            current = getattr(self, 'current_page', None)
+            if current and page_name != current:
+                self.logic._broadcast_status_update("Navigation locked while an operation is running")
+                return
         frame = self.frames[page_name]
         frame.tkraise()
         platform_type = self.logic._get_data("platform_type") or "dizquetv"
@@ -2477,6 +2540,9 @@ class MainApplication(tk.Tk):
 
     def go_back(self):
         """Navigate to the previous page in the wizard."""
+        if getattr(self, 'navigation_locked', False):
+            self.logic._broadcast_status_update("Navigation locked while an operation is running")
+            return
         # Define the previous page mapping
         previous_page_mapping = {
             'PlexDetailsPage': 'Page1',

@@ -42,7 +42,8 @@ class LoadingDock:
             base_url,
             storage_path=storage_path,
             segment_root=segment_root,
-            break_renderer=self.break_renderer
+            break_renderer=self.break_renderer,
+            loading_dock=self,
         )
 
         print(f"[LOADING_DOCK] Ready with commercial folder: {self.commercial_folder}")
@@ -76,6 +77,30 @@ class LoadingDock:
 
         # Machine 2: Data Formatting
         channel_data = self._format_for_streaming(lineup_data, channel_number, network_name)
+
+        # If the client marked this channel as infinite, stash the metadata the
+        # LineupExtender watchdog uses to top up the lineup. ``enabled=True``
+        # at creation time arms the watchdog immediately; the watchdog itself
+        # flips this off after exhausting retries on hard failures, after
+        # which the Studio's modulo loop keeps the channel playing existing
+        # programs without interruption.
+        if metadata.get('infinite'):
+            incoming = metadata.get('infinite_meta') or {}
+            channel_data['_infinite_meta'] = {
+                'enabled': True,
+                'toonami_version': incoming.get('toonami_version'),
+                'cutless_enabled': bool(incoming.get('cutless_enabled', True)),
+                'network': network_name,
+                'flex_duration_ms': self._coerce_ms(flex_duration),
+                'commercial_folder': (
+                    incoming.get('commercial_folder')
+                    or commercial_override
+                    or str(self.commercial_folder)
+                ),
+                'extension_seq': 0,
+                'last_extension_at': None,
+                'consecutive_failures': 0,
+            }
 
         print(f"[LOADING_DOCK] Processed channel {channel_number} with {len(channel_data['programs'])} programs")
 
@@ -267,12 +292,28 @@ class LoadingDock:
         """Data Formatting Machine - Convert to streaming format."""
         print(f"[LOADING_DOCK] Formatting {len(lineup_data)} items for streaming...")
 
-        # First pass: Assign proper BLOCK_IDs with forward propagation
+        start_time = datetime.now(timezone.utc).replace(microsecond=0)
+        programs = self._format_programs(lineup_data, start_time)
+        total_duration = sum(p.get('duration', 0) for p in programs)
+
+        return {
+            'number': channel_number,
+            'name': network_name,
+            'startTime': start_time.isoformat(),
+            'duration': total_duration,
+            'programs': programs
+        }
+
+    def _format_programs(self, lineup_data, anchor_time):
+        """Convert raw lineup items into program dicts anchored at ``anchor_time``.
+
+        Extracted from ``_format_for_streaming`` so the infinite-channel
+        extension path can reuse the same timing/seek logic while anchoring
+        the new chunk to the end of an existing channel's timeline.
+        """
         lineup_with_block_ids = self._assign_block_ids(lineup_data)
 
-        # Calculate timing
         total_duration = 0
-        start_time = datetime.now(timezone.utc).replace(microsecond=0)
         programs = []
 
         for item in lineup_with_block_ids:
@@ -315,7 +356,7 @@ class LoadingDock:
                 )
 
             # Create program
-            program_start = start_time + timedelta(milliseconds=total_duration)
+            program_start = anchor_time + timedelta(milliseconds=total_duration)
             program_end = program_start + timedelta(milliseconds=duration_ms)
 
             programs.append({
@@ -331,11 +372,48 @@ class LoadingDock:
 
             total_duration += duration_ms
 
-        # Create channel data
-        return {
-            'number': channel_number,
-            'name': network_name,
-            'startTime': start_time.isoformat(),
-            'duration': total_duration,
-            'programs': programs
-        }
+        return programs
+
+    def format_extension(self, lineup_data, existing_channel_data):
+        """Format a lineup chunk as programs that contiguously follow an
+        existing channel's timeline.
+
+        Used by the LineupExtender to convert raw rows (from
+        ``InfiniteChannelExtender``) into program dicts whose ``start``/``stop``
+        ISO timestamps pick up immediately after the last program of
+        ``existing_channel_data['programs']``. Returns a plain ``list[dict]``
+        suitable for ``FactoryFloor.extend_channel``.
+
+        Commercials are injected between consecutive bumps within the chunk
+        using the channel's saved ``flex_duration_ms``. Breaks at the seam
+        between the existing tail and this chunk's head are not synthesized —
+        the extender treats each chunk as a self-contained insert.
+        """
+        self._pending_breaks = []
+
+        network_name = existing_channel_data.get('name', 'Channel')
+        meta = existing_channel_data.get('_infinite_meta') or {}
+        flex_duration = meta.get('flex_duration_ms')
+
+        if flex_duration:
+            lineup_data = self._inject_commercials(lineup_data, network_name, flex_duration)
+            self._prime_initial_breaks()
+
+        # Anchor the new chunk to the stop time of the last existing program
+        # so playback timestamps stay continuous across the seam.
+        existing_programs = existing_channel_data.get('programs') or []
+        anchor_time = None
+        if existing_programs:
+            last_stop = existing_programs[-1].get('stop')
+            if last_stop:
+                try:
+                    anchor_time = datetime.fromisoformat(
+                        last_stop.replace('Z', '+00:00')
+                    )
+                except ValueError:
+                    anchor_time = None
+
+        if anchor_time is None:
+            anchor_time = datetime.now(timezone.utc).replace(microsecond=0)
+
+        return self._format_programs(lineup_data, anchor_time)

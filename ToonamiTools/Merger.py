@@ -44,6 +44,14 @@ class ShowScheduler:
         self.decoder = {}
         self.show_episode_blocks = None
 
+        # O(1) lookup indexes built once in _group_shows after each data load.
+        # Replace prior O(N) list-comprehension scans across commercial_injector_data.
+        self.block_id_index = {}
+        self.show_name_index = {}
+        # Per-instance cache for normalized show names — show_name_mapper.map+clean is
+        # not cheap and gets called once per row across multiple normalization passes.
+        self._normalize_cache = {}
+
         # Configuration toggles
         self.reuse_episode_blocks = reuse_episode_blocks
         self.shows_with_no_more_blocks = set()
@@ -60,6 +68,14 @@ class ShowScheduler:
                 self.last_used_episode_block = self.load_last_used_episode_block()
                 print("Continuing from last used episode blocks")
             else:
+                # First-time continuation with no cursor table yet — treat
+                # every show as "no prior position", which is functionally
+                # identical to a fresh start. save_last_used_episode_block
+                # will create the table on the first save. Initializing here
+                # fixes the "must run prepare twice the first time" quirk in
+                # the README FAQ: without this, get_next_episode_block hits
+                # AttributeError on the uninitialized attribute.
+                self.last_used_episode_block = {}
                 print("Resetting episode tracking for the last spreadsheet.")
         else:
             # If not continuing, reset
@@ -209,28 +225,40 @@ class ShowScheduler:
         Return normalized show name using show_name_mapper,
         if it exists; otherwise, return the original show name.
         """
-        # Apply the same normalization as other modules: map all, then clean for matching
+        cache = self._normalize_cache
+        if show in cache:
+            return cache[show]
         mapped = show_name_mapper.map(show, strategy='all')
-        return show_name_mapper.clean(mapped, mode='matching')
+        result = show_name_mapper.clean(mapped, mode='matching')
+        cache[show] = result
+        return result
 
     def _group_shows(self):
         """
-        Group the commercial_injector_data by show_name and BLOCK_ID,
-        returning a dict of episode blocks for each show.
+        Group the commercial_injector_data by show_name and BLOCK_ID.
+        Also populates self.block_id_index and self.show_name_index for O(1)
+        row lookups, replacing what were previously full linear scans of
+        commercial_injector_data on every episode-block insertion.
         """
-        # First group by show_name, then by BLOCK_ID
         show_groups = defaultdict(lambda: defaultdict(list))
+        block_id_index = defaultdict(list)
+        show_name_index = defaultdict(list)
+
         for row in self.commercial_injector_data:
             show_name = row.get("show_name", "")
             block_id = row.get("BLOCK_ID", "")
             full_file_path = row.get("FULL_FILE_PATH", "")
-            # Append [FULL_FILE_PATH, BLOCK_ID] pair to the block
             show_groups[show_name][block_id].append([full_file_path, block_id])
+            block_id_index[block_id].append(row)
+            show_name_index[show_name].append(row)
 
-        # Convert to final structure: {show: [[block1 rows], [block2 rows], ...]}
+        # Convert defaultdicts to plain dicts so callers see KeyError-free .get()
+        # behavior without surprise mutations from later access.
+        self.block_id_index = dict(block_id_index)
+        self.show_name_index = dict(show_name_index)
+
         result = {}
         for show_name, blocks_dict in show_groups.items():
-            # Get all blocks for this show as a list of lists
             result[show_name] = list(blocks_dict.values())
         return result
 
@@ -328,9 +356,6 @@ class ShowScheduler:
                 # Potentially handle other code or do default append
                 pass
 
-            # Attempt to handle "interweaving" if next row is different
-            final_data = self._attempt_interweave(idx, final_data, last_show_name, shows)
-
         print("Schedule generation complete.")
         return final_data
 
@@ -418,8 +443,11 @@ class ShowScheduler:
         show_name_1, show_name_2 = shows
         delete_intro = False
 
-        # Compute availability of the required blocks first
-        block2 = self.get_next_episode_block(show_name_2) if last_show_name != show_name_2 else self.get_next_episode_block(show_name_2)
+        # Only fetch block2 when we'd actually use it. The previous ternary had
+        # identical branches and silently advanced show_name_2's cursor even when
+        # last_show_name already equalled show_name_2 — meaning an episode could
+        # be probed-and-discarded, leaving the next channel to skip it.
+        block2 = self.get_next_episode_block(show_name_2) if last_show_name != show_name_2 else None
         block1 = self.get_next_episode_block(show_name_1)
 
         # If neither side has an episode to place, skip this NS2 row
@@ -428,11 +456,7 @@ class ShowScheduler:
 
         # Insert next block for show_name_2 if needed and available (before the NS2 bump)
         if last_show_name != show_name_2 and block2 is not None:
-            # Filter commercial_injector_data for matching BLOCK_ID
-            block_rows = [
-                r for r in self.commercial_injector_data
-                if r.get("BLOCK_ID") == block2.get("BLOCK_ID")
-            ]
+            block_rows = self.block_id_index.get(block2.get("BLOCK_ID"), [])
             for block_row in block_rows:
                 final_data.append({
                     "FULL_FILE_PATH": block_row.get("FULL_FILE_PATH"),
@@ -451,10 +475,7 @@ class ShowScheduler:
 
             # Next block for show_name_1, with possible intro deletion
             delete_intro = True
-            block_rows = [
-                r for r in self.commercial_injector_data
-                if r.get("BLOCK_ID") == block1.get("BLOCK_ID")
-            ]
+            block_rows = self.block_id_index.get(block1.get("BLOCK_ID"), [])
             if delete_intro and len(block_rows) > 0:
                 block_rows = block_rows[1:]  # Skip first row (intro)
                 delete_intro = False
@@ -468,30 +489,6 @@ class ShowScheduler:
 
         return final_data, last_show_name, delete_intro
 
-    def _attempt_interweave(self, idx, final_data, last_show_name, shows):
-        """
-        Attempt to handle "interweaving" if the next row's first show differs
-        from the last_show_name. This logic appends a blank row to final_data in some cases,
-        preserving the original intent of spacing or boundary between transitions.
-        """
-        if idx < len(self.decoded_data) - 1:
-            next_row = self.decoded_data[idx + 1]
-            next_code = next_row.get("Code") or ""
-            next_shows = next_row.get("shows", [])
-            # Insert a break if the upcoming show is different and there's no direct handoff
-            if (
-                next_shows and next_shows[0] != last_show_name
-                and not (
-                    ("-NS3" in next_code and next_shows[0] == shows[-1])
-                    or ("-NS2" in next_code and last_show_name == next_shows[-1])
-                )
-            ):
-                # The original logic just concatenates the df with itself (no-op in pandas)
-                # This appears to be a placeholder or bug in the original code
-                # Keeping the same behavior (no operation)
-                pass
-        return final_data
-
     def _insert_episode_block(self, final_data, show, delete_intro, last_bump_for_show):
         """
         Insert the next episode block for 'show' into final_data.
@@ -499,11 +496,7 @@ class ShowScheduler:
         """
         next_block = self.get_next_episode_block(show)
         if next_block is not None:
-            # Filter for matching BLOCK_ID
-            block_rows = [
-                r for r in self.commercial_injector_data
-                if r.get("BLOCK_ID") == next_block.get("BLOCK_ID")
-            ]
+            block_rows = self.block_id_index.get(next_block.get("BLOCK_ID"), [])
             if delete_intro and len(block_rows) > 0:
                 block_rows = block_rows[1:]  # Skip first row (intro)
                 delete_intro = False
@@ -527,9 +520,8 @@ class ShowScheduler:
         reuse_episode_blocks is True and we've exhausted new blocks,
         start over from the beginning.
         """
-        # Filter for this show
-        show_rows = [r for r in self.commercial_injector_data if r.get("show_name") == show]
-        if len(show_rows) == 0:
+        show_rows = self.show_name_index.get(show, [])
+        if not show_rows:
             print(f"Warning: No episode blocks found for show {show}.")
             return None
 
@@ -713,11 +705,7 @@ class ShowScheduler:
             selected_show = random.choice(unique_shows)
             next_block = self.get_next_episode_block(selected_show)
             if next_block is not None:
-                # Filter for matching BLOCK_ID
-                selected_block_rows = [
-                    r for r in self.commercial_injector_data
-                    if r.get("BLOCK_ID") == next_block.get("BLOCK_ID")
-                ]
+                selected_block_rows = self.block_id_index.get(next_block.get("BLOCK_ID"), [])
                 # Insert at space position
                 for i, block_row in enumerate(selected_block_rows):
                     # Create clean row without Priority or show_name

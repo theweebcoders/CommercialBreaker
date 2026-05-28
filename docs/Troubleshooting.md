@@ -31,41 +31,19 @@ This guide helps you resolve common issues with CommercialBreaker & Toonami Tool
 pip install -r requirements.txt
 ```
 
-### DizqueTV Package Installation Failure
-**Error**: `ModuleNotFoundError: No module named 'm3u8'` or `error: subprocess-exited-with-error` during `pip install`
+### DizqueTV Python API Setup
 
-**Problem**: The dizquetv package (required for Cutless Mode) has a build-time import issue. Its `setup.py` imports code from the package itself (`from dizqueTV._info import __version__`), which triggers imports of the entire dizqueTV module. This module imports dependencies like `m3u8`, `PlexAPI`, and `objectrest` at the top level - but these dependencies aren't installed yet because pip is still trying to build the dizquetv package!
-
-**Solution**: Install dependencies in the correct order:
+If you're using Cutless Mode with DizqueTV, install the official `dizquetv` Python API before the main requirements:
 
 ```bash
-# Step 1: Install build tools
-pip install --no-cache-dir wheel setuptools
-
-# Step 2: Install pre-dependencies (m3u8, PlexAPI, numpy, objectrest)
 pip install -r requirements/pre_deps.txt
-
-# Step 3: Install dizquetv without build isolation
-pip install --no-build-isolation git+https://github.com/theweebcoders/dizquetv-python.git
-
-# Step 4: Install remaining requirements
+pip install dizquetv
 pip install -r requirements.txt
 ```
-
-**Why `--no-build-isolation` works**: This flag allows the dizquetv setup.py to access already-installed packages (like m3u8) during the build process instead of creating an isolated environment.
 
 **Note**:
-- This issue only affects **manual desktop installations**
-- The automated setup script (`setup.sh.bat`) handles this automatically
-- Docker installations use a corrected installation order in the Dockerfile
-- Most users won't encounter this since they use Docker or the setup script
-
-**Alternative**: If the above doesn't work, try installing dizquetv separately first:
-```bash
-pip install -r requirements/pre_deps.txt
-pip install --no-build-isolation git+https://github.com/theweebcoders/dizquetv-python.git
-pip install -r requirements.txt
-```
+- This setup is for manual desktop installs
+- Docker installs already include the required dependencies
 
 ---
 
@@ -220,7 +198,7 @@ These are informational only - no action required:
 **Diagnosis**: Tunarr doesn't support cutless mode
 
 **Fix**:
-- **Option 1**: Change platform to DizqueTV (requires custom fork) or ComBreakDirect
+- **Option 1**: Change platform to DizqueTV 1.7+ or ComBreakDirect
 - **Option 2**: Disable cutless mode and use traditional cutting
 - **Note**: Can't use cutless with Tunarr
 
@@ -384,7 +362,7 @@ CommercialBreaker includes smart connection retry logic that handles most timeou
 **Solutions**:
 1. **Verify URL**: Check DizqueTV server address and port
 2. **API Access**: Ensure DizqueTV API is accessible
-3. **Version Compatibility**: Use our [DizqueTV fork](https://github.com/theweebcoders/dizquetv) for Cutless Mode
+3. **Version Compatibility**: Use DizqueTV 1.7+ for Cutless Mode
 4. **Network Issues**: Check firewall and network connectivity
 
 ### Tunarr Integration Problems
@@ -404,6 +382,39 @@ CommercialBreaker includes smart connection retry logic that handles most timeou
 2. **Post-Channel Creation**: Run flex injection after channel creation
 3. **API Permissions**: Ensure DizqueTV API access is working
 4. **Channel Exists**: Verify channel was created successfully first
+
+### ComBreakDirect Channel Stopped Extending
+**Problem**: A ComBreakDirect channel that was working has stopped auto-extending — Plex's guide eventually runs out and the channel loops back to the beginning.
+
+**Diagnosis**: The LineupExtender disables itself after `MAX_CONSECUTIVE_FAILURES` (3) consecutive extension failures. Check `_infinite_meta` in `channels.json`:
+
+```bash
+# Native install
+cat combreak_direct_data/channels.json | jq '.channels."<num>"._infinite_meta'
+
+# Docker
+cat /app/working/combreak_direct/channels.json | jq '.channels."<num>"._infinite_meta'
+```
+
+Look at `enabled`, `consecutive_failures`, and `last_extension_at`.
+
+**Solutions**:
+1. **`enabled: false`** — the watchdog gave up. Check ComBreakDirect logs for the failure reason (search for `[LINEUP_EXTENDER]` and `[FACTORY_FLOOR] Cannot spawn`). Common causes:
+   - Source media missing or unmounted (ShowScheduler couldn't find episodes)
+   - `last_used_episode_block` table corrupted (drop the table and seed will repopulate on next channel creation)
+   - Disk space below the configured threshold (default 2 GiB free required in the storage partition)
+2. **`consecutive_failures > 0`** — the watchdog is still trying but has hit transient errors. Inspect logs since `last_extension_at` for the underlying cause (disk space, ShowScheduler errors, mapping data missing). Each retry happens 5 minutes after the prior failure.
+3. **Force a re-arm** — recreate the channel via Page 6 (POST /channels overwrites the existing channel and respawns a fresh LineupExtender with `enabled=true` and zero failures).
+
+### ComBreakDirect Server Crashes on Startup with `FileNotFoundError` in `_load_existing_breaks`
+**Problem**: `run_server.py` exits during boot with a traceback from `CommercialBreakRenderer._load_existing_breaks`, complaining about a missing `_seg_*.mkv` file. Absolution's thread fallback then takes over and writes to a different storage path, causing apparent "channel disappeared" symptoms.
+
+**Cause**: A stale temp segment file in `_pre_rendered_breaks/` got cleaned up between `listdir()` and `stat()`. Hardened in `CommercialBreakRenderer.py` to skip vanished files instead of crashing, but you can also clean up manually.
+
+**Solutions**:
+1. **Stop the container**, then `find _pre_rendered_breaks -name '*_seg_*.mkv' -delete` (or `rm -rf _pre_rendered_breaks` for a full reset — the renderer will repopulate it from the lineup).
+2. **Restart**. The subprocess will scan the (now clean) directory and start cleanly.
+3. **Check for two ComBreakDirect instances**: in Docker, `start.sh` launches `run_server.py` as a subprocess; Absolution will only spawn its own thread fallback if the subprocess port (8083) isn't responding. If you see both `python3 run_server.py` AND `python3 main.py --webui` AND the thread fallback was triggered, the subprocess died and you have a path mismatch (subprocess uses `/app/combreak_direct_data/`, thread fallback uses `/app/working/combreak_direct/`).
 
 ---
 
@@ -524,8 +535,8 @@ CommercialBreaker includes smart connection retry logic that handles most timeou
 - **Version Check**: Ensure compatible platform version
 - **Network Access**: Verify platform server is reachable
 
-### "Cutless mode requires DizqueTV fork"
-- **Use Our Fork**: Install [theweebcoders/dizquetv](https://github.com/theweebcoders/dizquetv)
+### "Cutless mode requires DizqueTV 1.7+"
+- **Use DizqueTV 1.7+**: Update your DizqueTV server to a compatible version
 - **Or Use Traditional**: Disable Cutless Mode for standard cutting
 
 ---

@@ -319,20 +319,23 @@ The ComBreakDirect stack uses **Studio → FIFO → Broadcast FFmpeg → Broadca
 ### Channel Ingestion Pipeline (Loading Dock → Factory Floor → Streaming)
 
 1. **`POST /channels`** (Flask handler in `ComBreakDirectServer.py`)
-   - Validates payload, extracts metadata (`channel_number`, `flex_duration`, optional `commercial_folder`).
+   - Validates payload, extracts metadata (`channel_number`, `flex_duration`, optional `commercial_folder`, optional `infinite` + `infinite_meta`).
    - Hands off to `LoadingDock.process_lineup`.
 2. **`LoadingDock.process_lineup`**
    - Caches the current commercial folder; swaps libraries if a payload override is provided.
    - `_inject_commercials` looks for consecutive bump items (based on network name or `/bump/` path) and reserves pre-rendered breaks via `CommercialBreakRenderer.plan_break`.
    - `_prime_initial_breaks` calls `CommercialBreakRenderer.pre_render_window` to warm the cache for the first hour of upcoming breaks.
-   - `_format_for_streaming` normalises timelines, assigns fallback `block_id`s, and emits a channel dictionary with ISO timestamps.
+   - `_format_for_streaming` normalises timelines, assigns fallback `block_id`s, and emits a channel dictionary with ISO timestamps. The inner program-builder is extracted as `_format_programs(lineup_data, anchor_time)` so extension chunks can reuse it.
+   - When the payload has `infinite: true`, LoadingDock stashes a fully populated `channel_data['_infinite_meta']` block before handing to FactoryFloor.
 3. **`FactoryFloor.store_channel`**
    - Writes the channel into `channels.json` (under `CBDIRECT_DATA_ROOT`), guarded by a threading lock.
    - Successive `GET /playlist.m3u8` and `GET /api/xmltv.xml` calls read the cached data via `generate_playlist` / `generate_xmltv`.
+   - Calls `_maybe_spawn_extender(channel_data)` so infinite channels get their `LineupExtender` armed immediately.
 4. **Break Rendering (`utilities/CommercialBreakRenderer.py`)**
    - `plan_break` reserves `_pre_rendered_breaks/<break_id>.ts`.
    - `get_or_build_break` renders with ffmpeg, selecting audio tracks through `AudioTrackSelector`.
    - `start_background_renderer` (invoked at server start if channels already exist) keeps the cache warm by scanning active channels.
+   - `_load_existing_breaks` hardened to skip files that vanish between `listdir()` and `stat()` (race condition with `CleanupManager`/concurrent renders that previously crashed the subprocess on boot).
 5. **Serving clients**
    - Plex/Jellyfin hit `/video/channel/{N}` which connects an Antenna to the BroadcastTower
    - Flask generator iterates Antenna chunks and yields to client
@@ -340,12 +343,42 @@ The ComBreakDirect stack uses **Studio → FIFO → Broadcast FFmpeg → Broadca
    - Broadcast FFmpeg reads FIFO, creates continuous stream, broadcasts to tower
    - BroadcastTower distributes to all Antennas simultaneously
 
+#### Infinite Channel Extension Pattern
+
+For any channel with `_infinite_meta.enabled=True`, a `LineupExtender` (in `docks/LineupExtender.py`) runs alongside it:
+
+1. `FactoryFloor._maybe_spawn_extender(channel_data)` constructs a `LineupExtender(self, channel_number)` at `store_channel` time and again for each loaded channel during `_load_channels` startup. The extender is keyed in `FactoryFloor._extenders` to prevent double-spawn.
+2. `LineupExtender.start()` calls `_schedule_next()`, which arms a `threading.Timer(delay, self._on_timer_fire)` where `delay = max(0, (channel_end_iso - now_utc).total_seconds() - lead_s)`. Channels shorter than the lead window (or already past their end) fire immediately.
+3. When the timer fires:
+   - Race-check the channel still exists; cancel if not.
+   - Bail if `_infinite_meta.enabled` was flipped off externally, or if `consecutive_failures` has hit `MAX_CONSECUTIVE_FAILURES` (3).
+   - Disk-space gate: skip with retry if `< INFINITE_MIN_FREE_DISK_BYTES` free in the storage partition.
+   - Call `_build_extension(channel_data, meta)`, which delegates to `ToonamiTools.InfiniteChannelExtender.generate_chunk(channel_number, meta)`:
+     - `ShowScheduler(continue_from_last_used_episode_block=True)` runs against a new per-extension table named `{merger_out}_inf_ch{channel}_ext{seq}`.
+     - `CutlessFinalizer.run_for_table(input, output_cutless)` produces the cutless companion.
+     - Returns `(rows, output_table)` for the caller.
+   - `loading_dock.format_extension(rows, channel_data)` formats the new programs with `anchor_time = channel_data['programs'][-1]['stop']` so timestamps stay contiguous.
+   - `factory_floor.extend_channel(channel_number, new_programs)` appends (under the factory lock), bumps `extension_seq`, persists `channels.json`.
+   - `_schedule_next()` recomputes the new channel-end and arms a fresh timer.
+
+**Append-only invariant**: never replace `channel_data['programs']` with a new list. The Studio thread reads `programs[current_index % len(programs)]` continuously; appending is safe under the GIL, replacing would break the live read. `FactoryFloor.extend_channel` uses `programs.extend()` deliberately.
+
+**Lazy LoadingDock lookup**: `LineupExtender` holds the FactoryFloor reference and accesses `factory_floor.loading_dock` via a `@property` on demand. Constructed with `LoadingDock` directly would AttributeError on watchdog respawn during `_load_channels`, because at that exact moment `LoadingDock.__init__` is still mid-assignment of `self.factory_floor = FactoryFloor(...)`.
+
+**Failure handling**: recoverable failures (transient disk pressure, single build error) bump `_infinite_meta.consecutive_failures` and retry in `RETRY_AFTER_FAILURE_MS` (5 min). Three failures in a row trigger `_disable(channel_data, reason)` which sets `_infinite_meta.enabled=False`, persists, surfaces via `ErrorManager`, and cancels the watchdog. The Studio's modulo loop keeps playing existing programs so the channel doesn't die — it just stops growing.
+
+**Wall-clock not playback**: the trigger condition is `(last_program.stop - now_utc) < lead_ms`. Studio's `current_index` (only updated while a client is connected) is deliberately NOT consulted. This is what makes channels keep growing while idle.
+
 #### Debugging Tips
 
 - **Studio Thread**: Look for `[STUDIO]` prefix in logs - shows program transitions, FIFO writes, BrokenPipeError on disconnect
 - **Broadcast FFmpeg**: Look for `[BROADCAST_FFMPEG]` prefix - shows startup, broadcasting, stop on no clients
 - **BroadcastTower**: Look for `[BROADCAST_TOWER]` prefix - shows antenna connections/disconnections, active count
 - **Antenna**: Look for `[ANTENNA]` prefix - shows chunks received, "lost signal" when buffer overflows
+- **LineupExtender**: Look for `[LINEUP_EXTENDER]` prefix - shows timer scheduling (`next extension in X.X min`), watchdog spawn, extension success (`appended N programs`), and any retries/disables
+- **FactoryFloor extension**: Look for `[FACTORY_FLOOR] Armed LineupExtender for channel N` and `[FACTORY_FLOOR] Extended channel N by M programs`
+- **Cursor inspection**: `sqlite3 Toonami.db 'SELECT * FROM last_used_episode_block'` shows per-show BLOCK_ID cursors. After the first extension fires this table should be populated.
+- **Per-extension tables**: extension chunks live at `lineup_v{N}_cont_inf_ch{ch}_ext{seq}` and `lineup_v{N}_cont_inf_ch{ch}_ext{seq}_cutless`. List them with `SELECT name FROM sqlite_master WHERE name LIKE 'lineup_v%_inf_ch%'`.
 - **FIFO Issues**: Check `/tmp/studio_ch{N}.fifo` exists when streaming, verify both studio and broadcast FFmpeg running
 - **Transition Freezing**: Ensure broadcast FFmpeg has `+genpts` flag - critical for continuous stream
 - When editing the streaming stack, rebuild/restart the Docker container so the running server picks up changes:

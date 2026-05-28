@@ -596,6 +596,8 @@ class TestSaraAutomatic:
 
         # Validate bump placement rules for all lineup tables
         for table_name in all_lineup_tables:
+            if '_filtered' in table_name:
+                continue  # EpisodeFilter drops Code and BLOCK_ID columns by design
             with sqlite3.connect(db_path) as conn:
                 cursor = conn.cursor()
                 try:
@@ -805,6 +807,23 @@ class TestSaraAutomatic:
         if issues:
             for issue in issues[:10]:
                 self._log_progress(f"Validator issue: [{issue.get('level')}] {issue.get('message')} - {issue.get('details')}")
+
+        # Fail the test on validator-reported CRITICAL/ERROR issues. The
+        # earlier Error Validation step asserts on ErrorManager messages
+        # broadcast DURING the workflow, but the post-workflow validator
+        # runs AFTER that — without this assertion, validator findings get
+        # logged but never block the test, leaving the strictest validation
+        # surface without enforcement teeth.
+        critical_validator_issues = [i for i in issues if i.get('level') == 'CRITICAL']
+        error_validator_issues = [i for i in issues if i.get('level') == 'ERROR']
+        assert not critical_validator_issues, (
+            f"Validator reported {len(critical_validator_issues)} CRITICAL issue(s): "
+            f"{[i.get('message') for i in critical_validator_issues]}"
+        )
+        assert not error_validator_issues, (
+            f"Validator reported {len(error_validator_issues)} ERROR issue(s): "
+            f"{[i.get('message') for i in error_validator_issues]}"
+        )
 
         # Clean up mocks
         self._cleanup_mocks()

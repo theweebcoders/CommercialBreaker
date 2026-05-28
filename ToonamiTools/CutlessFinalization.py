@@ -312,11 +312,191 @@ class CutlessFinalizer:
 
         return False
 
+    def _finalize_one_table(self, input_table, output_table, mapping_dict, bump_duration_dict, *, operation_label="run"):
+        """Finalize a single lineup table given preloaded mapping and bump-duration dicts.
+
+        Returns True if the cutless output table was written, False if the table
+        was skipped (e.g., missing column, validation failure) or an exception
+        was caught. Exceptions are reported via the ErrorManager and swallowed
+        so that batch callers can continue to the next table.
+        """
+        try:
+            # Read data from original lineup table
+            with self.db_manager.transaction() as conn:
+                cursor = conn.execute(f"SELECT * FROM {input_table}")
+                columns = [desc[0] for desc in cursor.description]
+                lineup_data = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+            # Check if FULL_FILE_PATH column exists
+            if len(lineup_data) > 0 and 'FULL_FILE_PATH' not in lineup_data[0]:
+                self.error_manager.send_warning(
+                    source="CutlessFinalizer",
+                    operation=operation_label,
+                    message=f"Skipping table {input_table}",
+                    details="Table missing required 'FULL_FILE_PATH' column",
+                    suggestion="This table doesn't appear to be a valid lineup table"
+                )
+                return False
+
+            # Remove any existing timestamp and duration columns before merging to avoid conflicts
+            for row in lineup_data:
+                row.pop('startTime', None)
+                row.pop('endTime', None)
+                row.pop('duration', None)
+
+            # Manual left join: merge lineup data with mapping data
+            # Keep all lineup entries, even if mapping is missing
+            mapped_count = 0
+            has_duration_in_mapping = any('duration' in mapping_dict.get(k, {}) for k in mapping_dict)
+
+            for row in lineup_data:
+                file_path = row.get('FULL_FILE_PATH')
+
+                # Look up mapping data
+                mapping_row = mapping_dict.get(file_path)
+                if mapping_row:
+                    mapped_count += 1
+                    # Add mapping data (ORIGINAL_FILE_PATH, startTime, endTime, duration if present)
+                    row['ORIGINAL_FILE_PATH'] = mapping_row.get('ORIGINAL_FILE_PATH')
+                    row['startTime'] = mapping_row.get('startTime')
+                    row['endTime'] = mapping_row.get('endTime')
+                    if 'duration' in mapping_row:
+                        row['duration'] = mapping_row.get('duration')
+                else:
+                    row['ORIGINAL_FILE_PATH'] = None
+                    row['startTime'] = None
+                    row['endTime'] = None
+                    if has_duration_in_mapping:
+                        row['duration'] = None
+
+                # Look up bump duration
+                bump_duration = bump_duration_dict.get(file_path)
+                if bump_duration is not None:
+                    # Fill duration if not already set
+                    if row.get('duration') is None:
+                        row['duration'] = bump_duration
+
+            print(f"Found {mapped_count} out of {len(lineup_data)} rows with mappings")
+
+            # Update FULL_FILE_PATH with ORIGINAL_FILE_PATH where mapping exists
+            for row in lineup_data:
+                if row.get('ORIGINAL_FILE_PATH') is not None:
+                    row['FULL_FILE_PATH'] = row['ORIGINAL_FILE_PATH']
+
+            # Drop the ORIGINAL_FILE_PATH column which we no longer need
+            for row in lineup_data:
+                row.pop('ORIGINAL_FILE_PATH', None)
+
+            # Validate durations
+            if not self._validate_durations(lineup_data, output_table):
+                print(f"Skipping table {input_table} due to missing durations.")
+                return False
+
+            # Convert timestamp columns to integers
+            for row in lineup_data:
+                for col in ['startTime', 'endTime', 'duration']:
+                    if col in row and row[col] is not None:
+                        try:
+                            row[col] = int(float(row[col]))
+                        except (ValueError, TypeError):
+                            row[col] = None
+
+            # Warn if any lineup entries still lack duration after processing
+            missing_duration_count = sum(1 for row in lineup_data if row.get('duration') is None)
+            if missing_duration_count > 0:
+                self.error_manager.send_warning(
+                    source="CutlessFinalizer",
+                    operation=operation_label,
+                    message=f"{missing_duration_count} lineup entries missing duration after finalization",
+                    details=f"Table '{output_table}' still has rows without duration",
+                    suggestion="Confirm mapping data includes durations or update assets manually"
+                )
+
+            # Write the result to the output table
+            with self.db_manager.transaction() as conn:
+                conn.execute(f"DROP TABLE IF EXISTS {output_table}")
+
+                if lineup_data:
+                    # Preserve original column order, append new columns at the end
+                    all_columns = list(columns)  # Start with original order from SELECT
+                    for row in lineup_data:
+                        for col in row.keys():
+                            if col not in all_columns:
+                                all_columns.append(col)  # Add new columns at end
+
+                    column_names = ','.join([f'"{col}"' for col in all_columns])
+                    placeholders = ','.join(['?' for _ in all_columns])
+                    conn.execute(f"CREATE TABLE {output_table} ({column_names})")
+                    conn.executemany(
+                        f"INSERT INTO {output_table} VALUES ({placeholders})",
+                        [tuple(row.get(col) for col in all_columns) for row in lineup_data]
+                    )
+
+            print(f"Successfully created table: {output_table}")
+            return True
+
+        except Exception as e:
+            self.error_manager.send_error_level(
+                source="CutlessFinalizer",
+                operation=operation_label,
+                message=f"Failed to process table {input_table}",
+                details=str(e),
+                suggestion="This table will be skipped. Check if the table structure is valid"
+            )
+            return False
+
+    def run_for_table(self, input_table, output_table):
+        """Finalize a single lineup table to a specified cutless output table.
+
+        Used by the infinite-channel extender to finalize one extension chunk
+        without touching the rest of the project's lineup tables. Returns True
+        on success, False on skip/failure.
+        """
+        if not config.cutless_mode:
+            self.error_manager.send_info(
+                source="CutlessFinalizer",
+                operation="run_for_table",
+                message="Cutless Mode is not enabled",
+                details="CutlessFinalizer only runs when Cutless Mode is active",
+                suggestion="Enable cutless mode before invoking run_for_table"
+            )
+            return False
+
+        if not self.db_manager.table_exists(input_table):
+            self.error_manager.send_error_level(
+                source="CutlessFinalizer",
+                operation="run_for_table",
+                message=f"Input lineup table '{input_table}' not found",
+                details="The requested input table does not exist in the database",
+                suggestion="Ensure ShowScheduler ran successfully before invoking the finalizer"
+            )
+            return False
+
+        mapping_dict = self._get_cutless_mapping()
+        if mapping_dict is None:
+            return False
+
+        bump_duration_dict = self._get_bump_durations()
+        if len(bump_duration_dict) == 0:
+            self.error_manager.send_error_level(
+                source="CutlessFinalizer",
+                operation="run_for_table",
+                message="Bump durations unavailable",
+                details="The bump_durations table is missing or empty",
+                suggestion="Run Prepare Cut Anime to populate bump durations before finalizing"
+            )
+            return False
+
+        return self._finalize_one_table(
+            input_table, output_table, mapping_dict, bump_duration_dict,
+            operation_label="run_for_table",
+        )
+
     def run(self):
         """Process all lineup tables to replace virtual paths with original paths and timestamps.
         Creates new tables with '_cutless' suffix instead of modifying original tables."""
         print("Starting Cutless Finalization process...")
-        
+
         # Check if we're actually in cutless mode
         if not config.cutless_mode:
             self.error_manager.send_info(
@@ -327,8 +507,8 @@ class CutlessFinalizer:
                 suggestion="This step will be skipped as it's not needed for traditional cut mode"
             )
             return
-            
-        try:            
+
+        try:
             mapping_dict = self._get_cutless_mapping()
             if mapping_dict is None:
                 print("Aborting finalization due to missing or invalid mapping data.")
@@ -346,8 +526,6 @@ class CutlessFinalizer:
                 print("Aborting finalization because bump durations were not found.")
                 return
 
-            # bump_duration_dict is already keyed by FULL_FILE_PATH with duration values
-
             lineup_tables = self._get_lineup_tables()
             if not lineup_tables:
                 print("No lineup tables found to process.")
@@ -356,133 +534,12 @@ class CutlessFinalizer:
             successful_tables = 0
             for table_name in lineup_tables:
                 print(f"Processing lineup table: {table_name}...")
-                try:
-                    # Define the cutless output table name
-                    cutless_table_name = f"{table_name}_cutless"
-                    
-                    # Read data from original lineup table
-                    with self.db_manager.transaction() as conn:
-                        cursor = conn.execute(f"SELECT * FROM {table_name}")
-                        columns = [desc[0] for desc in cursor.description]
-                        lineup_data = [dict(zip(columns, row)) for row in cursor.fetchall()]
-
-                    # Check if FULL_FILE_PATH column exists
-                    if len(lineup_data) > 0 and 'FULL_FILE_PATH' not in lineup_data[0]:
-                        self.error_manager.send_warning(
-                            source="CutlessFinalizer",
-                            operation="run",
-                            message=f"Skipping table {table_name}",
-                            details="Table missing required 'FULL_FILE_PATH' column",
-                            suggestion="This table doesn't appear to be a valid lineup table"
-                        )
-                        continue
-
-                    # Remove any existing timestamp and duration columns before merging to avoid conflicts
-                    for row in lineup_data:
-                        row.pop('startTime', None)
-                        row.pop('endTime', None)
-                        row.pop('duration', None)
-
-                    # Manual left join: merge lineup data with mapping data
-                    # Keep all lineup entries, even if mapping is missing
-                    mapped_count = 0
-                    has_duration_in_mapping = any('duration' in mapping_dict.get(k, {}) for k in mapping_dict)
-
-                    for row in lineup_data:
-                        file_path = row.get('FULL_FILE_PATH')
-
-                        # Look up mapping data
-                        mapping_row = mapping_dict.get(file_path)
-                        if mapping_row:
-                            mapped_count += 1
-                            # Add mapping data (ORIGINAL_FILE_PATH, startTime, endTime, duration if present)
-                            row['ORIGINAL_FILE_PATH'] = mapping_row.get('ORIGINAL_FILE_PATH')
-                            row['startTime'] = mapping_row.get('startTime')
-                            row['endTime'] = mapping_row.get('endTime')
-                            if 'duration' in mapping_row:
-                                row['duration'] = mapping_row.get('duration')
-                        else:
-                            row['ORIGINAL_FILE_PATH'] = None
-                            row['startTime'] = None
-                            row['endTime'] = None
-                            if has_duration_in_mapping:
-                                row['duration'] = None
-
-                        # Look up bump duration
-                        bump_duration = bump_duration_dict.get(file_path)
-                        if bump_duration is not None:
-                            # Fill duration if not already set
-                            if row.get('duration') is None:
-                                row['duration'] = bump_duration
-
-                    print(f"Found {mapped_count} out of {len(lineup_data)} rows with mappings")
-
-                    # Update FULL_FILE_PATH with ORIGINAL_FILE_PATH where mapping exists
-                    for row in lineup_data:
-                        if row.get('ORIGINAL_FILE_PATH') is not None:
-                            row['FULL_FILE_PATH'] = row['ORIGINAL_FILE_PATH']
-
-                    # Drop the ORIGINAL_FILE_PATH column which we no longer need
-                    for row in lineup_data:
-                        row.pop('ORIGINAL_FILE_PATH', None)
-
-                    # Validate durations
-                    if not self._validate_durations(lineup_data, cutless_table_name):
-                        print(f"Skipping table {table_name} due to missing durations.")
-                        continue
-
-                    # Convert timestamp columns to integers
-                    for row in lineup_data:
-                        for col in ['startTime', 'endTime', 'duration']:
-                            if col in row and row[col] is not None:
-                                try:
-                                    row[col] = int(float(row[col]))
-                                except (ValueError, TypeError):
-                                    row[col] = None
-
-                    # Warn if any lineup entries still lack duration after processing
-                    missing_duration_count = sum(1 for row in lineup_data if row.get('duration') is None)
-                    if missing_duration_count > 0:
-                        self.error_manager.send_warning(
-                            source="CutlessFinalizer",
-                            operation="run",
-                            message=f"{missing_duration_count} lineup entries missing duration after finalization",
-                            details=f"Table '{cutless_table_name}' still has rows without duration",
-                            suggestion="Confirm mapping data includes durations or update assets manually"
-                        )
-
-                    # Write the result to a new table with _cutless suffix
-                    with self.db_manager.transaction() as conn:
-                        conn.execute(f"DROP TABLE IF EXISTS {cutless_table_name}")
-
-                        if lineup_data:
-                            # Preserve original column order, append new columns at the end
-                            all_columns = list(columns)  # Start with original order from SELECT
-                            for row in lineup_data:
-                                for col in row.keys():
-                                    if col not in all_columns:
-                                        all_columns.append(col)  # Add new columns at end
-
-                            column_names = ','.join([f'"{col}"' for col in all_columns])
-                            placeholders = ','.join(['?' for _ in all_columns])
-                            conn.execute(f"CREATE TABLE {cutless_table_name} ({column_names})")
-                            conn.executemany(
-                                f"INSERT INTO {cutless_table_name} VALUES ({placeholders})",
-                                [tuple(row.get(col) for col in all_columns) for row in lineup_data]
-                            )
-
-                    print(f"Successfully created table: {cutless_table_name}")
+                cutless_table_name = f"{table_name}_cutless"
+                if self._finalize_one_table(
+                    table_name, cutless_table_name, mapping_dict, bump_duration_dict,
+                    operation_label="run",
+                ):
                     successful_tables += 1
-
-                except Exception as e:
-                    self.error_manager.send_error_level(
-                        source="CutlessFinalizer",
-                        operation="run",
-                        message=f"Failed to process table {table_name}",
-                        details=str(e),
-                        suggestion="This table will be skipped. Check if the table structure is valid"
-                    )
-                    # Continue to the next table
 
             if successful_tables == 0 and len(lineup_tables) > 0:
                 self.error_manager.send_error_level(

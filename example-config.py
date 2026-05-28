@@ -38,6 +38,15 @@ CBDIRECT_BASE_URL = os.environ.get("CBDIRECT_BASE_URL", f"http://127.0.0.1:{CBDI
 CBDIRECT_DATA_ROOT = os.environ.get("CBDIRECT_DATA_ROOT") or os.path.join(os.path.dirname(__file__), "combreak_direct_data")
 CBDIRECT_STORAGE_PATH = os.environ.get("CBDIRECT_STORAGE_PATH") or os.path.join(CBDIRECT_DATA_ROOT, "channels.json")
 
+# Infinite-channel LineupExtender tuning.
+# The extender arms a one-shot ``threading.Timer`` per channel that fires
+# ``INFINITE_EXTEND_LEAD_MS`` before the last program's stop time. Default
+# 3 hours of lead — enough headroom for ShowScheduler + CutlessFinalizer +
+# pre-rendering to finish before a viewer would actually hit the seam, with
+# room for a retry on transient failure. Channels shorter than the lead
+# window fire immediately.
+INFINITE_EXTEND_LEAD_MS = int(os.environ.get("INFINITE_EXTEND_LEAD_MS", str(3 * 60 * 60 * 1000)))
+
 DATABASE_DIR = os.environ.get("DB_DIR") or os.path.dirname(__file__)
 DATABASE_PATH = os.environ.get("DB_PATH") or os.path.join(DATABASE_DIR, f'{network}.db')
 if not os.path.exists(DATABASE_DIR):

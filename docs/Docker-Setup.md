@@ -45,12 +45,14 @@ COMMERCIAL_FOLDER=/path/to/your/commercials  # For ComBreakDirect pre-rendered b
 
 # Optional database configuration
 DB_FOLDER_PATH=/path/to/your/database        # For database persistence across container restarts
-DB_PATH=/app/database/Toonami.db              # Internal database path (usually don't need to change)
+DB_DIR=/data                                 # Internal database directory
+DB_PATH=/data/Toonami.db                      # Internal database path (usually don't need to change)
 ```
 
 **Database Configuration**:
 - `DB_FOLDER_PATH`: Recommended for database persistence across container restarts
-- `DB_PATH`: Internal database path (defaults to `/app/database/Toonami.db`)
+- `DB_DIR`: Internal database directory (defaults to `/data`)
+- `DB_PATH`: Internal database path (defaults to `/data/Toonami.db`)
 - `_pre_rendered_breaks` folder: Auto-created for ComBreakDirect, prevents startup race conditions
 
 ### Path Requirements
@@ -94,7 +96,7 @@ services:
       - "${SPECIAL_BUMPS_FOLDER}:/app/special_bump"
       - "${WORKING_FOLDER}:/app/working"
       - "${COMMERCIAL_FOLDER}:/app/commercials"  # Pre-rendered commercial breaks
-      - "./data:/app/data"           # Database persistence
+      - "./data:/data"               # Database persistence
       - "./logs:/app/logs"           # Log persistence
     environment:
       - ANIME_FOLDER=/app/anime
@@ -102,7 +104,8 @@ services:
       - SPECIAL_BUMPS_FOLDER=/app/special_bump
       - WORKING_FOLDER=/app/working
       - COMMERCIAL_FOLDER=/app/commercials
-      - DATABASE_PATH=/app/data/Toonami.db
+      - DB_DIR=/data
+      - DB_PATH=/data/Toonami.db
       - LOG_LEVEL=INFO
       - CBDIRECT_HOST=0.0.0.0       # ComBreakDirect bind address
       - CBDIRECT_PORT=8083          # ComBreakDirect port
@@ -115,7 +118,7 @@ services:
 
   # Optional: Include DizqueTV
   dizquetv:
-    image: vexorian/dizquetv:latest
+    image: vexorian/dizquetv:latest  # Use DizqueTV 1.7+
     container_name: dizquetv
     ports:
       - "8000:8000"
@@ -228,6 +231,44 @@ volumes:
   - "./data:/app/data"                  # Database and configuration
   - "./logs:/app/logs"                  # Application logs
   - "./cache:/app/cache"                # API response cache
+```
+
+### ComBreakDirect Channel Persistence
+
+ComBreakDirect's channel state lives in `channels.json`. The path depends on which process is hosting CBD in your container:
+
+- **`run_server.py` subprocess** (launched by `start.sh` — the canonical Docker CBD instance): writes to `/app/combreak_direct_data/channels.json` because it doesn't pass `--docker` in `sys.argv`. This path is in the **container's writable layer**, NOT a bind-mounted volume, so a `docker compose down` + `up` cycle wipes it.
+- **Absolution thread fallback** (`_ensure_combreakdirect_server` inside `main.py --webui --docker`): writes to `/app/working/combreak_direct/channels.json`, which IS bind-mounted via `${WORKING_FOLDER}:/app/working` and survives container recreate.
+
+Because ComBreakDirect channels are infinite by default — the `LineupExtender` watchdog keeps them growing forever — losing `channels.json` means losing the entire built-up infinite lineup (potentially weeks or months of accumulated extension history). If you plan to do `docker compose down` for any reason, **back up `channels.json` first**:
+
+```bash
+docker exec commercialbreaker cp /app/combreak_direct_data/channels.json /app/working/channels-backup.json
+# Or via the bind-mounted working folder:
+cp "${WORKING_FOLDER}/channels-backup.json" /some/safe/place/
+```
+
+The cleaner long-term fix is to add an explicit bind mount for `/app/combreak_direct_data` in your compose so the subprocess's storage is also persisted:
+
+```yaml
+volumes:
+  - "./cbdirect_state:/app/combreak_direct_data"  # Persist subprocess channels.json
+```
+
+### Infinite Channel Background Activity
+
+Each ComBreakDirect channel spawns a `LineupExtender` watchdog that arms a `threading.Timer` to fire `INFINITE_EXTEND_LEAD_MS` (default 3 hours) before the channel's last program ends. The timer runs inside the same CBD process — no extra containers, no extra ports, no extra mounts required. When it fires it runs `ShowScheduler` + `CutlessFinalizer` against the existing source database (`Toonami.db`) and appends the new chunk to `channels.json`.
+
+This means:
+- The watchdog needs Toonami.db to be the SAME database it was built against — don't blow away `Toonami.db` between sessions unless you also want to lose the cursor state.
+- The watchdog needs the source media (mounted under `/app/anime`, `/app/bump`, etc.) to still be available — if you unmount or remove episodes from your media library, future extensions will be smaller or fail.
+- The watchdog fires whether or not a client is currently streaming. Even with no Plex client connected, the channel grows on wall-clock time.
+
+Override the lead time via env if you want a different runway buffer:
+
+```yaml
+environment:
+  - INFINITE_EXTEND_LEAD_MS=21600000  # 6 hours, in ms
 ```
 
 ---

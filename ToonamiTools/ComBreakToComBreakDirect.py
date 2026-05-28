@@ -9,6 +9,48 @@ import config
 from API.utils.DatabaseManager import get_db_manager
 from API.utils.ErrorManager import get_error_manager
 from API.utils.NetworkUtils import CurlHttpClient, RequestException
+from .utils import show_name_mapper
+
+
+def load_lineup_rows(table: str, db_manager=None) -> list[dict]:
+    """Load and normalize lineup rows from a SQLite lineup table.
+
+    Shared by ComBreakToComBreakDirect (initial channel creation) and the
+    infinite-channel extender (each extension chunk lives in its own table).
+    """
+    if not table:
+        raise RuntimeError("No table specified for lineup loading")
+
+    if db_manager is None:
+        db_manager = get_db_manager()
+
+    if not db_manager.table_exists(table):
+        raise RuntimeError(f"Lineup table '{table}' not found")
+
+    query = f"SELECT * FROM {table} ORDER BY rowid"
+    rows = db_manager.fetchall(query)
+
+    lineup: list[dict] = []
+    for index, row in enumerate(rows):
+        if index and index % 500 == 0:
+            print(f"[ComBreakDirect] Processed {index}/{len(rows)} lineup items")
+
+        # Provide safe access to potential column name variants
+        row_dict = {key.lower(): row[key] for key in row.keys()}
+
+        lineup.append(
+            {
+                "block_id": row_dict.get("block_id"),
+                "file_path": row_dict.get("full_file_path") or row_dict.get("file_path"),
+                "code": row_dict.get("code"),
+                "start_time": row_dict.get("starttime"),
+                "end_time": row_dict.get("endtime"),
+                "duration": row_dict.get("duration"),
+            }
+        )
+
+    print(f"[ComBreakDirect] Loaded {len(lineup)} lineup items from {table}")
+    return lineup
 
 
 class ComBreakToComBreakDirect:
@@ -24,6 +66,8 @@ class ComBreakToComBreakDirect:
         base_url: str | None = None,
         create_channel: bool = True,
         commercial_folder: str | None = None,
+        infinite: bool = False,
+        infinite_meta: dict | None = None,
     ) -> None:
         self.error_manager = get_error_manager()
         self.db_manager = get_db_manager()
@@ -33,6 +77,8 @@ class ComBreakToComBreakDirect:
         self.network = network or config.network
         self.create_channel = create_channel
         self.commercial_folder = commercial_folder
+        self.infinite = infinite
+        self.infinite_meta = infinite_meta or {}
 
         if self.create_channel:
             if not self.table:
@@ -62,6 +108,9 @@ class ComBreakToComBreakDirect:
                 lineup = self._load_lineup()
                 if not lineup:
                     raise RuntimeError("No lineup data available")
+
+                if self.infinite:
+                    self._seed_episode_cursor(lineup)
 
                 self._push_lineup(lineup)
             else:
@@ -95,36 +144,80 @@ class ComBreakToComBreakDirect:
         return False
 
     def _load_lineup(self) -> list[dict]:
-        if not self.table:
-            raise RuntimeError("No table specified for lineup loading")
+        return load_lineup_rows(self.table, self.db_manager)
 
-        if not self.db_manager.table_exists(self.table):
-            raise RuntimeError(f"Lineup table '{self.table}' not found")
+    def _seed_episode_cursor(self, lineup: list[dict]) -> None:
+        """Pre-populate ``last_used_episode_block`` from the initial channel's
+        BLOCK_IDs so the very first infinite extension picks up where the
+        channel's existing content left off, instead of starting each show
+        from scratch.
 
-        query = f"SELECT * FROM {self.table} ORDER BY rowid"
-        rows = self.db_manager.fetchall(query)
+        Without this, the first extension's ShowScheduler call sees an empty
+        cursor and selects the first available block per show — which can
+        replay episodes the user already watched in the original chunk, or
+        jump to an arbitrary unrelated episode (whichever happens to be
+        index 0 in the show pool).
 
-        lineup: list[dict] = []
-        for index, row in enumerate(rows):
-            if index and index % 500 == 0:
-                print(f"[ComBreakDirect] Processed {index}/{len(rows)} lineup items")
-
-            # Provide safe access to potential column name variants
-            row_dict = {key.lower(): row[key] for key in row.keys()}
-
-            lineup.append(
-                {
-                    "block_id": row_dict.get("block_id"),
-                    "file_path": row_dict.get("full_file_path") or row_dict.get("file_path"),
-                    "code": row_dict.get("code"),
-                    "start_time": row_dict.get("starttime"),
-                    "end_time": row_dict.get("endtime"),
-                    "duration": row_dict.get("duration"),
-                }
+        Show keys must match ShowScheduler's internal format
+        (``show_name_mapper.clean(show_name_mapper.map(name), mode='matching')``)
+        or the cursor lookup will silently miss and fall through to the
+        "fresh start" path again.
+        """
+        cursor_from_lineup: dict[str, str] = {}
+        for row in lineup:
+            block_id = row.get("block_id")
+            if not block_id or "_S" not in block_id:
+                continue
+            # BLOCK_ID format is SHOW_NAME_PARTS_S##E## — strip the trailing
+            # _S##E## and turn the underscored show prefix into the spaced
+            # form that the show_name_mapper expects.
+            prefix = block_id.rsplit("_S", 1)[0]
+            raw_name = prefix.replace("_", " ")
+            show_key = show_name_mapper.clean(
+                show_name_mapper.map(raw_name, strategy="all"),
+                mode="matching",
             )
+            if not show_key:
+                continue
+            prior = cursor_from_lineup.get(show_key)
+            if prior is None or block_id > prior:
+                cursor_from_lineup[show_key] = block_id
 
-        print(f"[ComBreakDirect] Loaded {len(lineup)} lineup items from {self.table}")
-        return lineup
+        if not cursor_from_lineup:
+            print(
+                "[ComBreakDirect] No BLOCK_IDs in lineup; episode cursor not seeded"
+            )
+            return
+
+        # Merge with any pre-existing cursor data, always taking the larger
+        # BLOCK_ID per show. The cursor table is shared across every channel
+        # the user has ever created — never roll it backwards just because
+        # this channel happened to be built from an earlier slice of content.
+        merged: dict[str, str] = {}
+        if self.db_manager.table_exists("last_used_episode_block"):
+            for existing in self.db_manager.fetchall_as_dicts(
+                "SELECT * FROM last_used_episode_block"
+            ):
+                show = existing.get("show")
+                block = existing.get("last_used_block")
+                if show and block:
+                    merged[show] = block
+
+        for show_key, block_id in cursor_from_lineup.items():
+            prev = merged.get(show_key)
+            if prev is None or block_id > prev:
+                merged[show_key] = block_id
+
+        data = [
+            {"show": show, "last_used_block": block_id}
+            for show, block_id in merged.items()
+        ]
+        self.db_manager.replace_table_data("last_used_episode_block", data)
+        print(
+            f"[ComBreakDirect] Seeded last_used_episode_block from initial "
+            f"lineup: {len(cursor_from_lineup)} shows derived "
+            f"({len(merged)} total now in cursor table)"
+        )
 
     def _push_lineup(self, lineup: list[dict]) -> None:
         payload = {
@@ -136,6 +229,10 @@ class ComBreakToComBreakDirect:
 
         if self.commercial_folder:
             payload["commercial_folder"] = self.commercial_folder
+
+        if self.infinite:
+            payload["infinite"] = True
+            payload["infinite_meta"] = self.infinite_meta
 
         try:
             response = CurlHttpClient.post(

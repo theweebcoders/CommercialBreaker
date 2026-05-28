@@ -21,6 +21,8 @@ class LogicController():
     docker = FlagManager.docker
     cutless_in_args = FlagManager.cutless_in_args
     cutless = FlagManager.cutless
+    _operation_lock = threading.Lock()
+    _active_operations = 0
 
     def __init__(self):
         self.db_manager = get_db_manager()
@@ -55,7 +57,8 @@ class LogicController():
             'plex_auth_url': [],
             'cutless_state': [],
             'new_server_choices': [],
-            'new_library_choices': []
+            'new_library_choices': [],
+            'operation_state': []
         }
         
         self._start_message_handler_thread()
@@ -110,6 +113,10 @@ class LogicController():
         """Subscribe to new library choices. Callback receives (signal)"""
         self.subscribe_to_updates('new_library_choices', callback)
 
+    def subscribe_to_operation_state(self, callback: callable):
+        """Subscribe to operation state changes. Callback receives dict payload."""
+        self.subscribe_to_updates('operation_state', callback)
+
     def subscribe_to_updates(self, channel: str, callback: callable):
         """Simple subscription method for UIs"""
         if channel not in self._ui_callbacks:
@@ -117,6 +124,19 @@ class LogicController():
             print(f"Warning: Subscribing to a new, previously unknown channel: {channel}")
         if callback not in self._ui_callbacks[channel]: # Avoid duplicate subscriptions
             self._ui_callbacks[channel].append(callback)
+
+    def _set_operation_state(self, running: bool, operation: Optional[str] = None) -> None:
+        with LogicController._operation_lock:
+            if running:
+                LogicController._active_operations += 1
+            else:
+                LogicController._active_operations = max(0, LogicController._active_operations - 1)
+            payload = {
+                'running': LogicController._active_operations > 0,
+                'operation': operation,
+                'active_count': LogicController._active_operations,
+            }
+        self.message_broker.publish('operation_state', payload)
     
     def unsubscribe_from_updates(self, channel: str, callback: callable):
         """Simple unsubscription method"""
@@ -924,7 +944,15 @@ class LogicController():
         return True
 
     def on_continue_fourth(self):
-        self._broadcast_status_update("Idle")
+        def thread_body():
+            try:
+                self.reset_filter_event()
+                self.move_filtered(prepopulate=True)
+                self.filter_complete_event.wait()
+            finally:
+                self.filter_complete_event.set()
+                self._broadcast_status_update("Idle")
+        threading.Thread(target=thread_body).start()
 
     def on_continue_fifth(self):
         self._broadcast_status_update("Idle")
@@ -937,6 +965,7 @@ class LogicController():
 
     def prepare_content(self, display_show_selection):
         def prepare_content_thread():
+            self._set_operation_state(True, "prepare_content")
             try:
                 # Update the values based on the current state of the checkboxes
                 self._broadcast_status_update("Preparing bumps...")
@@ -1012,6 +1041,8 @@ class LogicController():
                 self._broadcast_status_update(error_msg)
                 print(f"Thread error in prepare_content: {e}")
                 traceback.print_exc()
+            finally:
+                self._set_operation_state(False, "prepare_content")
                 
         thread = threading.Thread(target=prepare_content_thread)
         thread.start()
@@ -1025,6 +1056,7 @@ class LogicController():
                                           If False (default), move files as before
         """
         def move_filtered_thread():
+            self._set_operation_state(True, "move_filtered")
             try:
                 import ToonamiTools
                 fmove = ToonamiTools.FilterAndMove()
@@ -1055,12 +1087,15 @@ class LogicController():
                 print(f"Thread error in move_filtered: {e}")
                 traceback.print_exc()
                 self.filter_complete_event.set()  # Still set event so callers don't hang
+            finally:
+                self._set_operation_state(False, "move_filtered")
             
         thread = threading.Thread(target=move_filtered_thread)
         thread.start()
 
     def get_plex_timestamps(self):
         def get_plex_timestamps_thread():
+            self._set_operation_state(True, "get_plex_timestamps")
             try:
                 self._broadcast_status_update("Getting Timestamps from Plex...")
                 working_folder = self._get_data("working_folder")
@@ -1078,12 +1113,15 @@ class LogicController():
                 print(f"Thread error in get_plex_timestamps: {e}")
                 
                 traceback.print_exc()
+            finally:
+                self._set_operation_state(False, "get_plex_timestamps")
 
         thread = threading.Thread(target=get_plex_timestamps_thread)
         thread.start()
 
     def prepare_cut_anime(self):
         def prepare_cut_anime_thread():
+            self._set_operation_state(True, "prepare_cut_anime")
             try:
                 working_folder = self._get_data("working_folder")
                 cutless_mode_used = self._get_data("cutless_mode_used")
@@ -1164,6 +1202,8 @@ class LogicController():
                 self._broadcast_status_update(error_msg)
                 print(f"Thread error in prepare_cut_anime: {e}")
                 traceback.print_exc()
+            finally:
+                self._set_operation_state(False, "prepare_cut_anime")
 
         thread = threading.Thread(target=prepare_cut_anime_thread)
         thread.start()
@@ -1175,6 +1215,7 @@ class LogicController():
 
     def create_prepare_plex(self):
         def prepare_plex_thread():
+            self._set_operation_state(True, "create_prepare_plex")
             try:
                 self._broadcast_status_update("Preparing Plex...")
                 plex_url_plex_splitter = self._get_data("plex_url")
@@ -1196,6 +1237,8 @@ class LogicController():
                 
                 traceback.print_exc()
                 self.filter_complete_event.set()  # Still set event so callers don't hang
+            finally:
+                self._set_operation_state(False, "create_prepare_plex")
                 
         thread = threading.Thread(target=prepare_plex_thread)
         thread.start()
@@ -1280,6 +1323,7 @@ class LogicController():
             return False
         
         def create_toonami_channel_thread():
+            self._set_operation_state(True, "create_toonami_channel")
             try:
                 self._broadcast_status_update("Creating Toonami channel...")
                 plex_url = self._get_data("plex_url")
@@ -1327,6 +1371,12 @@ class LogicController():
                         flex_duration=flex_duration,
                         network=config.network,
                         commercial_folder=commercial_folder,
+                        infinite=True,
+                        infinite_meta={
+                            'toonami_version': toonami_version,
+                            'cutless_enabled': cutless_enabled,
+                            'commercial_folder': commercial_folder,
+                        },
                     )
                     self._broadcast_status_update("Pre-rendering commercials...")
                     p2c.run()
@@ -1343,39 +1393,82 @@ class LogicController():
                 print(f"Thread error in create_toonami_channel: {e}")
                 traceback.print_exc()
                 self.filter_complete_event.set()  # Still set event so callers don't hang
+            finally:
+                self._set_operation_state(False, "create_toonami_channel")
 
         thread = threading.Thread(target=create_toonami_channel_thread)
         thread.start()
 
+    def _build_lineup_chunk(
+        self,
+        *,
+        bump_list_table,
+        encoder_table,
+        output_table,
+        uncut,
+        cutless_enabled,
+        continue_from_last,
+        finalize_all_lineup_tables=False,
+    ):
+        """Run ShowScheduler against the given input/output tables and optionally
+        finalize for cutless playback. Returns the final consumable table name
+        (the cutless variant if cutless_enabled, else output_table).
+
+        finalize_all_lineup_tables=True preserves the legacy prepare_toonami_channel
+        behavior of finalizing every lineup_v* table found in the database; the
+        infinite-channel extender passes False so each extension chunk's cutless
+        output is written without touching other tables.
+        """
+        merger = ToonamiTools.ShowScheduler(
+            reuse_episode_blocks=True,
+            continue_from_last_used_episode_block=continue_from_last,
+            uncut=uncut,
+        )
+        merger.run(bump_list_table, encoder_table, output_table)
+
+        if not cutless_enabled:
+            return output_table
+
+        finalizer = ToonamiTools.CutlessFinalizer()
+        if finalize_all_lineup_tables:
+            finalizer.run()
+        else:
+            finalizer.run_for_table(output_table, f"{output_table}_cutless")
+        return f"{output_table}_cutless"
+
     def prepare_toonami_channel(self, start_from_last_episode, toonami_version):
 
         def prepare_toonami_channel_thread():
+            self._set_operation_state(True, "prepare_toonami_channel")
             try:
 
                 self._broadcast_status_update("Preparing Toonami channel...")
                 cont_config = config.TOONAMI_CONFIG_CONT.get(toonami_version, {})
                 cutless_mode_used = self._get_data("cutless_mode_used")
                 cutless_enabled = cutless_mode_used == 'True'
-                merger_bump_list = cont_config["merger_bump_list"]
-                merger_out = cont_config["merger_out"]
-                encoder_in = cont_config["encoder_in"]
-                uncut = cont_config["uncut"]
-                
-                merger = ToonamiTools.ShowScheduler(reuse_episode_blocks=True, continue_from_last_used_episode_block=start_from_last_episode, uncut=uncut)
-                merger.run(merger_bump_list, encoder_in, merger_out)
-                if cutless_enabled:
-                    finalizer = ToonamiTools.CutlessFinalizer()
-                    finalizer.run()
+
+                self._build_lineup_chunk(
+                    bump_list_table=cont_config["merger_bump_list"],
+                    encoder_table=cont_config["encoder_in"],
+                    output_table=cont_config["merger_out"],
+                    uncut=cont_config["uncut"],
+                    cutless_enabled=cutless_enabled,
+                    continue_from_last=start_from_last_episode,
+                    finalize_all_lineup_tables=True,
+                )
+
                 self._broadcast_status_update("Toonami channel prepared!")
                 self.filter_complete_event.set()
-                
+
             except Exception as e:
                 error_msg = f"ERROR: Toonami channel preparation failed: {str(e)}"
                 self._broadcast_status_update(error_msg)
                 print(f"Thread error in prepare_toonami_channel: {e}")
                 traceback.print_exc()
                 self.filter_complete_event.set()  # Still set event so callers don't hang
-                
+            finally:
+                self._set_operation_state(False, "prepare_toonami_channel")
+
         thread = threading.Thread(target=prepare_toonami_channel_thread)
         thread.start()
 
@@ -1458,58 +1551,80 @@ class LogicController():
             )
             return False
             
-        self._broadcast_status_update("Creating new Toonami channel...")
-        plex_url = self._get_data("plex_url")
-        plex_token = self._get_data("plex_token")
-        anime_library = self._get_data("selected_anime_library")
-        toonami_library = self._get_data("selected_toonami_library")
-        platform_url = self._get_data("platform_url")
-        platform_type = self._get_data("platform_type")
-        cutless_mode_used = self._get_data("cutless_mode_used")
-        cutless_enabled = cutless_mode_used == 'True'
-        
-        # If cutless mode is enabled, use the cutless table instead
-        if cutless_enabled:
-            table = f"{table}_cutless"
-            self._broadcast_status_update(f"Cutless Mode: Using {table} table")
-        
-        if platform_type == 'dizquetv':
-            ptod = ToonamiTools.PlexToDizqueTVSimplified(
-                plex_url=plex_url,
-                plex_token=plex_token,
-                anime_library=anime_library,
-                toonami_library=toonami_library,
-                table=table,
-                dizquetv_url=platform_url,
-                channel_number=int(channel_number),
-                cutless_mode=cutless_enabled,
-                status_callback=self._broadcast_status_update
-            )
-            ptod.run()
-        elif platform_type == 'tunarr':
-            ptot = ToonamiTools.PlexToTunarr(
-                plex_url, plex_token, toonami_library, table,
-                platform_url, int(channel_number), flex_duration
-            )
-            ptot.run()
-        elif platform_type == 'combreakdirect':
-            self._ensure_combreakdirect_server()
-            self._broadcast_status_update("Sending lineup to ComBreakDirect...")
-            p2c = ToonamiTools.ComBreakToComBreakDirect(
-                table=table,
-                channel_number=int(channel_number),
-                flex_duration=flex_duration,
-                network=config.network,
-                commercial_folder=self._get_data("commercial_folder"),
-            )
-            self._broadcast_status_update("Pre-rendering commercials...")
-            p2c.run()
-            self._broadcast_status_update("ComBreakDirect channel ready")
-        else:
-            raise ValueError(f"Unsupported platform type: {platform_type}")
-            
-        self._broadcast_status_update("New Toonami channel created!")
-        self.filter_complete_event.set()
+        def create_toonami_channel_cont_thread():
+            self._set_operation_state(True, "create_toonami_channel_cont")
+            try:
+                self._broadcast_status_update("Creating new Toonami channel...")
+                table_name = table
+                plex_url = self._get_data("plex_url")
+                plex_token = self._get_data("plex_token")
+                anime_library = self._get_data("selected_anime_library")
+                toonami_library = self._get_data("selected_toonami_library")
+                platform_url = self._get_data("platform_url")
+                platform_type = self._get_data("platform_type")
+                cutless_mode_used = self._get_data("cutless_mode_used")
+                cutless_enabled = cutless_mode_used == 'True'
+
+                # If cutless mode is enabled, use the cutless table instead
+                if cutless_enabled:
+                    table_name = f"{table_name}_cutless"
+                    self._broadcast_status_update(f"Cutless Mode: Using {table_name} table")
+
+                if platform_type == 'dizquetv':
+                    ptod = ToonamiTools.PlexToDizqueTVSimplified(
+                        plex_url=plex_url,
+                        plex_token=plex_token,
+                        anime_library=anime_library,
+                        toonami_library=toonami_library,
+                        table=table_name,
+                        dizquetv_url=platform_url,
+                        channel_number=int(channel_number),
+                        cutless_mode=cutless_enabled,
+                        status_callback=self._broadcast_status_update
+                    )
+                    ptod.run()
+                elif platform_type == 'tunarr':
+                    ptot = ToonamiTools.PlexToTunarr(
+                        plex_url, plex_token, toonami_library, table_name,
+                        platform_url, int(channel_number), flex_duration
+                    )
+                    ptot.run()
+                elif platform_type == 'combreakdirect':
+                    self._ensure_combreakdirect_server()
+                    self._broadcast_status_update("Sending lineup to ComBreakDirect...")
+                    commercial_folder = self._get_data("commercial_folder")
+                    p2c = ToonamiTools.ComBreakToComBreakDirect(
+                        table=table_name,
+                        channel_number=int(channel_number),
+                        flex_duration=flex_duration,
+                        network=config.network,
+                        commercial_folder=commercial_folder,
+                        infinite=True,
+                        infinite_meta={
+                            'toonami_version': toonami_version,
+                            'cutless_enabled': cutless_enabled,
+                            'commercial_folder': commercial_folder,
+                        },
+                    )
+                    self._broadcast_status_update("Pre-rendering commercials...")
+                    p2c.run()
+                    self._broadcast_status_update("ComBreakDirect channel ready")
+                else:
+                    raise ValueError(f"Unsupported platform type: {platform_type}")
+
+                self._broadcast_status_update("New Toonami channel created!")
+                self.filter_complete_event.set()
+            except Exception as e:
+                error_msg = f"ERROR: Toonami channel creation failed: {str(e)}"
+                self._broadcast_status_update(error_msg)
+                print(f"Thread error in create_toonami_channel_cont: {e}")
+                traceback.print_exc()
+                self.filter_complete_event.set()
+            finally:
+                self._set_operation_state(False, "create_toonami_channel_cont")
+
+        thread = threading.Thread(target=create_toonami_channel_cont_thread)
+        thread.start()
 
     def add_flex(self, channel_number, duration):
         # Validate required fields before processing
@@ -1547,15 +1662,29 @@ class LogicController():
         self.network = config.network
         self.channel_number = int(channel_number)
         self.duration = duration
-        flex_injector = ToonamiTools.FlexInjector.DizqueTVManager(
-                platform_url=self.platform_url,
-                channel_number=self.channel_number,
-                duration=self.duration,
-                network=self.network,
-            )
-        flex_injector.main()
-        self.filter_complete_event.set()
-        self._broadcast_status_update("Flex content added!")
+        def add_flex_thread():
+            self._set_operation_state(True, "add_flex")
+            try:
+                flex_injector = ToonamiTools.FlexInjector.DizqueTVManager(
+                        platform_url=self.platform_url,
+                        channel_number=self.channel_number,
+                        duration=self.duration,
+                        network=self.network,
+                    )
+                flex_injector.main()
+                self._broadcast_status_update("Flex content added!")
+                self.filter_complete_event.set()
+            except Exception as e:
+                error_msg = f"ERROR: Adding flex failed: {str(e)}"
+                self._broadcast_status_update(error_msg)
+                print(f"Thread error in add_flex: {e}")
+                traceback.print_exc()
+                self.filter_complete_event.set()
+            finally:
+                self._set_operation_state(False, "add_flex")
+
+        thread = threading.Thread(target=add_flex_thread)
+        thread.start()
 
     # ==================== Database Validation Methods ====================
 

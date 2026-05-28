@@ -82,7 +82,7 @@ Chapter markers skip all this computational work.
 - ✅ Preserves original files completely
 - ✅ Faster processing after detection
 - ✅ Saves massive amounts of disk space
-- ❌ Only works with our DizqueTV fork
+- ❌ Requires DizqueTV 1.7+
 - ❌ Limited platform compatibility
 
 ### Q: When should I use Destructive Mode?
@@ -108,12 +108,9 @@ Chapter markers skip all this computational work.
 
 Community contributions for other platforms are welcome!
 
-### Q: What's this about a "DizqueTV fork"?
+### Q: What DizqueTV version do I need for Cutless Mode?
 
-**A**: For Cutless Mode, you need our modified version of DizqueTV that understands start/end timestamps. You can:
-- Use our fork: [theweebcoders/dizquetv](https://github.com/theweebcoders/dizquetv)
-- Use the official dev branch (may have issues)
-- Use traditional cutting with any DizqueTV version
+**A**: Cutless Mode requires DizqueTV 1.7+ Traditional cutting works with any DizqueTV version.
 
 ### Q: Why doesn't Cutless Mode work with Tunarr?
 
@@ -352,6 +349,16 @@ This helps developers diagnose your issue quickly.
 2. New channels start from the next available episode
 3. If Naruto ended at episode 26, the next channel starts at episode 27
 4. Helps create ongoing, continuous Toonami marathons
+
+**For ComBreakDirect users**: this happens automatically and continuously. Every ComBreakDirect channel runs a `LineupExtender` watchdog that, a few hours before the channel ends, generates a fresh chunk of content with the per-show cursor already advanced — same mechanism, just always on. You don't toggle anything. Page 7 ("Let's Make Another Channel") is hidden for ComBreakDirect channels because there's nothing to do manually.
+
+### Q: Do my ComBreakDirect channels ever run out?
+
+**A**: No. Every ComBreakDirect channel is born with a self-extending watchdog: roughly three hours before the channel's last program would end, the system runs ShowScheduler again (with each show's cursor advanced past whatever just aired) and stitches the new chunk onto the end of the existing lineup. It's wall-clock based — fires whether or not anyone is currently streaming the channel — so if you walk away for a week and come back, the channel kept growing while you were gone. You can override the lead time with `INFINITE_EXTEND_LEAD_MS` in `config.py` if you want a different runway buffer. Default is 3 hours.
+
+### Q: Can I disable the auto-extension on a ComBreakDirect channel?
+
+**A**: It's not a UI toggle — the design assumption is that ComBreakDirect channels are infinite. If you really need to stop extension on a specific channel, edit `channels.json` (in `combreak_direct_data/` for native installs or the working folder for Docker) and set the channel's `_infinite_meta.enabled` to `false`. The watchdog will see that on its next tick and stop scheduling. The Studio's modulo loop will keep the channel playing what's already there, looping the existing content until the channel is removed.
 
 ### Q: What are "Special Bumps"?
 

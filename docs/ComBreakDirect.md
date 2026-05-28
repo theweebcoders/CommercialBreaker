@@ -16,17 +16,19 @@ Think of it as your own personal TV station that broadcasts your Toonami channel
 4. **Simplified Setup**: One server handles everything - streaming, playlists, and guides
 5. **Automatic Commercial Injection**: Server-side commercial break rendering
 6. **Fast Startup**: Pre-rendered commercial breaks prevent delays
+7. **Infinite by Design**: A built-in `LineupExtender` arms a `threading.Timer` per channel that fires ahead of the last program's stop time and runs ShowScheduler+CutlessFinalizer to append a fresh chunk — wall-clock based, so the channel keeps marching forward whether anyone is streaming or not. Page 7's manual continuation flow is superseded for ComBreakDirect channels.
 
 ### How It Compares
 
 | Feature | External Platforms | ComBreakDirect |
 |---------|-----------------|----------------|
 | External Dependency | Required | None |
-| Cutless Support | Limited/Requires Fork | Native |
+| Cutless Support | DizqueTV 1.7+ | Native |
 | Commercial Breaks | Client-side | Server-side |
 | Setup Complexity | Multiple steps | Single server |
 | Plex Discovery | Manual | Automatic (HDHomeRun) |
 | Startup Time | Instant | ~30s (pre-rendering) |
+| Channel Lifespan | Manual continuation each ~40h | Auto-extending forever |
 
 ## Architecture Overview
 
@@ -93,6 +95,19 @@ ComBreakDirect uses a clean "dock" architecture with three specialized processin
   │  • CleanupManager - Automatic file maintenance        │
   │  • configuration - Path resolution                    │
   └────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────┐
+  │      Infinite Channel Extension (docks/ + ToonamiTools)│
+  │  • LineupExtender (docks/) - Per-channel watchdog,    │
+  │    one threading.Timer per channel, fires ahead of    │
+  │    channel-end                                         │
+  │  • InfiniteChannelExtender (ToonamiTools/) - One-shot │
+  │    orchestrator: ShowScheduler + CutlessFinalizer     │
+  │    against per-extension SQLite tables                │
+  │  Spawned by FactoryFloor at store_channel time and    │
+  │  on _load_channels restart. Wall-clock based — fires  │
+  │  whether anyone is streaming or not.                  │
+  └────────────────────────────────────────────────────────┘
 ```
 
 ### The Three Docks
@@ -112,8 +127,12 @@ ComBreakDirect uses a clean "dock" architecture with three specialized processin
 - `process_lineup(payload)` - Main pipeline orchestrator that processes AND stores
 - `_inject_commercials(lineup_data, network_name, flex_duration)` - Finds consecutive bumps and inserts ads
 - `_format_for_streaming(lineup_data, channel_number, network_name)` - Converts to channel format with timing
+- `_format_programs(lineup_data, anchor_time)` - Inner program-builder extracted from `_format_for_streaming`; reused by `format_extension` to anchor extensions to an arbitrary moment instead of "now"
+- `format_extension(lineup_data, existing_channel_data)` - Builds program dicts whose `start`/`stop` ISO timestamps pick up immediately after the existing channel's tail. Used by `LineupExtender` to splice new chunks into a running channel without breaking timeline continuity
 - `_prime_initial_breaks()` - Warm-starts the pre-render cache for the first hour of breaks
 - `update_commercial_folder(folder)` - Swaps the commercial library on-the-fly when a payload overrides it
+
+**Infinite-channel handoff**: when the incoming payload includes `infinite: true`, LoadingDock stashes the metadata block as `channel_data['_infinite_meta']` with `enabled=True` before handing to FactoryFloor. FactoryFloor's `_maybe_spawn_extender` then arms a `LineupExtender` for the channel.
 
 **Commercial Break Handling**:
 - Break requests are queued during `_inject_commercials` and passed to `CommercialBreakRenderer`
@@ -142,10 +161,12 @@ ComBreakDirect uses a clean "dock" architecture with three specialized processin
 **Key Methods**:
 
 *Storage:*
-- `store_channel(channel_data)` - Persists processed channel from Loading Dock
+- `store_channel(channel_data)` - Persists processed channel from Loading Dock. Triggers `_maybe_spawn_extender` after persisting so infinite channels get their watchdog armed
+- `extend_channel(channel_number, new_programs)` - Append-only growth path used by `LineupExtender`. Takes the factory lock, extends `channel_data['programs']` (never replaces — the Studio loop reads the same list reference live), bumps `_infinite_meta.extension_seq`, stamps `last_extension_at`, and persists. Returns the new total program count or `None` if the channel was deleted mid-extension
 - `get_channel(channel_number)` - Retrieves channel data for streaming
-- `_load_channels()` - Loads persisted channels on startup
-- `_save_channels()` - Atomically saves channels to disk
+- `_load_channels()` - Loads persisted channels on startup. Walks loaded channels and respawns `LineupExtender` watchdogs for any with `_infinite_meta.enabled=true`
+- `_save_channels()` - Atomically saves channels to disk. Strips ephemeral `_runtime` keys (Studio's `current_index` is re-derived from UTC clock on next startup, so the on-disk snapshot would be misleading)
+- `_maybe_spawn_extender(channel_data)` - Spawns a `LineupExtender` if the channel has `_infinite_meta.enabled` truthy and FactoryFloor has a LoadingDock back-reference. Idempotent — won't double-spawn for the same channel
 
 *Generation (called by UnloadingDock):*
 - `generate_playlist(external_url)` - Creates M3U8 master playlist
@@ -320,6 +341,88 @@ LANGUAGE_VARIATIONS = {
 - `resolve_commercial_folder()` - Location of commercial break files
 - `resolve_storage_path()` - Path to `channels.json` persistence
 
+## Infinite Channel Extension
+
+ComBreakDirect channels never end. Every time you create one, two coordinating pieces of plumbing keep the lineup growing forever:
+
+### LineupExtender (`docks/LineupExtender.py`)
+
+**Purpose**: Per-channel watchdog that fires extensions ahead of the channel's natural end time
+
+One `LineupExtender` is spawned by `FactoryFloor._maybe_spawn_extender` for each channel that arrived with `_infinite_meta.enabled=true` — both at `store_channel` time for fresh channels and on `_load_channels` restart for channels recovered from `channels.json`.
+
+It wraps **one `threading.Timer`** scheduled to fire `INFINITE_EXTEND_LEAD_MS` (default 3 hours, configurable via `config.py` or env) before the last program's `stop` ISO timestamp. When the timer fires:
+
+1. Read the channel back out of FactoryFloor (race-check that it still exists)
+2. Disk-space gate: skip if `combreak_direct_data` partition has less than `DEFAULT_MIN_FREE_DISK_BYTES` free (default 2 GB)
+3. Call `_build_extension`, which delegates to `ToonamiTools.InfiniteChannelExtender`
+4. Hand the new programs to `FactoryFloor.extend_channel`
+5. Recompute the new channel-end and arm a fresh timer
+
+**Safety paths**:
+- Channels shorter than the lead time fire immediately (`delay=0`)
+- Channels whose last program is already in the past fire immediately
+- Channel was deleted during the long-running build → discard the new programs, cancel the watchdog
+- Build raises → bump `_infinite_meta.consecutive_failures`, retry in `RETRY_AFTER_FAILURE_MS` (5 min)
+- `MAX_CONSECUTIVE_FAILURES` (3) consecutive failures → set `_infinite_meta.enabled=false`, cancel watchdog, surface to `ErrorManager`. Studio's modulo loop keeps playing existing programs while infinite mode sleeps.
+
+**Wall-clock anchored, not playback-anchored.** The timer counts down in real time regardless of whether anyone is currently streaming. A viewer who returns next week still finds fresh content waiting because the channel kept growing in the interim. Studio's `current_index` (which only advances while a client is connected) is published to `channel_data['_runtime']` but the watchdog deliberately ignores it.
+
+**Lazy LoadingDock lookup**: `LineupExtender` takes the `FactoryFloor` reference at construction (not LoadingDock) and reaches LoadingDock lazily via `factory_floor.loading_dock` only when its timer fires. This sidesteps the bootstrap chicken-and-egg where `FactoryFloor.__init__` spawns watchdogs while `LoadingDock.__init__` is still mid-assignment of `self.factory_floor = FactoryFloor(...)`.
+
+### InfiniteChannelExtender (`ToonamiTools/InfiniteChannelExtender.py`)
+
+**Purpose**: One-shot orchestrator that builds a single extension chunk
+
+Called by `LineupExtender._build_extension`. Reads the channel's `_infinite_meta` for the `toonami_version` key, then:
+
+1. Looks up `config.TOONAMI_CONFIG_CONT[version]` to get the encoder + bump-list table names
+2. Constructs a per-extension output table name: `{merger_out}_inf_ch{channel}_ext{seq}` (e.g., `lineup_v9_cont_inf_ch61_ext3`). Each chunk lives in its own SQLite table so individual extensions stay debuggable in isolation
+3. Runs `ShowScheduler(reuse_episode_blocks=True, continue_from_last_used_episode_block=True, uncut=...)` against the new output table — the per-show cursor in `last_used_episode_block` advances naturally
+4. If cutless mode is enabled (always true for ComBreakDirect), runs `CutlessFinalizer.run_for_table(input_table, output_table)` to produce the `_cutless` companion
+5. Loads the rows via the shared `load_lineup_rows(table)` helper (the same one `ComBreakToComBreakDirect` uses for the initial channel POST)
+6. Returns `(rows, output_table)` for the caller to format and append
+
+If ShowScheduler produces zero rows (cursor exhausted with `reuse_episode_blocks=True` shouldn't happen, but) the caller treats it as a hard failure and disables infinite mode for the channel.
+
+### Episode-cursor seeding
+
+For the *first* extension of a channel to actually continue the timeline (Bleach S01E01 in the original chunk → Bleach S01E02 in the extension, not S01E10 or S01E01 again), the `last_used_episode_block` cursor table needs to know where the original lineup ended.
+
+`ComBreakToComBreakDirect._seed_episode_cursor` handles this. Before POSTing the lineup to ComBreakDirect, it:
+
+1. Sweeps the loaded lineup rows and derives a show-key → BLOCK_ID map (max BLOCK_ID per show)
+2. Derives each show key via `show_name_mapper.clean(show_name_mapper.map(name), mode='matching')` to match ShowScheduler's exact internal format — derive it any other way and the cursor lookup will silently miss
+3. Merges with any existing `last_used_episode_block` entries, taking the larger BLOCK_ID per show (never rolls a cursor backwards just because a new channel was built from earlier content)
+
+Without this seed step the first extension would treat every show as "no prior position" and pick whatever ShowScheduler's index has at position 0 — usually NOT the next episode the viewer expects.
+
+### Per-channel state (`_infinite_meta`)
+
+Stored on the channel dict, persisted in `channels.json`:
+
+```json
+{
+  "_infinite_meta": {
+    "enabled": true,
+    "toonami_version": "OG",
+    "cutless_enabled": true,
+    "network": "Toonami",
+    "flex_duration_ms": 260000,
+    "commercial_folder": "/app/commercials",
+    "extension_seq": 3,
+    "last_extension_at": "2026-05-28T15:01:17Z",
+    "consecutive_failures": 0
+  }
+}
+```
+
+`enabled` is the master kill switch — the `LineupExtender` self-disables here on hard failure. `extension_seq` increments on each successful extension and feeds the per-chunk SQLite table naming.
+
+### Configuration knob
+
+- `INFINITE_EXTEND_LEAD_MS` (default 10 800 000 ms = 3 hours, env-overridable) — how long before the last program's stop to fire the extension. Tuned so ShowScheduler + CutlessFinalizer + initial pre-rendering all finish well before a viewer would actually hit the seam, with margin for one retry on transient failure.
+
 ## API Endpoints
 
 ComBreakDirect exposes a RESTful API for channel management, streaming, and web interface:
@@ -356,9 +459,19 @@ Create or update a channel with lineup data.
     }
   ],
   "flex_duration": 150000,
-  "commercial_folder": "/path/to/commercials"
+  "commercial_folder": "/path/to/commercials",
+  "infinite": true,
+  "infinite_meta": {
+    "toonami_version": "OG",
+    "cutless_enabled": true,
+    "commercial_folder": "/path/to/commercials"
+  }
 }
 ```
+
+The `infinite` flag tells `LoadingDock` to stash a populated `_infinite_meta` block on the channel, which `FactoryFloor._maybe_spawn_extender` reads to arm the per-channel `LineupExtender` watchdog. `toonami_version` is the key into `config.TOONAMI_CONFIG_CONT` so subsequent extensions know which encoder + bump-list tables to feed ShowScheduler.
+
+`ComBreakToComBreakDirect` sets `infinite=True` automatically for all ComBreakDirect channels — clients don't need to opt in.
 
 **Response**:
 ```json
@@ -1062,6 +1175,7 @@ Only terms at the very end of the title (after separators) are removed, preservi
 3. **Studio Crash Recovery**: If studio thread crashes, requires manual channel restart
 4. **Broadcast FFmpeg Critical**: Without broadcast FFmpeg, transitions freeze Jellyfin
 5. **Audio Selection**: Manual configuration required for non-standard audio layouts
+6. **Subprocess vs Thread bootstrap race**: In Docker mode `start.sh` launches `run_server.py` as a subprocess at boot; in desktop mode Absolution spawns CBD as a thread. If the canonical instance crashes mid-startup (e.g., the historical `_load_existing_breaks` listdir/stat race on stale `_seg_*.mkv` files — hardened in `CommercialBreakRenderer.py` to skip missing files), the fallback may take over with a different storage path. Cleanup any stale temp `_seg_*.mkv` files before a clean restart.
 
 ## Contributing
 
@@ -1121,6 +1235,7 @@ ComBreakDirect represents a significant evolution in CommercialBreaker's archite
 - **Resource Efficient**: Auto start/stop based on client connections
 - **Rate Limited Broadcasting**: Prevents client buffering ahead (~5.4 Mbps CBR)
 - **Commercial Pre-rendering**: Instant break playback with background maintenance
+- **Infinite Channel Extension**: Per-channel `threading.Timer` arms ahead of channel-end, fires ShowScheduler+CutlessFinalizer to append a fresh chunk, and reschedules itself — wall-clock based, fires whether anyone is streaming or not. A single channel created once stays alive indefinitely.
 
 **Key Technical Achievement**:
 The addition of Broadcast FFmpeg with `+genpts` flag solved the critical transition glitch issue that froze Jellyfin/Plex between programs. This creates a truly continuous stream by regenerating presentation timestamps across program boundaries.

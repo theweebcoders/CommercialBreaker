@@ -93,6 +93,7 @@ class FolderMakerValidator(BaseValidator):
             result.is_completed = True
             self.add_info(result, "Folders verified via downstream table existence")
             result.metadata['inferred_from_downstream'] = True
+            return result
 
         working_dir = self._get_working_dir()
         cut_folder = os.path.join(working_dir, 'cut')

@@ -133,20 +133,27 @@ This is where the magic happens! See the [Commercial Breaking detailed guide](#c
 - "Prepare Plex": Optimizes Plex library compatibility
 
 **Step 5: Create Channel**
-- **DizqueTV**: "Create Toonami Channel" 
+- **DizqueTV**: "Create Toonami Channel"
 - **Tunarr**: "Create Toonami Channel with Flex"
+- **ComBreakDirect**: "Create ComBreakDirect Channel"
 
 **Step 6: Add Flex (DizqueTV Only)**
 - Adds commercial break spacing between segments
+
+> **ComBreakDirect users**: the channel auto-extends forever from the moment it's created. The "Continue" button at the bottom of this step is hidden for you, and Page 7 (Let's Make Another Channel) is removed from the navigation — there's nothing to continue manually. A few hours before your channel would naturally end, a fresh batch of episodes gets stitched onto it, picking up each show right where it left off. This happens whether you're streaming or not.
 
 ### Advanced TOM Features
 
 #### Creating Additional Channels
 
-**Continue from Last Episode**: 
+**For DizqueTV and Tunarr users**, Page 7 lets you build sequential channels that pick up where a prior one left off.
+
+**Continue from Last Episode**:
 - Checkbox option for sequential channels
 - Starts new channel where previous one ended
-- Requires running "Prepare Toonami Channel" twice on first use
+- Requires running "Prepare Toonami Channel" twice on first use *(historical quirk — fixed in the ComBreakDirect infinite-channel work, the cursor table is now initialized on first run)*
+
+> **ComBreakDirect users**: this section doesn't apply to you. Your channel never ends, so there's no "Let's Make Another Channel" — Page 7 is hidden. If you want a different version of Toonami (e.g., a separate channel for Uncut Mixed), go back to Page 6 and create another ComBreakDirect channel with a different channel number; each one extends independently.
 
 #### Dark Mode
 Toggle with the button in bottom-left corner for comfortable viewing.

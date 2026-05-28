@@ -426,8 +426,18 @@ class CommercialBreakRenderer:
             # The filename is sanitized, so we need to reconstruct the original break_id
             sanitized_id = break_file.stem
 
-            # Get file modification time as created_at
-            mtime = break_file.stat().st_mtime
+            # Get file modification time as created_at. The break_file came from
+            # glob() but may have been cleaned up (by CleanupManager or a
+            # concurrent rendering pass tidying its own ``_seg_*.mkv`` temp
+            # files) between the directory scan and the stat — listdir/stat
+            # is a classic race. Skip silently rather than crashing the
+            # whole CommercialBreakRenderer init, which would take down
+            # run_server.py and force Absolution to fall back to its in-process
+            # ComBreakDirect thread (writing to a different storage path).
+            try:
+                mtime = break_file.stat().st_mtime
+            except FileNotFoundError:
+                continue
             created_at = datetime.fromtimestamp(mtime, tz=timezone.utc)
 
             # Get duration by probing the file

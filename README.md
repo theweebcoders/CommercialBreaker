@@ -44,7 +44,7 @@ Here is what it will look like
 
 **Toonami Tools:** Just like a trusty log pose guiding you to the next island on the Grand Line, Toonami Tools helps you navigate through the sea of your anime library. Designed for the most faithful of Toonami crews, this handy tool can generate a custom lineup of anime shows, creating an adventure akin to those golden days of the Toonami programming block. With its graphical user interface, you can effortlessly manage your anime and bump archives, effectively making you the captain of your anime collection. Worried about missing shows or bumps? Fear not! Toonami Tools is like your very own Going Mary, helping you fill in the gaps and complete your journey. So, ready to set sail, Toonami faithful?
 
-**ComBreakDirect:** Think of it as building your own Gundam instead of buying one off the shelf. DizqueTV and Tunarr are great, but what if you could have a streaming server that was custom-built for this exact mission? ComBreakDirect is our self-contained streaming solution—a Flask-powered vessel that takes your cutless lineup and serves it up as a live HDHomeRun tuner. It pre-renders commercial breaks so you never see that awkward loading screen, generates M3U playlists and XMLTV guides on the fly, and keeps Plex *and* Jellyfin fed at the same time. There’s even a Toonami-styled landing page with copy buttons for all the important URLs. No external platforms required—just you, your anime, and the power of the Absolution.
+**ComBreakDirect:** Think of it as building your own Gundam instead of buying one off the shelf. DizqueTV and Tunarr are great, but what if you could have a streaming server that was custom-built for this exact mission? ComBreakDirect is our self-contained streaming solution—a Flask-powered vessel that takes your cutless lineup and serves it up as a live HDHomeRun tuner. It pre-renders commercial breaks so you never see that awkward loading screen, generates M3U playlists and XMLTV guides on the fly, and keeps Plex *and* Jellyfin fed at the same time. There's even a Toonami-styled landing page with copy buttons for all the important URLs. And the real party trick: ComBreakDirect channels never end. Built into every channel is a sleepless watchdog that—hours before your channel would naturally run out—quietly fires the ShowScheduler again, picks up each show right where it left off, and silently lengthens the marathon. You don't manage it. You don't poke it. You just create the channel once and it keeps marching forward whether you're tuned in or not, like a TV station that's been running since the Bush administration. No external platforms required—just you, your anime, and the power of the Absolution.
 
 All tools are accessible via the GUI (graphical user interface), making them easy to use for even the most novice pirates. So, what are you waiting for? Let's get started!
 
@@ -471,6 +471,8 @@ If you're using ComBreakDirect, the system will push your cutless lineup to the 
 
 **ComBreakDirect Desktop (TOM) Users**: After your channel is created, you'll see a popup with a button labeled "Open Web UI & Move to Menu Bar" (Mac) or "Open Web UI & Move to Taskbar" (Windows). Click this button to open the ComBreakDirect Web UI in your browser and minimize TOM to your system tray, keeping the server running in the background.
 
+**ComBreakDirect channels are infinite by default.** From the moment your channel exists, something quietly works in the background to keep it from ever running out. About three hours before your channel would naturally end, a fresh batch of episodes gets stitched onto the end of it — same shows, picking up where each one left off, same Toonami flow. You don't see it happen. You don't have to do anything. It happens whether you're watching, asleep, or away for the week. The Continue button on this step is hidden for ComBreakDirect channels because there's nothing for you to continue. The channel does it itself. Make it once and forget about it.
+
 That's it! Congratulations! You have made a Toonami Channel!
 
 If you are using DizqueTV proceed to the next step. If you are using Tunarr or ComBreakDirect you are done!
@@ -484,6 +486,8 @@ That's it! Congratulations! Now you REALLY made a Toonami Channel!
 If you want to make another channel, just click the "Continue" button at the bottom right. There are a few extra features on this page too for users who are making multiple channels.
 
 ## Step 7 - Let's Make Another Channel! - Toonami's Back Bitches
+
+*(DizqueTV and Tunarr users only — ComBreakDirect channels auto-extend forever, so this entire page is hidden for them and there's nothing here to do.)*
 
 So you finished watching your Toonami Channel and you want to make another one. No problem! 
 
@@ -722,7 +726,7 @@ It scans this designated folder for these unique video files and seamlessly inte
 
 ### Plex Splitter
 
-Plexautosplitter is a marvel of ingenuity, and sadly, one of the things we're the most proud of. It's designed to sidestep Plex's limitations in splitting merged items. Rather than relying solely on the Plex API—which is used merely to fetch basic library details and identify items with multiple rating keys—the tool employs a simulated browser environment to execute the split command. By gathering a list of items that share rating keys, the script essentially mimics the manual action of clicking the 'Split' option in the Plex UI. This enables the tool to unmerge episodes that Plex has combined, ensuring that each segment of your cut anime is treated as an individual entity, indispensable for precise playlist creation.
+Plexautosplitter is a marvel of ingenuity, and sadly, one of the things we're the most proud of. It's designed to sidestep Plex's limitations in splitting merged items. The official Plex API doesn't expose a split endpoint at all — it's used here only to fetch basic library details and identify items with multiple rating keys. To actually trigger a split, the tool sends a PUT request to Plex's internal `/library/metadata/{ratingKey}/split` endpoint with the same `X-Plex-*` headers Plex's web UI sends when you click the 'Split' menu option — no browser automation, just HTTP requests dressed up as if they came from the official client. By gathering a list of items that share rating keys and PUTting against each one, the script effectively unmerges episodes that Plex has combined, ensuring that each segment of your cut anime is treated as an individual entity, indispensable for precise playlist creation.
 
 ### Plex Split Renamer
 
@@ -760,6 +764,10 @@ ComBreakDirect is our self-contained continuous MPEG-TS streaming server—the S
 
 **Intelligent Audio Selection** (`utilities/AudioTrackSelector.py`) - Because anime often has multiple audio tracks (Japanese, English dubs, commentary), ComBreakDirect intelligently selects the right audio track based on your configuration. By default it selects English (perfect for Toonami's English dub focus), but you can configure it to prefer Japanese, Spanish, or any other language in your config.py. No more manually specifying audio tracks for every file!
 
+**LineupExtender** (`docks/LineupExtender.py`) - The reason ComBreakDirect channels never run out. Picture a tireless stage manager who's been watching the clock — they know exactly when the current block is winding down, and a few hours before that happens they quietly tap the showrunner on the shoulder and say "hey, time to write the next batch." You don't see it. You're just watching One Piece. But behind the scenes, a fresh lineup is being stitched onto the end of the existing one — same shows, no seams, no gaps, no "Unknown Airing" cards showing up in the guide. It runs on real wall-clock time, not playback time, so the channel keeps growing whether you're tuned in or not. Create a channel once, walk away for a week, come back, and the marathon is still going strong with hundreds of hours of content queued ahead of you. That joke we made in the FAQ about an eight-thousand-year runtime? Stopped being a joke when this shipped.
+
+**InfiniteChannelExtender** (`ToonamiTools/InfiniteChannelExtender.py`) - The actual showrunner the LineupExtender pages when it's time for more content. This is the part that runs the lineup-stitching dance all over again — the same shows, the same bumps, the same Toonami flow — but it remembers exactly where each show left off. The previous block ended with Bleach Episode 18, so the next block opens with Bleach Episode 19. Naruto reached Episode 8, so it picks up at Episode 9. It's like Toonami remembering what they aired Tuesday and picking up there Wednesday — no reruns of episodes you just watched, no random jumps mid-season, just calm continuation the way the original block did it.
+
 The whole system runs on Flask (port 8083 by default) and includes HDHomeRun-style discovery so Plex can find it automatically. It's like having TOM run your entire broadcast operation with SARA handling the technical details while you sit back and enjoy the show.
 
 
@@ -780,10 +788,6 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 
 ## **Immediate Attention**
 
-### Error Handling To-Do
-
-- [ ] Create error messages for merger
-
 ### Fun Stuff
 
 - [ ] Make Clydes a TUI
@@ -791,12 +795,11 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 ### CombreakDirect To-Do
 
 - [ ] Create automated test for ComBreakDirect
-- [ ] Don't let BumpDuration use DurationManager
-- [ ] Fix the automated tests for S.A.R.A. to not use Duration Manager
+- [ ] Don't let BumpDuration use DurationManager need to treak ComBreak stuff as separate
+- [ ] Fix the automated tests for S.A.R.A. to not use Duration Manager need to treak ComBreak stuff as separate
 
 ### Housekeeping
 
-- [ ] Find out why tkkthemes could not be in the docker container, do a clean install with a new tom_env and make sure it works on desktop
 - [ ] Cleanup the repo structure
 - [ ] Actually use the icon for favicon, TOM, etc
 - [ ] Cleanup the docker compose if the run didn't need the enviorment varibles does it??
@@ -811,40 +814,24 @@ When you are done using CommercialBreaker, click the Exit button to close the pr
 
 ### Critical Issues
 
-- [ ] Fix requirement to run "continue from last" twice for continued Toonami channel
-
-### **Clydes Improvements**
-- [ ] Add comma-separated format instruction for show exclusion list
-- [ ] Enhance number input for show exclusion
+- [ ] SilentBlackFrameDetection is very unreliable sometimes misses breaks but false positives are worse tough balance
 
 ## **UX/UI Improvements**
-- [ ] Fix back button not preserving file selection mode (resets to folder mode, causing empty selection)
-- [ ] Fix fast scanning status not showing in WebUI when running in Docker container
-- [ ] Fix missing popup message after Toonami channel creation (should direct users to ComBreakDirect WebUI at port 8083)
 
 ## **Testing Requirements**
 
 ### *General Testing*
 - [ ] Test edge case lineup generation logic
 
-## **Ongoing Tasks**
-- [ ] Add how to use Clydes to the readme
-- [ ] Make it so Clydes can rerun prepare show cut 
-
 ## **Known Issues**
 - [ ] Still a lot of broken connections
 - [ ] If you add special bumps to a list it makes a _bonus table and it's never used
-- [ ] Add to the readme to move the cut anime and bumps to the toonami library
+- [ ] Add to the readme to move the cut anime and bumps to the toonami library in traditional mode
 
 ## **Long-Term Goals**
 - [ ] Justify spending more than 2 years of man hours including six months of my own time on a project that will only be used by a handful of people and cannot be monetized in any way
 - [ ] Create a video tutorial
 - [ ] Complete project in my lifetime
-
-# Things I changed since last time I pushed to github
-
-- S.A.R.A Testing (Including some lines in cutless finalization)
-- Silent Black Frame Detection
 
 # FAQs
 
@@ -875,8 +862,7 @@ Q: I'm not seeing the options for Cutless Mode in the GUI.
   - First, make sure you are using the latest version of CommercialBreaker. 
   - If you are, Cutless Mode only works with DizqueTV and not with Tunarr.
       - If you are using Tunarr, you will need to use traditional cutting.
-  - If you are using DizqueTV, you need to make sure you are using our fork of [DizqueTV](https://github.com/theweebcoders/dizquetv), which is a modified version of the original DizqueTV.
-    - Technically, you can use the the dev branch of the original [DizqueTV](https://github.com/vexorian/dizquetv/tree/dev/1.5.x), but we don't recommend it as even though we pushed a lot of our changes to the official dev branch we are actively tweaking our fork to work better with CommercialBreaker.
+  - If you are using DizqueTV, use DizqueTV 1.7+ and the official `dizquetv` Python API package.
 
 Q: I got [WinError 2] The system cannot find the file specified
 
@@ -939,6 +925,10 @@ Q: How long can my channel run continuously?
 
   Only if Python figures out a way to time travel first. We keep track of channel position with a big ol' millisecond counter, and Python integers are bottomless pits, so there's no overflow monster lurking. The one ceiling we can't punch through is `datetime` itself—it taps out at the year 9999. Do the math and that means a channel can happily loop for about 7,980 years before the calendar cops show up. If the Python core devs ever lift that limit, great, but until then jot this down in your captain's log: "Maximum continuous runtime: eight millennia, give or take a few Comic-Con reboots." When we figure out how to stream past 10,000 AD, you'll be the first to know.
 
+Q: Wait, so does my ComBreakDirect channel actually approach that 8,000-year ceiling now?
+
+  Conceptually, yes—the 9999 ceiling we joked about above is still the real cap, since Python's `datetime` is the final word on the matter. But practically, you'll never get there; your hard drive, your media library, and the building your server lives in will all give out long before the calendar does. Between now and then, the channel just doesn't end. Every ComBreakDirect channel ships with a built-in watchdog. A few hours before your channel would naturally run out of programming, it generates the next batch of episodes—picking up each show right where the previous batch left off—and quietly stitches it onto the end of the lineup. You don't see it happen, you don't manage it, and it doesn't care whether you're tuned in. Create the channel once and walk away for a week. When you come back, the marathon's still going. Toonami doesn't sleep.
+
 Q: My shows have commercials already; can I use this to remove them?
 
 
@@ -963,7 +953,7 @@ Q: Can I request a new feature for the apps?
 
 Q: What's this ComBreakDirect thing and do I need it?
 
-  ComBreakDirect is our self-hosted HDHomeRun streaming server—think of it as building your own broadcast tower instead of renting space on someone else's. Do you need it? Nah, DizqueTV and Tunarr work great. But if you want maximum control, zero dependencies on external platforms, and the satisfaction of saying "I built my own Toonami channel from scratch," then ComBreakDirect is your jam. It handles everything: pre-rendered commercial breaks, XMLTV + M3U output, a slick landing page with copy-ready URLs, and an HDHomeRun endpoint that Plex and Jellyfin can both tune at the same time. The downsides? You're running your own server (more technical), and it's designed for cutless mode only. But if you're the type who builds Gundams instead of buying them, ComBreakDirect is calling your name.
+  ComBreakDirect is our self-hosted HDHomeRun streaming server—think of it as building your own broadcast tower instead of renting space on someone else's. Do you need it? Nah, DizqueTV and Tunarr work great. But if you want maximum control, zero dependencies on external platforms, the satisfaction of saying "I built my own Toonami channel from scratch," and channels that *never end*, then ComBreakDirect is your jam. It handles everything: pre-rendered commercial breaks, XMLTV + M3U output, a slick landing page with copy-ready URLs, an HDHomeRun endpoint that Plex and Jellyfin can both tune at the same time, and a built-in watchdog per channel that keeps generating new episodes whether you're watching or not—create the channel once and it grows forever. The downsides? You're running your own server (more technical), and it's designed for cutless mode only. But if you're the type who builds Gundams instead of buying them, ComBreakDirect is calling your name.
 
 Q: Does this only work for Toonami?
 

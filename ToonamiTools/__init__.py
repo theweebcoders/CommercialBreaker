@@ -19,5 +19,6 @@ from .FlexInjector import DizqueTVManager
 from .PlexToTunarr import PlexToTunarr
 from .CutlessFinalization import CutlessFinalizer
 from .ComBreakToComBreakDirect import ComBreakToComBreakDirect
+from .InfiniteChannelExtender import InfiniteChannelExtender
 from .BumpCalculator import BumpCalculator
 from .PostCutBumpFilter import PostCutBumpFilter

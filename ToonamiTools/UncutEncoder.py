@@ -1,5 +1,4 @@
 import os
-import re
 from API.utils.DatabaseManager import get_db_manager
 from API.utils.ErrorManager import get_error_manager
 from itertools import cycle
@@ -99,21 +98,14 @@ class UncutEncoder:
             )
             raise Exception("No episodes to process")
 
-        # Extract episode data with show, season, episode info
+        # Extract episode data with show, season, episode info via centralized parser
         episode_data = []
-        pattern = re.compile(r"/([^/]+)/Season (\d+)/[^/]+ - S(\d+)E(\d+)")
-
         for full_path in file_paths:
             normalized_path = os.path.normpath(full_path)
             if normalized_path.endswith((".mkv", ".mp4")):
-                match = pattern.search(normalized_path.replace('\\', '/'))
-                if match:
-                    # Extract show name from directory and strip any year in parentheses
-                    show_name = FilenameParser.strip_year_from_show_name(match[1])
-                    season = int(match[3])  # Use S number from pattern
-                    episode = int(match[4])  # Use E number from pattern
-                    # Store path, extracted info for sorting
-                    episode_data.append((normalized_path, show_name, season, episode))
+                parsed = FilenameParser.parse_episode_filename(os.path.basename(normalized_path))
+                if parsed:
+                    episode_data.append((normalized_path, parsed['show_name'], parsed['season'], parsed['episode']))
                 else:
                     episode_data.append((normalized_path, "", 0, 0))
 
@@ -123,16 +115,11 @@ class UncutEncoder:
         # Update file_paths and block_ids
         self.file_paths = []
         self.block_ids = []
-        for path, *_ in episode_data:
+        for path, show_name, season, episode in episode_data:
             self.file_paths.append(path)
-            match = pattern.search(path.replace('\\', '/'))
-            if match:
-                # Strip year from show name before creating BLOCK_ID
-                show_name = FilenameParser.strip_year_from_show_name(match[1])
+            if show_name:
                 block_id = show_name_mapper.to_block_id(show_name)
-                season = match[3]
-                episode = match[4]
-                self.block_ids.append(f"{block_id}_S{season.zfill(2)}E{episode.zfill(2)}")
+                self.block_ids.append(f"{block_id}_S{season:02d}E{episode:02d}")
             else:
                 self.block_ids.append("")
 

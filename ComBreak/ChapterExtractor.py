@@ -5,6 +5,7 @@ import json
 import config
 # Import the utility function directly
 from ComBreak.utils import get_executable_path
+from API.utils.ErrorManager import get_error_manager
 
 class ChapterExtractor:
     def __init__(self, input_handler):
@@ -119,8 +120,9 @@ class ChapterExtractor:
                 '-show_chapters',
                 video_file
             ]
-            output = subprocess.check_output(command).decode()
-            chapters_data = json.loads(output)
+            # Timeout protects against ffprobe hanging on corrupt files or slow network shares
+            result = subprocess.run(command, capture_output=True, text=True, timeout=30, check=True)
+            chapters_data = json.loads(result.stdout)
 
             # Extract start times of each chapter in seconds
             for chapter in chapters_data.get('chapters', []):
@@ -128,5 +130,11 @@ class ChapterExtractor:
                 end_time = float(chapter['end_time'])
                 chapters.append({'start': start_time, 'end': end_time})
         except Exception as e:
-            print(f"Failed to extract chapters for {video_file}. Error: {e}")
+            get_error_manager().send_warning(
+                source="ChapterExtractor",
+                operation="get_chapters",
+                message=f"Failed to extract chapters from {video_file}",
+                details=str(e),
+                suggestion="Verify the file is a valid video container; ffprobe may not support its codec or the file may be corrupted."
+            )
         return chapters

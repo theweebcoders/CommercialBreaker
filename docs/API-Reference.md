@@ -2327,8 +2327,11 @@ class PlexToTunarr:
 ### ComBreakDirect Integration
 ```python
 class ComBreakToComBreakDirect:
-    def __init__(self, table: str, channel_number: int, flex_duration: int | str,
-                 network: str, base_url: str, commercial_folder: str):
+    def __init__(self, table: str | None, channel_number: int | None,
+                 flex_duration: str | int | None, *,
+                 network: str | None = None, base_url: str | None = None,
+                 create_channel: bool = True, commercial_folder: str | None = None,
+                 infinite: bool = False, infinite_meta: dict | None = None):
         """
         Initialize ComBreakDirect channel creator
 
@@ -2338,41 +2341,195 @@ class ComBreakToComBreakDirect:
             flex_duration: Commercial break length (milliseconds or "MM:SS")
             network: Network name (e.g., "Toonami")
             base_url: ComBreakDirect server URL
+            create_channel: When False, only verify the server is reachable
             commercial_folder: Path to commercial break video files
+            infinite: When True, include `infinite=True` and `infinite_meta`
+                in the POST payload so LoadingDock arms a LineupExtender
+                watchdog for the channel. Set by
+                ``FrontEndLogic.create_toonami_channel`` for every
+                ComBreakDirect channel.
+            infinite_meta: Dict passed through to the channel's
+                ``_infinite_meta`` block. Should contain
+                ``toonami_version`` (key into ``TOONAMI_CONFIG_CONT``),
+                ``cutless_enabled``, and optionally ``commercial_folder``.
         """
 
-    def run(self) -> None:
+    def run(self) -> bool:
         """
         Push lineup to ComBreakDirect server:
-        1. Load cutless lineup from database
-        2. Parse flex duration
-        3. Build API payload with all lineup items
-        4. Check server health
-        5. POST payload to /channels endpoint
-        6. Log playlist and guide URLs
+        1. Wait for server health
+        2. Load lineup rows via ``load_lineup_rows``
+        3. If ``infinite=True``, call ``_seed_episode_cursor`` to populate
+           ``last_used_episode_block`` from the initial lineup BEFORE POSTing
+        4. POST payload to /channels endpoint
         """
 
-    def _load_lineup_from_database(self) -> pd.DataFrame:
-        """Load and validate cutless lineup table"""
+    def _seed_episode_cursor(self, lineup: list[dict]) -> None:
+        """
+        Pre-populate ``last_used_episode_block`` from the initial channel's
+        BLOCK_IDs so the very first extension picks up at E+1 of each show
+        instead of treating the channel as a fresh ShowScheduler run.
 
-    def _parse_flex_duration(self, flex_duration: int | str) -> int:
-        """
-        Convert flex duration to milliseconds
-        Accepts: 150000 (int) or "02:30" (string)
-        Returns: milliseconds (int)
-        """
-
-    def _build_payload(self, lineup_df: pd.DataFrame) -> dict:
-        """
-        Transform database rows to ComBreakDirect API format
-        Returns: {channel_number, network, lineup[], flex_duration, commercial_folder}
+        Show keys are derived via
+        ``show_name_mapper.clean(show_name_mapper.map(name), mode='matching')``
+        to match ShowScheduler's exact internal format. Existing cursor
+        entries are merged with max-by-BLOCK_ID — never rolls a cursor
+        backwards.
         """
 
-    def _check_server_health(self, max_retries: int = 30) -> None:
-        """Check if ComBreakDirect server is ready (raises on failure)"""
 
-    def _push_to_server(self, payload: dict) -> dict:
-        """POST payload to ComBreakDirect and return response"""
+def load_lineup_rows(table: str, db_manager=None) -> list[dict]:
+    """
+    Module-level helper. Load and normalize lineup rows from a SQLite
+    lineup table. Shared by ComBreakToComBreakDirect (initial channel
+    creation) and InfiniteChannelExtender (each extension chunk lives in
+    its own table).
+
+    Returns a list of normalized dicts:
+        {block_id, file_path, code, start_time, end_time, duration}
+    """
+
+
+class InfiniteChannelExtender:
+    """One-shot orchestrator that builds a single extension chunk.
+
+    Called by ``ComBreakDirect.docks.LineupExtender`` whenever its timer
+    fires. Runs ShowScheduler with ``continue_from_last_used_episode_block=True``
+    against a per-extension SQLite table, then CutlessFinalizer for cutless
+    channels, then returns the rows for LoadingDock to format.
+    """
+
+    def generate_chunk(self, channel_number: int,
+                       infinite_meta: dict) -> tuple[list[dict], str | None]:
+        """
+        Build a new lineup chunk.
+
+        Args:
+            channel_number: Used in the per-extension table name to avoid
+                cross-channel collisions.
+            infinite_meta: The channel's ``_infinite_meta`` dict. Required
+                key: ``toonami_version``. Optional: ``cutless_enabled``
+                (default True), ``extension_seq`` (current count of
+                completed extensions).
+
+        Returns:
+            (rows, output_table) where rows are in ``load_lineup_rows``
+            shape. Returns ``([], output_table)`` when ShowScheduler
+            produces an empty chunk (caller treats this as a soft failure
+            and disables infinite mode).
+
+        Raises:
+            RuntimeError on configuration error, missing output table,
+            or CutlessFinalizer failure.
+        """
+```
+
+### ComBreakDirect Server-Side Infinite Extension
+```python
+class LineupExtender:
+    """Per-channel ``threading.Timer``-based scheduler.
+
+    Spawned by ``FactoryFloor._maybe_spawn_extender`` for any channel
+    with ``_infinite_meta.enabled=True``. Arms a single timer for
+    ``(channel_end - now) - INFINITE_EXTEND_LEAD_MS`` (clamped to 0), and
+    reschedules itself after each extension.
+
+    Wall-clock based — fires whether anyone is streaming or not.
+    """
+
+    DEFAULT_EXTEND_LEAD_MS = 3 * 60 * 60 * 1000  # 3 hours
+    DEFAULT_MIN_FREE_DISK_BYTES = 2 * 1024 * 1024 * 1024  # 2 GiB
+    RETRY_AFTER_FAILURE_MS = 5 * 60 * 1000  # 5 min
+    MAX_CONSECUTIVE_FAILURES = 3
+
+    def __init__(self, factory_floor: "FactoryFloor", channel_number: int):
+        """Stores only the FactoryFloor reference (NOT LoadingDock — see
+        the ``loading_dock`` property for the lazy-lookup rationale)."""
+
+    @property
+    def loading_dock(self):
+        """Lazy lookup via ``self.factory_floor.loading_dock``. Avoids
+        the bootstrap race where FactoryFloor.__init__ spawns watchdogs
+        before LoadingDock.__init__ has finished assigning
+        ``self.factory_floor``."""
+
+    def start(self) -> None:
+        """Compute the next extension time and arm the timer.
+        Same name as the prior ``threading.Thread.start`` for backward
+        compatibility with FactoryFloor's spawn site."""
+
+    def cancel(self) -> None:
+        """Cancel any pending timer. Idempotent."""
+
+    def is_active(self) -> bool:
+        """Whether a future extension is still scheduled."""
+
+
+# FactoryFloor additions for infinite channels
+class FactoryFloor:
+    def extend_channel(self, channel_number: int,
+                       new_programs: list[dict]) -> int | None:
+        """Append-only growth path used by LineupExtender.
+
+        Takes the factory lock, calls ``programs.extend(new_programs)``
+        (never replaces or reorders — the Studio thread reads the same
+        list reference live), bumps ``_infinite_meta.extension_seq``,
+        stamps ``last_extension_at``, resets ``consecutive_failures``,
+        persists ``channels.json``.
+
+        Returns the new total program count, or ``None`` if the channel
+        no longer exists (e.g., deleted between extension build and
+        append).
+        """
+
+    def _maybe_spawn_extender(self, channel_data: dict) -> None:
+        """Spawn a LineupExtender if the channel has
+        ``_infinite_meta.enabled=True`` and FactoryFloor has a LoadingDock
+        back-reference. Idempotent — won't double-spawn. Called by
+        ``store_channel`` and ``_load_channels``."""
+
+
+# LoadingDock additions for infinite extension
+class LoadingDock:
+    def format_extension(self, lineup_data: list[dict],
+                         existing_channel_data: dict) -> list[dict]:
+        """Format a lineup chunk as program dicts whose ``start``/``stop``
+        ISO timestamps pick up immediately after the existing channel's
+        last program. Used by LineupExtender to splice extension chunks
+        onto a running channel without breaking timeline continuity.
+
+        Reuses ``_inject_commercials`` (with the channel's saved
+        ``flex_duration_ms``) and ``_format_programs`` (with anchor_time
+        set to the existing tail's stop time).
+        """
+
+    def _format_programs(self, lineup_data: list[dict],
+                         anchor_time: datetime) -> list[dict]:
+        """Inner program-builder extracted from ``_format_for_streaming``
+        so ``format_extension`` can reuse the timing/seek logic while
+        anchoring at an arbitrary moment instead of "now"."""
+
+
+# CutlessFinalizer addition for per-chunk finalization
+class CutlessFinalizer:
+    def run_for_table(self, input_table: str, output_table: str) -> bool:
+        """Finalize a single lineup table to a specified cutless output
+        table. Used by InfiniteChannelExtender to finalize one extension
+        chunk without touching the rest of the project's lineup tables.
+
+        Returns True on success, False on skip/failure (e.g., missing
+        input table, validation failure, transient finalization error).
+        Existing ``run()`` behavior is unchanged — it still scans every
+        ``lineup_v*`` table when called with no args.
+        """
+
+
+# Merger fix — first-time continuation cursor init
+# In ShowScheduler.__init__, when continue_from_last_used_episode_block=True
+# AND the last_used_episode_block table does NOT exist, the dict is now
+# initialized to {} (was previously left uninitialized, causing AttributeError
+# on first call to get_next_episode_block). This is the fix for the documented
+# "must run prepare twice the first time" quirk in the README FAQ.
 ```
 
 ## Configuration APIs

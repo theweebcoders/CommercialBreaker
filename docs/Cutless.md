@@ -35,14 +35,9 @@ Naruto - S01E01.mkv
 
 ## Important Caveats
 
-### 1. DizqueTV Fork Requirement
+### 1. DizqueTV Version Requirement
 
-**You must use our fork of DizqueTV**: [https://github.com/theweebcoders/dizquetv](https://github.com/theweebcoders/dizquetv)
-
-While the official DizqueTV dev branch theoretically supports the timestamp features, it hasn't accepted all our patches and may have compatibility issues. Our fork is:
-- Constantly updated with the latest Cutless Mode improvements
-- Thoroughly tested with CommercialBreaker
-- Guaranteed to work with all Cutless features
+Cutless Mode requires DizqueTV 1.7+ This version includes the timestamp support Cutless Mode depends on.
 
 ### 2. Beta Status
 
@@ -54,17 +49,21 @@ Cutless Mode is currently in beta. What this means:
 
 ### 3. Platform Limitations
 
-- **DizqueTV Only**: Currently only works with our DizqueTV fork
+- **DizqueTV 1.7+ or ComBreakDirect**: Supported platforms for Cutless Mode
 - **Not Compatible with Tunarr**: The required timestamp features aren't available
 - **Future Platform Support**: We're exploring adding support for other platforms
 
+### 4. ComBreakDirect + Cutless Mode Pairing
+
+Cutless Mode and ComBreakDirect are designed together. ComBreakDirect channels are *required* to run in Cutless Mode — the streaming server reads start/end timestamps directly from the cutless database tables to perform virtual cuts at playback time. As a side effect, all the infrastructure that makes infinite ComBreakDirect channels work (the `LineupExtender` watchdog, `InfiniteChannelExtender`'s per-extension table generation, `LoadingDock.format_extension`'s anchored timestamp insertion) operates on cutless data exclusively. If you're using ComBreakDirect, you're using Cutless Mode whether you set the checkbox or not — and you get the auto-extending channel as a bonus.
+
 ## Installation & Setup
 
-### Step 1: Install Our DizqueTV Fork
+### Step 1: Install DizqueTV 1.7+
 
 ```bash
-# Clone our fork
-git clone https://github.com/theweebcoders/dizquetv.git
+# Clone the official DizqueTV repo
+git clone https://github.com/vexorian/dizquetv.git
 cd dizquetv
 ```
 then either 
@@ -120,7 +119,7 @@ CommercialBreaker has several processing mode checkboxes that interact with each
 
 #### For Docker
 
-1. Ensure you have our DizqueTV fork running
+1. Ensure you have DizqueTV 1.7+ running
 2. Start CommercialBreaker normally as cutless is enabled by default
 
 ```bash
@@ -135,7 +134,7 @@ docker run -p 8081:8081 \
 
 #### Unraid Installation
 
-Same as Docker, just ensure you have our DizqueTV fork running in Unraid. Use the Unraid Community App Store to install CommercialBreaker, and it will automatically enable Cutless Mode.
+Same as Docker, just ensure you have DizqueTV 1.7+ running in Unraid. Use the Unraid Community App Store to install CommercialBreaker, and it will automatically enable Cutless Mode.
 
 ## Usage Workflow
 
@@ -169,7 +168,7 @@ Same as Docker, just ensure you have our DizqueTV fork running in Unraid. Use th
 
 ### DizqueTV EPG Configuration
 
-When using our DizqueTV fork with Cutless Mode, we recommend optimizing your EPG (Electronic Program Guide) settings for the best experience:
+When using DizqueTV 1.7+ with Cutless Mode, we recommend optimizing your EPG (Electronic Program Guide) settings for the best experience:
 
 1. **Navigate to Channel Settings → EPG Tab**
 
@@ -212,11 +211,11 @@ Traditional mode would require duplicating your entire anime collection in cut f
 ### "Cutless Mode disabled: Platform not supported"
 - Ensure you selected DizqueTV, not Tunarr
 - Verify your DizqueTV URL is accessible
-- Check you're using our fork, not standard DizqueTV
-- **Automatic Detection**: If the Cutless option is missing on the CommercialBreaker page, you are using the wrong DizqueTV version. Switch to our fork to enable Cutless options.
+- Check you're using DizqueTV 1.7+
+- **Automatic Detection**: If the Cutless option is missing on the CommercialBreaker page, verify your DizqueTV version.
 
 ### Channel shows full episodes instead of segments
-- Confirm you're using our DizqueTV fork
+- Confirm you're using DizqueTV 1.7+
 - Check that Cutless Mode was enabled during processing
 - Verify the `_cutless` tables exist in your database
 
@@ -228,7 +227,7 @@ Traditional mode would require duplicating your entire anime collection in cut f
 ## Best Practices
 
 1. **Start Small**: Test with a few episodes first
-2. **Verify Fork**: Always use [our DizqueTV fork](https://github.com/theweebcoders/dizquetv)
+2. **Verify DizqueTV Version**: Use DizqueTV 1.7+
 3. **Check Status**: Look for "Cutless Mode enabled" in the logs
 4. **Keep Originals**: Even though Cutless preserves files, maintain backups
 5. **Report Issues**: Help us improve by reporting beta issues
@@ -253,7 +252,6 @@ While Cutless Mode is in beta, it's stable enough for daily use and offers compe
 
 - Limited on storage space
 - Want faster processing
-- Willing to use our DizqueTV fork
 
 Give it a try - we think you'll agree it's the future of commercial injection!
 

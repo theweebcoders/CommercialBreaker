@@ -7,6 +7,7 @@ from typing import Callable, Optional
 from unidecode import unidecode
 from .utils import show_name_mapper
 from .utils.DirectoryScanner import fast_video_scan
+from .utils.FilenameParser import FilenameParser
 from API.utils import get_db_manager
 from API.utils.ErrorManager import get_error_manager
 from API.utils.NetworkUtils import CurlHttpClient, WikipediaTableParser, Timeout, HTTPError, RequestException
@@ -342,16 +343,23 @@ class ToonamiChecker:
                 return {}
 
             toonami_episodes = {}
+            specials_skipped = 0
 
             # Include ALL shows from video library
             for show in video_files:
                 for episode in video_files[show]:
+                    parsed = FilenameParser.parse_episode_filename(episode)
+                    if parsed and parsed['season'] == 0:
+                        specials_skipped += 1
+                        continue
                     full_path = os.path.join(folder_path, episode)
                     normalized_path = os.path.normpath(full_path)
                     toonami_episodes[(show, episode)] = normalized_path
 
             self._status(f"Found {len(video_files)} unique shows in your library")
             self._status(f"Found {len(toonami_episodes)} total episodes in Networkless mode")
+            if specials_skipped:
+                self._status(f"Skipped {specials_skipped} S00 specials (OVAs/recaps/movies don't fit commercial-break detection)")
 
             if len(toonami_episodes) == 0:
                 self.error_manager.send_error_level(
@@ -392,17 +400,24 @@ class ToonamiChecker:
         if video_files:
             print(f"First 5 shows from your library: {list(video_files.keys())[:5]}")
 
+        specials_skipped = 0
         for show in video_files:
             # Use the show_name_mapper to normalize and map video file titles
             normalized_show = show_name_mapper.normalize_and_map(show)
 
             if normalized_show in normalized_toonami_shows:
                 for episode in video_files[show]:
+                    parsed = FilenameParser.parse_episode_filename(episode)
+                    if parsed and parsed['season'] == 0:
+                        specials_skipped += 1
+                        continue
                     full_path = os.path.join(folder_path, episode)
                     normalized_path = os.path.normpath(full_path)
                     toonami_episodes[(show, episode)] = normalized_path
 
         self._status(f"Found matches for {len(toonami_episodes)} episodes.")
+        if specials_skipped:
+            self._status(f"Skipped {specials_skipped} S00 specials (OVAs/recaps/movies don't fit commercial-break detection)")
         
         if len(toonami_episodes) == 0:
             self.error_manager.send_error_level(

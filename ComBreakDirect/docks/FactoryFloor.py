@@ -15,6 +15,7 @@ NOTE: FactoryFloor does the work - UnloadingDock just hands it to clients.
 import json
 import threading
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict
 
@@ -26,11 +27,22 @@ from ToonamiTools.utils.FilenameParser import FilenameParser
 class FactoryFloor:
     """Stores channel data (INTERNAL USE - accessed only by LoadingDock and UnloadingDock)."""
 
-    def __init__(self, base_url: str, storage_path=None, segment_root=None, break_renderer=None):
+    def __init__(self, base_url: str, storage_path=None, segment_root=None, break_renderer=None, loading_dock=None):
         self.base_url = base_url
         self.channels: Dict[str, dict] = {}  # Channel data by number
         self._lock = threading.Lock()
         self.cleanup_manager = None
+        # Back-reference to the LoadingDock that owns us — used by the
+        # infinite-channel LineupExtender, which needs LoadingDock's
+        # format_extension method to anchor new programs to the existing
+        # timeline. None when running headless (e.g., tests).
+        self.loading_dock = loading_dock
+        # Per-channel LineupExtender instances (one per infinite channel).
+        # Each one wraps a ``threading.Timer`` scheduled for the channel's
+        # next end-of-runway. Keyed by channel-number string. Spawned lazily
+        # by ``_maybe_spawn_extender`` during ``store_channel`` and
+        # ``_load_channels``.
+        self._extenders: Dict[str, object] = {}
 
         # Set up storage
         if storage_path:
@@ -51,6 +63,12 @@ class FactoryFloor:
                 cleanup_interval_minutes=5
             )
 
+        # Spawn watchdogs for any infinite channels recovered from disk.
+        # Happens after _load_channels has run so the channel dicts already
+        # exist in self.channels.
+        for channel_data in self.channels.values():
+            self._maybe_spawn_extender(channel_data)
+
         print(f"[FACTORY_FLOOR] Ready with storage: {self.storage_path}")
 
     def store_channel(self, channel_data):
@@ -63,7 +81,95 @@ class FactoryFloor:
             self._save_channels()
 
         print(f"[FACTORY_FLOOR] Channel {channel_number} stored with {len(channel_data['programs'])} programs")
+
+        # If this is an infinite channel, spawn the LineupExtender watchdog.
+        # Done outside the lock so the new thread can immediately take the
+        # lock if needed (e.g., for its initial extend_channel call).
+        self._maybe_spawn_extender(channel_data)
+
         return channel_number
+
+    def _maybe_spawn_extender(self, channel_data):
+        """Spawn a LineupExtender watchdog for ``channel_data`` if eligible.
+
+        Eligibility: the channel must have ``_infinite_meta.enabled`` truthy
+        and the FactoryFloor must have a LoadingDock back-reference. Idempotent
+        — if a live watchdog already exists for the channel, this is a no-op.
+        """
+        meta = channel_data.get('_infinite_meta') or {}
+        if not meta.get('enabled'):
+            return
+        if self.loading_dock is None:
+            print(
+                f"[FACTORY_FLOOR] Cannot spawn LineupExtender for channel "
+                f"{channel_data.get('number')} — no LoadingDock reference"
+            )
+            return
+
+        channel_key = str(channel_data['number'])
+        existing = self._extenders.get(channel_key)
+        if existing is not None and existing.is_active():
+            return
+
+        # Local import to avoid an import-time cycle between FactoryFloor
+        # and LineupExtender via LoadingDock.
+        from .LineupExtender import LineupExtender
+
+        # Pass the FactoryFloor itself (not the LoadingDock) — at this point
+        # we may be executing inside FactoryFloor.__init__ which was called
+        # from LoadingDock.__init__'s ``self.factory_floor = FactoryFloor(...)``
+        # assignment, so ``self.loading_dock.factory_floor`` does not yet
+        # exist as an attribute. LineupExtender reads loading_dock lazily
+        # off the FactoryFloor when its timer actually fires, by which time
+        # LoadingDock has finished constructing.
+        extender = LineupExtender(self, channel_data['number'])
+        self._extenders[channel_key] = extender
+        extender.start()
+        print(
+            f"[FACTORY_FLOOR] Armed LineupExtender for channel "
+            f"{channel_data['number']}"
+        )
+
+    def extend_channel(self, channel_number, new_programs):
+        """Append additional programs to an existing channel's lineup.
+
+        Used by the infinite-channel LineupExtender to top up a running
+        channel without disturbing the Studio thread that's reading the
+        same ``programs`` list. The list is append-only by contract — never
+        replace ``channel_data['programs']`` with a new list, and never
+        reorder or remove entries; Studio's ``programs[current_index % len]``
+        only stays coherent under that invariant.
+
+        Returns the new total program count, or ``None`` if the channel is
+        unknown.
+        """
+        if not new_programs:
+            return None
+
+        channel_key = str(channel_number)
+
+        with self._lock:
+            channel_data = self.channels.get(channel_key)
+            if channel_data is None:
+                print(f"[FACTORY_FLOOR] Cannot extend missing channel {channel_number}")
+                return None
+
+            programs = channel_data.setdefault('programs', [])
+            programs.extend(new_programs)
+            new_length = len(programs)
+
+            meta = channel_data.setdefault('_infinite_meta', {})
+            meta['extension_seq'] = int(meta.get('extension_seq') or 0) + 1
+            meta['last_extension_at'] = datetime.now(timezone.utc).isoformat()
+            meta['consecutive_failures'] = 0  # reset on successful extend
+
+            self._save_channels()
+
+        print(
+            f"[FACTORY_FLOOR] Extended channel {channel_number} by "
+            f"{len(new_programs)} programs (now {new_length} total)"
+        )
+        return new_length
 
     def get_channel(self, channel_number):
         """Get channel data (used internally by UnloadingDock)."""
@@ -345,9 +451,16 @@ class FactoryFloor:
     def _save_channels(self):
         """File Manager Machine - Save channels to disk."""
         try:
+            # Strip ephemeral _runtime keys (e.g., Studio's current_index)
+            # before persisting — Studio re-derives position from UTC time
+            # on restart, so the on-disk value would be stale and misleading.
+            sanitized = {
+                key: {k: v for k, v in chan.items() if k != '_runtime'}
+                for key, chan in self.channels.items()
+            }
             data = {
                 'version': 1,
-                'channels': self.channels
+                'channels': sanitized
             }
 
             # Atomic write

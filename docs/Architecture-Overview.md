@@ -394,7 +394,21 @@ Lineup Generation → Platform Channel Creation → Playback Optimization
 
 ```
 ComBreakToComBreakDirect → ComBreakDirect Server → Live MPEG-TS Stream → Plex/Clients
+                                  │
+                                  └─▶ LineupExtender (per channel)
+                                         │  threading.Timer
+                                         │  fires INFINITE_EXTEND_LEAD_MS
+                                         │  before channel end
+                                         ▼
+                                  InfiniteChannelExtender
+                                  (ShowScheduler + CutlessFinalizer)
+                                         │
+                                         ▼
+                                  FactoryFloor.extend_channel
+                                  (append-only, persists channels.json)
 ```
+
+ComBreakDirect channels are never finite. The LineupExtender's per-channel timer fires on wall-clock time (independent of whether a client is streaming) and appends a fresh ~40 hour chunk before the existing one runs out. The channel survives indefinitely until the LineupExtender is explicitly disabled or `_infinite_meta.enabled` is set to false on the channel.
 
 ---
 
@@ -411,6 +425,7 @@ ComBreakDirect is an optional self-contained streaming server using Studio → F
 - **Commercial Injection**: Server-side ad break management with pre-rendering
 - **Intelligent Audio Selection**: Configurable audio track selection (defaults to English for Toonami)
 - **Auto Lifecycle**: Studio and broadcast FFmpeg start/stop based on client connections
+- **Infinite Channel Extension**: Per-channel `threading.Timer` arms ahead of channel end, runs ShowScheduler+CutlessFinalizer to append the next chunk, then reschedules — wall-clock based
 
 ### ComBreakDirect Components
 
@@ -448,6 +463,14 @@ ComBreakDirect is an optional self-contained streaming server using Studio → F
   │  • configuration - Path resolution                         │
   └─────────────────────────────────────────────────────────────┘
 
+  ┌─────────────────────────────────────────────────────────────┐
+  │   Infinite Channel Extension (docks/ + ToonamiTools/)       │
+  │  • LineupExtender (docks/) - Per-channel threading.Timer   │
+  │    watchdog, fires before channel end                       │
+  │  • InfiniteChannelExtender (ToonamiTools/) - Builds one    │
+  │    extension chunk via ShowScheduler + CutlessFinalizer    │
+  └─────────────────────────────────────────────────────────────┘
+
   Broadcasting Architecture (Unloading Dock):
 
   Studio Thread → FIFO → Broadcast FFmpeg → BroadcastTower → Antennas
@@ -457,14 +480,16 @@ ComBreakDirect is an optional self-contained streaming server using Studio → F
 ```
 
 **Key Features**:
-- **Loading Dock** (`docks/LoadingDock.py`): Processes cutless lineup data, injects commercials between bumps, pre-renders breaks
-- **Factory Floor** (`docks/FactoryFloor.py`): Generates M3U8 playlists and XMLTV guides, stores channel configurations
+- **Loading Dock** (`docks/LoadingDock.py`): Processes cutless lineup data, injects commercials between bumps, pre-renders breaks. `format_extension` reuses the program-builder to splice extension chunks onto the existing channel timeline.
+- **Factory Floor** (`docks/FactoryFloor.py`): Generates M3U8 playlists and XMLTV guides, stores channel configurations. `extend_channel` appends new programs under the factory lock; `_maybe_spawn_extender` arms a LineupExtender per infinite channel at `store_channel` and on `_load_channels` restart.
 - **Unloading Dock** (`docks/UnloadingDock.py`): Manages studio threads, broadcast FFmpeg processes, and BroadcastTower distribution
 - **BroadcastTower** (`utilities/BroadcastTower.py`): Multi-client streaming engine with Antenna pattern
 - **WebUI** (`UI/WebUI.py`): Landing page with setup instructions and copy-to-clipboard buttons
 - **Audio Selector** (`utilities/AudioTrackSelector.py`): Configurable audio track selection (defaults to English)
 - **Commercial Renderer** (`utilities/CommercialBreakRenderer.py`): Pre-renders breaks to eliminate startup delays
 - **Cleanup Manager** (`utilities/CleanupManager.py`): Automatically removes old pre-rendered breaks
+- **Lineup Extender** (`docks/LineupExtender.py`): Per-channel `threading.Timer` scheduler, fires `INFINITE_EXTEND_LEAD_MS` (default 3h) before the last program ends, then reschedules after each extension
+- **Infinite Channel Extender** (`ToonamiTools/InfiniteChannelExtender.py`): One-shot orchestrator the LineupExtender calls — runs ShowScheduler with `continue_from_last_used_episode_block=True` against a per-extension SQLite table, then CutlessFinalizer, then returns the rows for LoadingDock to format
 
 **Technical Architecture**:
 - **Studio Thread**: Calculates channel position, spawns FFmpeg per program with normalization, writes to FIFO
@@ -473,13 +498,17 @@ ComBreakDirect is an optional self-contained streaming server using Studio → F
 - **Antenna Buffer**: Per-client 132-chunk buffer (~2 seconds) with rate limiting
 - **Auto Lifecycle**: Studio and broadcast FFmpeg only run when clients connected
 - **Real-time Sync**: All clients synchronized to same channel position
+- **Wall-Clock Extension**: LineupExtender's timer fires on real time, independent of playback — channels grow even when no client is streaming. The watchdog reads the last program's `stop` ISO timestamp, not Studio's `current_index`.
+- **Cursor-Driven Continuation**: `ComBreakToComBreakDirect._seed_episode_cursor` populates `last_used_episode_block` from the initial lineup before the channel is POSTed, so the first extension picks up at E+1 of each show (not the same E0 again, not a random jump)
+- **Append-Only Growth**: `FactoryFloor.extend_channel` only ever calls `programs.extend()` — never replaces or reorders — so the Studio's `programs[i % len(programs)]` reads stay coherent across the seam without read-side locking
 
 **Integration Points**:
-- `ComBreakToComBreakDirect` - Pushes cutless lineup to server via REST API
+- `ComBreakToComBreakDirect` - Pushes cutless lineup to server via REST API; sets `infinite=True` + `infinite_meta` on the payload for ComBreakDirect channels
 - `LogicController._ensure_combreakdirect_server()` - Auto-starts server
 - Flask REST API for channel management and streaming
 - HDHomeRun discovery for Plex DVR integration
 - WebUI served at root path for easy access
+- `config.INFINITE_EXTEND_LEAD_MS` - Tunable lead time (default 10 800 000 ms = 3h) for when the LineupExtender fires ahead of channel end
 
 For detailed ComBreakDirect documentation, see [ComBreakDirect.md](ComBreakDirect.md).
 

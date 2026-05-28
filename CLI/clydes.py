@@ -238,13 +238,10 @@ class ContentPreparer:
         time.sleep(2)
 
     def _handle_additional_options(self):
-        if self.app.safe_input(
-           "Move your filtered shows to the working folder to speed up processing? (y/n): "
-        ).strip().lower() == 'y':
-            self.logic.move_filtered()
-            while not self.logic.is_filtered_complete():
-                time.sleep(1)
-            self.logic.reset_filter_event()
+        self.logic.on_continue_fourth()
+        while not self.logic.is_filtered_complete():
+            time.sleep(1)
+        self.logic.reset_filter_event()
 
 class ToonamiManager:
     def __init__(self, logic, app):

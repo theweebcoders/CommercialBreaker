@@ -67,14 +67,6 @@ class DurationManager:
         except Exception as e:
             raise Exception(f"Failed to extract duration from {file_path}: {str(e)}") from e
 
-    def clear_cache(self):
-        """Clear the duration cache."""
-        self.duration_cache.clear()
-
-    def get_cache_size(self):
-        """Get the number of cached durations."""
-        return len(self.duration_cache)
-
 
 def get_duration_manager():
     """Get the singleton DurationManager instance."""

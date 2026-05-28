@@ -264,6 +264,10 @@ class UnloadingDock:
             with open(fifo_path, 'wb', buffering=0) as fifo:
                 first_program = True
                 while True:
+                    # Publish the active index so background watchers (e.g. the
+                    # infinite-channel LineupExtender) can read where the channel
+                    # is right now without touching the studio thread.
+                    channel_data.setdefault('_runtime', {})['current_index'] = current_index
                     program = programs[current_index % len(programs)]
 
                     # Calculate seek and duration

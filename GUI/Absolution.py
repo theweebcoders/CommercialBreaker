@@ -628,6 +628,18 @@ class BasePage(gui.Container):
             
         # Update the status text
         self.status_label.set_text(status_text)
+        try:
+            status_text_json = json.dumps(status_text)
+            self.app.execute_javascript(f"""
+            (function() {{
+                const statusEl = document.getElementById('{self.status_label.identifier}');
+                if (statusEl) {{
+                    statusEl.innerText = {status_text_json};
+                }}
+            }})();
+            """)
+        except Exception as exc:
+            print(f"Status DOM update failed: {exc}")
         
         # Apply appropriate styling based on whether this is an error
         if is_error:
@@ -684,6 +696,27 @@ class BasePage(gui.Container):
             document.head.appendChild(style);
         }
         """)
+
+    def show_combreakdirect_completion_dialog(self, base_url: str) -> None:
+        if getattr(self, '_cbd_completion_dialog_open', False):
+            return
+
+        dialog = gui.GenericDialog(
+            "Toonami Channel Created!",
+            f"Your ComBreakDirect channel is ready to stream.\n\nOpen the Web UI at:\n{base_url}"
+        )
+        self._cbd_completion_dialog_open = True
+
+        def on_confirm(emitter):
+            self.app.execute_javascript(f"window.open('{base_url}', '_blank')")
+            self._cbd_completion_dialog_open = False
+
+        def on_cancel(emitter):
+            self._cbd_completion_dialog_open = False
+
+        dialog.set_on_confirm_dialog_listener(on_confirm)
+        dialog.set_on_cancel_dialog_listener(on_cancel)
+        dialog.show(self.app)
 
     def add_page_title(self, container, title_text):
         page_title = gui.Label(title_text, style=Styles.title_label_style)
@@ -1501,9 +1534,9 @@ class NavigationBar(gui.Container):
         })
         
         # Back button - using add_button instead of add_button_with_style
-        back_button = self.add_button(left_container, "← Back", self.on_back_button_click)
+        self.back_button = self.add_button(left_container, "← Back", self.on_back_button_click)
         # Apply navigation style manually
-        back_button.style.update(Styles.navigation_button_style)
+        self.back_button.style.update(Styles.navigation_button_style)
         
         # Right container for home/start over button
         right_container = gui.HBox(style={
@@ -1513,9 +1546,9 @@ class NavigationBar(gui.Container):
         })
 
         # Home/Start Over button - using add_button instead of add_button_with_style
-        home_button = self.add_button(right_container, "↻ Start Over", self.on_home_button_click)
+        self.home_button = self.add_button(right_container, "↻ Start Over", self.on_home_button_click)
         # Apply navigation style manually
-        home_button.style.update(Styles.navigation_button_style)
+        self.home_button.style.update(Styles.navigation_button_style)
 
         # Center container for progress indicators
         center_container = gui.HBox(style={
@@ -1533,6 +1566,8 @@ class NavigationBar(gui.Container):
         self.append(left_container)
         self.append(center_container)
         self.append(right_container)
+
+        self.set_navigation_enabled(not getattr(self.app, 'navigation_locked', False))
     
     def create_page_indicators(self, container):
         sentinel = object()
@@ -1546,12 +1581,15 @@ class NavigationBar(gui.Container):
         )
 
         if platform_type == 'combreakdirect':
+            # Page7 ("Additional Channels" / continuation) is omitted —
+            # ComBreakDirect channels auto-extend forever via the
+            # LineupExtender watchdog, so the manual continuation flow has
+            # nothing to do.
             pages = [
                 {'id': 'Page1', 'title': 'Choose Platform', 'optional': False, 'visual_num': 1},
                 {'id': 'Page4', 'title': 'Content Prep', 'optional': False, 'visual_num': 2},
                 {'id': 'Page5', 'title': 'Commercial Breaker', 'optional': False, 'visual_num': 3},
                 {'id': 'Page6', 'title': 'Channel Creation', 'optional': False, 'visual_num': 4},
-                {'id': 'Page7', 'title': 'Additional Channels', 'optional': False, 'visual_num': 5},
             ]
         elif platform_type is None:
             pages = [
@@ -1629,9 +1667,16 @@ class NavigationBar(gui.Container):
 
     def on_indicator_click(self, widget):
         # Navigate to the clicked page
+        if getattr(self.app, 'navigation_locked', False):
+            return
         page_id = widget.attributes.get('page_id')
         if page_id:
             self.app.set_current_page(page_id)
+
+    def set_navigation_enabled(self, enabled: bool) -> None:
+        for button in (self.back_button, self.home_button):
+            if button and hasattr(button, 'set_enabled'):
+                button.set_enabled(enabled)
     
     # Add the add_button method to NavigationBar (similar to the one in BasePage)
     def add_button(self, container, text, onclick_handler):
@@ -2209,11 +2254,7 @@ class Page4(BasePage):
         self.logic.move_filtered(self.filter_mode == "prepopulate")
 
     def on_continue_button_click(self, widget):
-        # Always prepopulate selection for ComBreakDirect or cutless mode
-        if self.logic._get_data("platform_type") == 'combreakdirect' or FlagManager.cutless:
-            self.filter_mode = "prepopulate"
-            self.logic.move_filtered(True)
-        self.logic._broadcast_status_update("Idle")
+        self.logic.on_continue_fourth()
         self.app.set_current_page('Page5')
 
     def refresh_platform_type(self):
@@ -2259,6 +2300,7 @@ class Page4(BasePage):
             self.prepare_button.set_enabled(False)
 
         def run_prepare_work():
+            self.logic._set_operation_state(True, "prepare_content")
             try:
                 working_folder = self.logic._get_data("working_folder")
                 anime_folder = self.logic._get_data("anime_folder")
@@ -2285,6 +2327,7 @@ class Page4(BasePage):
                 print(exc)
                 self.logic._broadcast_status_update(f"Prepare content failed: {exc}")
             finally:
+                self.logic._set_operation_state(False, "prepare_content")
                 if hasattr(self, 'prepare_button'):
                     self.prepare_button.set_enabled(True)
 
@@ -2293,6 +2336,7 @@ class Page4(BasePage):
 
     def prepare_content_continue(self):
         self.logic = LogicController()
+        self.logic._set_operation_state(True, "prepare_content_continue")
         # Remove container from UI
         self.main_container.remove_child(self.selection_container)
         
@@ -2321,39 +2365,42 @@ class Page4(BasePage):
             {'input': 'multibumps_v8_data_reordered', 'output': 'lineup_v8_uncut'},
             {'input': 'multibumps_v9_data_reordered', 'output': 'lineup_v9_uncut'},
         ]
-        
-        uncut_encoder_out = 'uncut_encoded_data'
-        bump_folder = self.logic._get_data("bump_folder")
-        lineup_prep = ToonamiTools.MediaProcessor(bump_folder)
-        easy_encoder = ToonamiTools.ToonamiEncoder()
-        uncutencoder = ToonamiTools.UncutEncoder()
-        ml = ToonamiTools.Multilineup()
-        merger = ToonamiTools.ShowScheduler(uncut=True)
-        
-        lineup_prep.run()
-        easy_encoder.encode_and_save()
-        ml.reorder_all_tables()
-        uncutencoder.run()
-        
-        # Check which reordered tables actually exist and run merger only for those
-        self.logic._broadcast_status_update("Creating lineups for available versions...")
-        versions_processed = 0
-        
-        for config in merger_configs:
-            if self.logic._check_table_exists(config['input']):
-                self.logic._broadcast_status_update(f"Processing {config['input']}...")
-                merger.run(config['input'], uncut_encoder_out, config['output'])
-                versions_processed += 1
+
+        try:
+            uncut_encoder_out = 'uncut_encoded_data'
+            bump_folder = self.logic._get_data("bump_folder")
+            lineup_prep = ToonamiTools.MediaProcessor(bump_folder)
+            easy_encoder = ToonamiTools.ToonamiEncoder()
+            uncutencoder = ToonamiTools.UncutEncoder()
+            ml = ToonamiTools.Multilineup()
+            merger = ToonamiTools.ShowScheduler(uncut=True)
+
+            lineup_prep.run()
+            easy_encoder.encode_and_save()
+            ml.reorder_all_tables()
+            uncutencoder.run()
+
+            # Check which reordered tables actually exist and run merger only for those
+            self.logic._broadcast_status_update("Creating lineups for available versions...")
+            versions_processed = 0
+
+            for config in merger_configs:
+                if self.logic._check_table_exists(config['input']):
+                    self.logic._broadcast_status_update(f"Processing {config['input']}...")
+                    merger.run(config['input'], uncut_encoder_out, config['output'])
+                    versions_processed += 1
+                else:
+                    print(f"Skipping {config['input']} - table does not exist")
+
+            if versions_processed == 0:
+                error_msg = "ERROR: No multibump reordered tables found. Please add multi-show bumps and try again."
+                self.logic._broadcast_status_update(error_msg)
+                print("No multibump tables available for lineup creation")
             else:
-                print(f"Skipping {config['input']} - table does not exist")
-        
-        if versions_processed == 0:
-            error_msg = "ERROR: No multibump reordered tables found. Please add multi-show bumps and try again."
-            self.logic._broadcast_status_update(error_msg)
-            print("No multibump tables available for lineup creation")
-        else:
-            # Update status when complete with version count
-            self.logic._broadcast_status_update(f"Content preparation complete! Created {versions_processed} lineup versions.")
+                # Update status when complete with version count
+                self.logic._broadcast_status_update(f"Content preparation complete! Created {versions_processed} lineup versions.")
+        finally:
+            self.logic._set_operation_state(False, "prepare_content_continue")
 
     def display_show_selection(self, unique_show_names, easy_checker, toonami_episodes):
         # Sort the list alphabetically (case-insensitive)
@@ -3073,7 +3120,8 @@ class Page5(BasePage):
         
         # Update status display with task start info
         self.update_status(f"Started task: {task_name}")
-        
+
+        self.logic._set_operation_state(True, task_name)
         try:
             # Run the appropriate task with progress callback
             if task_name == "Detect Black Frames":
@@ -3110,6 +3158,8 @@ class Page5(BasePage):
             error_message = f"Error in {task_name}: {str(e)}"
             self.update_status(error_message)
             print(error_message)
+        finally:
+            self.logic._set_operation_state(False, task_name)
 
     def done_cut_videos(self, task_name):
         self.update_status(f"{task_name} - Done!")
@@ -3246,7 +3296,13 @@ class Page6(BasePage):
 
         # Remove individual status label since we now use the global one in BasePage
 
-        # Continue button
+        # Info note for ComBreakDirect users — surfaced/hidden by check_platform_type.
+        self.infinite_info_label = self.add_label(
+            self.main_container,
+            "This channel will extend automatically and never end.",
+        )
+
+        # Continue button (hidden for combreakdirect where Page 7 is unreachable)
         self.continue_button = self.add_button_with_style(self.main_container, "Continue", self.on_continue_button_click, 'secondary')
         # Now that all widgets are created, check platform type
         self.check_platform_type()
@@ -3302,6 +3358,16 @@ class Page6(BasePage):
         if hasattr(self, 'get_plex_timestamps_button'):
             self.get_plex_timestamps_button.style['display'] = display_value
 
+        # ComBreakDirect channels auto-extend forever via the LineupExtender,
+        # so Page 7 (manual continuation) doesn't apply. Hide the Continue
+        # button and surface a note explaining the new behavior. Other
+        # platforms keep the existing manual continuation flow.
+        is_combreakdirect = platform_type == 'combreakdirect'
+        if hasattr(self, 'continue_button'):
+            self.continue_button.style['display'] = 'none' if is_combreakdirect else 'block'
+        if hasattr(self, 'infinite_info_label'):
+            self.infinite_info_label.style['display'] = 'block' if is_combreakdirect else 'none'
+
     def refresh_platform_info(self):
         """Preload saved channel configuration when returning to this page"""
         # Preload channel number
@@ -3347,13 +3413,7 @@ class Page6(BasePage):
             if "Toonami channel created!" in status or "New Toonami channel created!" in status or "channel created" in status.lower():
                 # Show Web UI link after completion (for both Docker and non-Docker)
                 base_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
-                self.app.execute_javascript(f"""
-                    setTimeout(function() {{
-                        if (confirm('✓ Toonami Channel Created!\\n\\nYour ComBreakDirect channel is ready to stream.\\n\\nClick OK to open the Web UI in a new tab.')) {{
-                            window.open('{base_url}', '_blank');
-                        }}
-                    }}, 500);
-                """)
+                self.show_combreakdirect_completion_dialog(base_url)
 
         self.logic.subscribe_to_status_updates(check_status)
 
@@ -3473,7 +3533,7 @@ class Page7(BasePage):
         toonami_version = self.toonami_version_dropdown.get_value()
         channel_number = self.channel_number_entry.get_value()
         flex_duration = self.flex_duration_entry.get_value()
-        self.logic.create_toonami_channel(toonami_version, channel_number, flex_duration)
+        self.logic.create_toonami_channel_cont(toonami_version, channel_number, flex_duration)
 
         # Check if ComBreakDirect is selected and subscribe to completion
         platform_type = self.logic._get_data("platform_type")
@@ -3486,13 +3546,7 @@ class Page7(BasePage):
             if "Toonami channel created!" in status or "New Toonami channel created!" in status or "channel created" in status.lower():
                 # Show Web UI link after completion (for both Docker and non-Docker)
                 base_url = getattr(config, 'CBDIRECT_BASE_URL', 'http://127.0.0.1:8083')
-                self.app.execute_javascript(f"""
-                    setTimeout(function() {{
-                        if (confirm('✓ Toonami Channel Created!\\n\\nYour ComBreakDirect channel is ready to stream.\\n\\nClick OK to open the Web UI in a new tab.')) {{
-                            window.open('{base_url}', '_blank');
-                        }}
-                    }}, 500);
-                """)
+                self.show_combreakdirect_completion_dialog(base_url)
 
         self.logic.subscribe_to_status_updates(check_status)
 
@@ -4141,6 +4195,10 @@ class MainApp(App):
         # Initialize the LogicController
         from API import LogicController
         self.logic = LogicController()
+        self.nav_logic = self.logic
+        self.navigation_locked = False
+        self.navigation_lock_reason = None
+        self.nav_logic.subscribe_to_operation_state(self._handle_operation_state)
         stored_platform_type = self.logic._get_data("platform_type")
         self.current_platform_type = stored_platform_type if stored_platform_type else 'combreakdirect'
         if self.current_platform_type == 'combreakdirect':
@@ -4157,6 +4215,37 @@ class MainApp(App):
             for page in self.pages.values():
                 if hasattr(page, 'refresh_nav_bar'):
                     page.refresh_nav_bar()
+
+    def _handle_operation_state(self, data):
+        try:
+            running = False
+            operation = None
+            if isinstance(data, dict):
+                running = bool(data.get('running'))
+                operation = data.get('operation')
+            else:
+                running = bool(data)
+            self.set_navigation_locked(running, operation)
+        except Exception as exc:
+            print(f"Failed to handle operation state: {exc}")
+
+    def set_navigation_locked(self, locked: bool, operation: str | None = None) -> None:
+        self.navigation_locked = locked
+        self.navigation_lock_reason = operation if locked else None
+
+        if hasattr(self, 'pages'):
+            for page in self.pages.values():
+                nav = getattr(page, 'nav_bar', None)
+                if nav and hasattr(nav, 'set_navigation_enabled'):
+                    nav.set_navigation_enabled(not locked)
+                for attr in ('continue_button', 'next_button'):
+                    button = getattr(page, attr, None)
+                    if button and hasattr(button, 'set_enabled'):
+                        button.set_enabled(not locked)
+
+        if locked and hasattr(self, 'logic') and hasattr(self.logic, '_broadcast_status_update'):
+            message = f"Navigation locked while {operation or 'an operation'} runs"
+            self.logic._broadcast_status_update(message)
 
     def update_platform_type(self, platform_type: str | None) -> None:
         self.current_platform_type = platform_type
@@ -4244,6 +4333,11 @@ class MainApp(App):
         return self.container
 
     def set_current_page(self, page_name, force_refresh: bool = False):
+        current_page = self.navigation_history[-1] if self.navigation_history else None
+        if getattr(self, 'navigation_locked', False) and current_page and page_name != current_page:
+            if hasattr(self, 'logic') and hasattr(self.logic, '_broadcast_status_update'):
+                self.logic._broadcast_status_update("Navigation locked while an operation is running")
+            return
         if (page_name in self.pages):
             if force_refresh:
                 page_obj = self.pages[page_name] = type(self.pages[page_name])(self)
@@ -4291,6 +4385,10 @@ class MainApp(App):
             self.refresh_all_nav_bars()
     
     def go_back(self):
+        if getattr(self, 'navigation_locked', False):
+            if hasattr(self, 'logic') and hasattr(self.logic, '_broadcast_status_update'):
+                self.logic._broadcast_status_update("Navigation locked while an operation is running")
+            return
         # Must have at least two pages in history to go back
         if len(self.navigation_history) <= 1:
             return
@@ -4311,14 +4409,6 @@ class MainApp(App):
                 # Reset to default move_files mode
                 self.pages['Page4'].set_filter_mode('move_files')
                 
-        # Reset input mode if we're going back from/to Page5
-        if current_page == 'Page5' or previous_page == 'Page5':
-            if hasattr(self.pages['Page5'], 'cblogic') and hasattr(self.pages['Page5'], 'set_input_mode'):
-                # Clear any files in the input handler
-                self.pages['Page5'].cblogic.input_handler.clear_all()
-                # Reset to default folder mode
-                self.pages['Page5'].set_input_mode('folder')
-            
         # Go to the previous page - we need to pop again since set_current_page will add it
         self.navigation_history.pop()
         self.set_current_page(previous_page)
@@ -4328,6 +4418,10 @@ class MainApp(App):
         self.set_current_page('Page8')
 
     def start_over(self):
+        if getattr(self, 'navigation_locked', False):
+            if hasattr(self, 'logic') and hasattr(self.logic, '_broadcast_status_update'):
+                self.logic._broadcast_status_update("Navigation locked while an operation is running")
+            return
         # Reset visited_manual_setup flag
         self.visited_manual_setup = False
         stored_platform_type = self.logic._get_data("platform_type") if hasattr(self, 'logic') else None

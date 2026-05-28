@@ -1442,9 +1442,9 @@ def test_orphaned_block_ids():
 **Cause**: Platform incompatibility - Tunarr doesn't support cutless mode.
 
 **Solution**:
-1. Change platform to DizqueTV (requires custom fork) or ComBreakDirect
+1. Change platform to DizqueTV 1.7+ or ComBreakDirect
 2. Or disable cutless mode and re-run content preparation
-3. Note: Cutless mode only works with DizqueTV (custom fork) and ComBreakDirect
+3. Note: Cutless mode only works with DizqueTV 1.7+ and ComBreakDirect
 
 #### "Stale cutless/traditional tables detected" (WARNING)
 
