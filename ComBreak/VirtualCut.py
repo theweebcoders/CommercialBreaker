@@ -1,8 +1,8 @@
-import pandas as pd
-import re 
+import re
 from pathlib import Path
-import config
 from API.utils import get_db_manager
+from ComBreak.DurationManager import get_duration_manager
+from ToonamiTools.utils.FilenameParser import FilenameParser
 
 
 
@@ -40,7 +40,8 @@ class VirtualCut:
                         FULL_FILE_PATH TEXT,
                         ORIGINAL_FILE_PATH TEXT,
                         startTime INTEGER,
-                        endTime INTEGER
+                        endTime INTEGER,
+                        duration REAL
                     )
                     ''')
                 
@@ -71,14 +72,18 @@ class VirtualCut:
                     output_file_name_without_ext = output_file_prefix_path.stem
                     output_dir = output_file_prefix_path.parent
 
-                    # Extract show info from the original filename
+                    # Extract show info from the original filename using centralized parser
                     original_filename = Path(input_file).name
                     show_name = "Unknown Show"
                     season_episode = "S00E00"
-                    pattern = r'^(.+?) - (S\d{2}E\d{2})'
-                    if match := re.search(pattern, original_filename):
-                        show_name = match.group(1).strip()
-                        season_episode = match.group(2)
+                    parsed = FilenameParser.parse_episode_filename(original_filename)
+                    if parsed:
+                        show_name = parsed['show_name']
+                        season_episode = parsed['season_episode']
+
+                    # Get video duration using DurationManager
+                    duration_manager = get_duration_manager()
+                    video_duration = duration_manager.get_duration(input_file)
 
                     # Create a virtual entry for each segment
                     for part_number in range(1, segment_count + 1):
@@ -93,15 +98,16 @@ class VirtualCut:
                         # End time is NULL for last part, otherwise it's the timestamp of this break
                         end_time_ms = None if part_number == segment_count else int(timestamps[part_number - 1] * 1000)
 
-                        prep_data.append([
-                            show_name,
-                            season_episode,
-                            part_number,
-                            virtual_full_path,  # Virtual path
-                            input_file,         # Original path
-                            start_time_ms,
-                            end_time_ms
-                        ])
+                        prep_data.append({
+                            'SHOW_NAME_1': show_name,
+                            'Season and Episode': season_episode,
+                            'Part Number': part_number,
+                            'FULL_FILE_PATH': virtual_full_path,  # Virtual path
+                            'ORIGINAL_FILE_PATH': input_file,         # Original path
+                            'startTime': start_time_ms,
+                            'endTime': end_time_ms,
+                            'duration': video_duration
+                        })
 
                     if progress_callback:
                         progress_callback(i + 1, total_videos)
@@ -115,46 +121,60 @@ class VirtualCut:
                     status_callback("No virtual data generated.")
                 return
 
-            # Create DataFrame
-            df = pd.DataFrame(prep_data, columns=[
-                'SHOW_NAME_1', 'Season and Episode', 'Part Number', 
-                'FULL_FILE_PATH', 'ORIGINAL_FILE_PATH', 'startTime', 'endTime'
-            ])
+            # prep_data is already a list of dicts, no need to create DataFrame
+            new_data = prep_data
 
             # Save to commercial_injector_prep table
             try:
                 table_name = 'commercial_injector_prep'
-                result = db_manager.fetchone(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
-                table_exists = bool(result)
+                table_exists = db_manager.table_exists(table_name)
 
-                with db_manager.transaction() as conn:
-                    if table_exists:
-                        existing_df = pd.read_sql(f'SELECT * FROM {table_name}', conn)
-                        # Ensure columns match before concatenating
-                        for col in df.columns:
-                            if col not in existing_df.columns:
-                                existing_df[col] = None
-                        for col in existing_df.columns:
-                            if col not in df.columns:
-                                df[col] = None
-                        
-                        combined_df = pd.concat([existing_df, df], ignore_index=True)
-                        # Use FULL_FILE_PATH for deduplication
-                        duplicates = combined_df.duplicated(subset=['FULL_FILE_PATH'], keep='last')
-                        combined_df = combined_df[~duplicates]
-                        combined_df.to_sql(table_name, conn, index=False, if_exists='replace')
+                if table_exists:
+                    # Read existing data
+                    existing_data = db_manager.fetchall_as_dicts(f'SELECT * FROM {table_name}')
+
+                    # Get all unique columns from both datasets
+                    all_columns = set()
+                    for row in existing_data:
+                        all_columns.update(row.keys())
+                    for row in new_data:
+                        all_columns.update(row.keys())
+
+                    # Ensure all rows have all columns
+                    for row in existing_data:
+                        for col in all_columns:
+                            if col not in row:
+                                row[col] = None
+                    for row in new_data:
+                        for col in all_columns:
+                            if col not in row:
+                                row[col] = None
+
+                    # Combine data
+                    combined_data = existing_data + new_data
+
+                    # Deduplicate by FULL_FILE_PATH, keeping last occurrence
+                    seen = {}
+                    for row in combined_data:
+                        seen[row['FULL_FILE_PATH']] = row
+                    combined_data = list(seen.values())
+
+                    # Replace table with combined data
+                    db_manager.replace_table_data(table_name, combined_data)
+                    if status_callback:
+                        status_callback(f"Updated {table_name} table with {len(combined_data)} entries.")
+                else:
+                    # Create new table
+                    if new_data:
+                        db_manager.create_table_from_dicts(table_name, new_data)
                         if status_callback:
-                            status_callback(f"Updated {table_name} table with {len(combined_df)} entries.")
-                    else:
-                        df.to_sql(table_name, conn, index=False, if_exists='replace')
-                        if status_callback:
-                            status_callback(f"Created {table_name} table with {len(df)} entries.")
-                
+                            status_callback(f"Created {table_name} table with {len(new_data)} entries.")
+
                 # Set the cutless mode flag in app_data
                 db_manager.execute("INSERT OR REPLACE INTO app_data (key, value) VALUES (?, ?)", ('cutless_mode_used', 'True'))
                 if status_callback:
                     status_callback("Set Cutless Mode Used flag to True.")
-                    
+
             except Exception as e:
                  if status_callback:
                     status_callback(f"Error saving virtual data or setting flag: {e}")

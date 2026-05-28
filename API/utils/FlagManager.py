@@ -1,7 +1,7 @@
 import sys
 import threading
 import os
-import requests
+from .NetworkUtils import CurlHttpClient, RequestException
 
 class FlagManager:
     """
@@ -77,7 +77,7 @@ class FlagManager:
         Evaluate if cutless should be enabled based on platform compatibility
         
         Args:
-            platform_type (str): The type of platform ('tunarr' or 'dizquetv')
+            platform_type (str): The type of platform ('tunarr', 'dizquetv', or 'combreakdirect')
             platform_url (str, optional): The URL of the platform
             
         Returns:
@@ -93,7 +93,12 @@ class FlagManager:
             cls.set_cutless(False)
             print("Cutless mode disabled: Tunarr platform selected")
             return False
-            
+
+        if platform_type == 'combreakdirect':
+            cls.set_cutless(True)
+            print("Cutless mode enabled: ComBreakDirect always runs in cutless mode")
+            return True
+
         # For dizqueTV, run compatibility check
         elif platform_type == 'dizquetv' and platform_url:
             compatible = cls._check_dizquetv_advanced(platform_url)
@@ -109,7 +114,7 @@ class FlagManager:
         return cls.cutless
 
     @classmethod
-    def _check_dizquetv_advanced(cls, base_url: str, timeout: float = 5.0) -> bool:
+    def _check_dizquetv_advanced(cls, base_url: str, timeout: float = 10.0) -> bool:
         """
         Fetch <base_url>/templates/program-config.html and verify that the
         advanced-options accordion (movieAdvancedOpen) is present.
@@ -118,12 +123,21 @@ class FlagManager:
         """
         tpl_url = base_url.rstrip('/') + '/templates/program-config.html'
         try:
-            r = requests.get(tpl_url, timeout=timeout)
+            print(f"Cutless check: testing connection to {tpl_url}")
+            r = CurlHttpClient.get(tpl_url, timeout=int(timeout))
+            print(f"Cutless check: received response with status {r.status_code}")
             r.raise_for_status()
-        except requests.RequestException as exc:
+        except RequestException as exc:
             print(f"Cutless check: failed to reach dizqueTV template ({exc})")
+            print(f"Cutless check: URL was {tpl_url}")
             return False
-        return 'movieAdvancedOpen' in r.text
+
+        has_cutless_feature = 'movieAdvancedOpen' in r.text
+        if has_cutless_feature:
+            print("Cutless check: found movieAdvancedOpen in template (cutless compatible)")
+        else:
+            print("Cutless check: movieAdvancedOpen not found (standard DizqueTV, not cutless fork)")
+        return has_cutless_feature
     
     @classmethod
     def broadcast_status_update(cls, message):

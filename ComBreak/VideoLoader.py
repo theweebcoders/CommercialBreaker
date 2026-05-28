@@ -1,12 +1,229 @@
-import cv2
+import subprocess
+from typing import Optional, Tuple
 import config
+from ComBreak.utils import get_executable_path
+
+# OpenCV constants for compatibility with existing code
+CAP_PROP_FPS = 5
+CAP_PROP_POS_MSEC = 0
+CAP_PROP_FRAME_COUNT = 7
+DEFAULT_FPS = 24.0
+
+# Cache probed metadata so repeated loaders for the same file do not rescan it
+_VIDEO_INFO_CACHE: dict[str, Tuple[int, int, float, float, int]] = {}
+
+
+class VideoCapture:
+    """Mock OpenCV VideoCapture using FFmpeg subprocess."""
+
+    def __init__(self, video_file):
+        self.video_file = str(video_file)
+        # Get all metadata in ONE ffprobe call for speed (with caching)
+        self.width, self.height, self.fps, self.duration, self.total_frames = self._get_video_info()
+        self.frame_size_bytes = self.width * self.height  # grayscale = 1 byte per pixel
+        self.current_frame_num = 0
+        self.process = None
+
+    def _get_video_info(self):
+        """Return cached or freshly probed metadata for the current file."""
+        cached = _VIDEO_INFO_CACHE.get(self.video_file)
+        if cached:
+            return cached
+
+        info = self._probe_video_info()
+        _VIDEO_INFO_CACHE[self.video_file] = info
+        return info
+
+    def _probe_video_info(self):
+        """Get video dimensions, accurate frame count, and duration using ffprobe.
+
+        Two-step probe so we pick the right counter for each file:
+        metadata first (cheap header read, no decode) tells us whether the stream
+        has B-frames. Without B-frames, `-count_packets` is fast and accurate.
+        With B-frames, only `-count_frames` is accurate (it requires decoding).
+        """
+        width, height, duration, has_b_frames = self._probe_metadata()
+
+        if has_b_frames == 0:
+            counter_variants = [
+                ('-count_packets', 'nb_read_packets'),
+                ('-count_frames', 'nb_read_frames'),
+            ]
+        else:
+            counter_variants = [
+                ('-count_frames', 'nb_read_frames'),
+                ('-count_packets', 'nb_read_packets'),
+            ]
+
+        last_error = None
+        for count_flag, frame_field in counter_variants:
+            try:
+                frame_count = self._count_frames_only(count_flag, frame_field)
+                fps = frame_count / duration if duration > 0 else DEFAULT_FPS
+                return width, height, fps, duration, frame_count
+            except RuntimeError as exc:
+                last_error = exc
+
+        raise RuntimeError(
+            f"Unable to count frames for {self.video_file}: {last_error}"
+        ) from last_error
+
+    def _probe_metadata(self):
+        """Header-only ffprobe call (no decode): width, height, has_b_frames, duration."""
+        cmd = [
+            get_executable_path("ffprobe", config.ffprobe_path),
+            '-v', 'error',
+            '-select_streams', 'v:0',
+            '-show_entries', 'stream=width,height,has_b_frames:format=duration',
+            '-of', 'csv=p=0',
+            self.video_file
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Metadata probe failed for {self.video_file}: {result.stderr.strip() or 'ffprobe failed'}"
+            )
+
+        lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        if not lines:
+            raise RuntimeError("Metadata probe returned no output")
+
+        stream_parts = lines[0].split(',')
+        if len(stream_parts) < 3:
+            raise RuntimeError("Metadata probe stream output missing fields")
+
+        try:
+            width = int(stream_parts[0])
+            height = int(stream_parts[1])
+            has_b_frames = int(stream_parts[2])
+        except ValueError as exc:
+            raise RuntimeError("Invalid width/height/has_b_frames in metadata probe") from exc
+
+        duration = self._parse_duration(lines[1] if len(lines) > 1 else None)
+
+        return width, height, duration, has_b_frames
+
+    def _count_frames_only(self, count_flag: str, frame_field: str):
+        """Counting ffprobe call with the specified counter strategy; returns just the frame count."""
+        cmd = [
+            get_executable_path("ffprobe", config.ffprobe_path),
+            '-v', 'error',
+            count_flag,
+            '-select_streams', 'v:0',
+            '-show_entries', f'stream={frame_field}',
+            '-of', 'csv=p=0',
+            self.video_file
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "ffprobe count failed")
+
+        output = result.stdout.strip()
+        if not output:
+            raise RuntimeError("Empty count output from ffprobe")
+
+        return self._parse_frame_count(output)
+
+    def _parse_frame_count(self, value: str) -> int:
+        """Convert a frame-count string to int, raising on failure."""
+        try:
+            # Some ffprobe builds return floats; ensure we coerce properly
+            return int(float(value))
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(f"Invalid frame count '{value}'") from exc
+
+    def _parse_duration(self, value: Optional[str]) -> float:
+        """Return a positive duration, falling back to a separate probe if needed."""
+        if value:
+            try:
+                duration = float(value)
+                if duration > 0:
+                    return duration
+            except ValueError:
+                pass
+
+        # Fallback probe for duration
+        return self._get_duration_fallback()
+
+    def _get_duration_fallback(self):
+        """Fallback method to get duration from format info."""
+        cmd = [
+            get_executable_path("ffprobe", config.ffprobe_path),
+            '-v', 'error',
+            '-show_entries', 'format=duration',
+            '-of', 'default=noprint_wrappers=1:nokey=1',
+            self.video_file
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Unable to determine duration for {self.video_file}: {result.stderr.strip()}"
+            )
+        try:
+            duration = float(result.stdout.strip())
+        except ValueError as exc:
+            raise RuntimeError("Invalid duration reported by ffprobe") from exc
+        return duration
+
+    def read(self):
+        """Read next frame from video stream."""
+        if self.process is None:
+            # Start ffmpeg process on first read
+            self.process = subprocess.Popen([
+                get_executable_path("ffmpeg", config.ffmpeg_path),
+                '-hide_banner',
+                '-loglevel', 'error',
+                '-nostats',
+                '-i', self.video_file,
+                '-f', 'rawvideo',
+                '-pix_fmt', 'gray',  # Grayscale output (1 byte per pixel)
+                'pipe:1'
+            ], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=10**8)
+
+        # Read one frame worth of bytes
+        frame_bytes = self.process.stdout.read(self.frame_size_bytes)
+
+        if len(frame_bytes) < self.frame_size_bytes:
+            # End of video or error
+            return False, None
+
+        self.current_frame_num += 1
+        # Return frame as bytearray for compatibility
+        return True, bytearray(frame_bytes)
+
+    def get(self, prop_id):
+        """Get video property (OpenCV compatibility)."""
+        if prop_id == CAP_PROP_FPS:
+            return self.fps
+        elif prop_id == CAP_PROP_POS_MSEC:
+            # Calculate current timestamp from frame number
+            return (self.current_frame_num / self.fps) * 1000
+        elif prop_id == CAP_PROP_FRAME_COUNT:
+            return self.total_frames
+        return 0
+
+    def isOpened(self):
+        """Check if video is opened."""
+        return True
+
+    def release(self):
+        """Release video resources."""
+        if self.process:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait()
 
 
 class VideoLoader:
     """A class that represents a video loader."""
 
     def __init__(self, video_file):
-        self.cap = cv2.VideoCapture(video_file)
+        self.cap = VideoCapture(video_file)
         self.frame_count = 0
 
     def __iter__(self):
@@ -22,7 +239,12 @@ class VideoLoader:
                 return frame
 
     def get_frame_count(self):
-        return int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT) / config.FRAME_RATE)
+        """Get the number of frames after sampling by FRAME_RATE."""
+        total = self.cap.get(CAP_PROP_FRAME_COUNT)
+        if total == 0:
+            return 0
+        # Ensure at least 1 frame for very short segments
+        return max(1, int(total / config.FRAME_RATE))
 
     def release(self):
         self.cap.release()

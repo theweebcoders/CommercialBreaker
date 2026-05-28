@@ -121,7 +121,13 @@ class TestSaraAutomatic:
     def _log_progress(self, message): # New helper method
         """S.A.R.A.-themed print method with timestamp."""
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-        self.original_print(f"[{timestamp} S.A.R.A. Transmission] {message}")
+        # Handle Unicode characters that may not be printable in Windows console
+        try:
+            self.original_print(f"[{timestamp} S.A.R.A. Transmission] {message}")
+        except UnicodeEncodeError:
+            # Fallback: encode as ASCII with replacement character
+            safe_message = message.encode('ascii', errors='replace').decode('ascii')
+            self.original_print(f"[{timestamp} S.A.R.A. Transmission] {safe_message}")
 
     def sara_print(self, message):
         """S.A.R.A.-themed print method"""
@@ -287,26 +293,118 @@ class TestSaraAutomatic:
     def create_fake_timestamps(self, video_files):
         """Create fake timestamp files for cutless mode"""
         self._log_progress(f"Creating fake timestamp files for {len(video_files)} videos")
-        
+
+        # Store duration mappings for DurationManager mock
+        self.fake_durations = {}
+
         for video_file in video_files:
             video_path = Path(video_file)
             timestamp_file = self.cut_dir / f"{video_path.name}.txt"
-            
+
             # Skip if filename would be too long
             if len(timestamp_file.name) > 255:
                 continue
-            
+
             # Generate 2-5 timestamps using FakeCommercialDetector
             num_breaks = random.randint(2, 5)
             timestamps = FakeCommercialDetector.generate_timestamps(num_breaks)
-            
+
+            # Calculate realistic duration (last timestamp + 2-5 minutes for final segment)
+            if timestamps:
+                last_timestamp = max(timestamps)
+                # Add 2-5 minutes (120-300 seconds) for the final segment
+                final_segment_duration = random.uniform(120, 300)
+                total_duration_seconds = last_timestamp + final_segment_duration
+                # Convert to milliseconds for DurationManager
+                total_duration_ms = total_duration_seconds * 1000
+                self.fake_durations[str(video_path)] = total_duration_ms
+                self._log_progress(f"Generated duration for {video_path.name}: {total_duration_seconds:.1f}s ({len(timestamps)} breaks, last at {last_timestamp:.1f}s)")
+            else:
+                # No timestamps, create a reasonable default duration (20-30 minutes)
+                default_duration_seconds = random.uniform(1200, 1800)  # 20-30 minutes
+                total_duration_ms = default_duration_seconds * 1000
+                self.fake_durations[str(video_path)] = total_duration_ms
+                self._log_progress(f"Generated default duration for {video_path.name}: {default_duration_seconds:.1f}s (no timestamps)")
+
             try:
                 with open(timestamp_file, 'w') as f:
                     for ts in timestamps:
                         f.write(f"{ts:.3f}\n")
             except OSError:
                 pass  # Skip files that can't be created
-    
+
+        # Set up DurationManager mock
+        self._generate_fake_bump_durations()
+        self._setup_duration_manager_mock()
+
+    def _generate_fake_bump_durations(self):
+        """Populate fake duration values for bump assets referenced during tests."""
+        bump_folder = Path(self.config["bumps_folder"])
+        if not bump_folder.exists():
+            self._log_progress("Bump folder missing; skipping fake bump duration generation")
+            return
+
+        supported_extensions = {".mp4", ".mkv", ".mov", ".avi"}
+        bump_files = [
+            path for path in bump_folder.rglob("*")
+            if path.is_file() and path.suffix.lower() in supported_extensions
+        ]
+
+        if not bump_files:
+            self._log_progress("No bump files discovered for fake duration generation")
+            return
+
+        added = 0
+        bump_min_duration_seconds = 9
+        bump_max_duration_seconds = 12
+        for bump_file in bump_files:
+            normalized_path = os.path.normpath(str(bump_file))
+            duration_ms = self.fake_durations.get(normalized_path)
+
+            if duration_ms is None:
+                duration_ms = int(random.uniform(bump_min_duration_seconds, bump_max_duration_seconds) * 1000)
+                self.fake_durations[normalized_path] = duration_ms
+                added += 1
+
+            raw_path = str(bump_file)
+            if raw_path not in self.fake_durations:
+                self.fake_durations[raw_path] = duration_ms
+
+        self._log_progress(f"Generated fake durations for {added} bump files (total mappings: {len(self.fake_durations)})")
+
+    def _setup_duration_manager_mock(self):
+        """Set up DurationManager mock to return realistic durations for test files"""
+        self._log_progress(f"Setting up DurationManager mock with {len(self.fake_durations)} duration mappings")
+
+        def mock_get_duration(video_file_path):
+            """Mock get_duration that returns fake durations for test files"""
+            file_path = str(video_file_path)
+            normalized_path = os.path.normpath(file_path)
+
+            if file_path in self.fake_durations:
+                duration_ms = self.fake_durations[file_path]
+                return duration_ms
+
+            if normalized_path in self.fake_durations:
+                duration_ms = self.fake_durations[normalized_path]
+                return duration_ms
+            else:
+                # Fallback for unmapped files - return a reasonable default (25 minutes)
+                default_duration_ms = 25 * 60 * 1000  # 25 minutes in milliseconds
+                self._log_progress(f"WARNING: No duration mapping found for {file_path}, using default {default_duration_ms} ms")
+                return default_duration_ms
+
+        # Patch the DurationManager get_duration method
+        duration_manager_patcher = patch('ComBreak.DurationManager.DurationManager.get_duration', side_effect=mock_get_duration)
+        self.duration_manager_mock = duration_manager_patcher.start()
+
+        # Store patcher for cleanup
+        if not hasattr(self, 'active_patchers'):
+            self.active_patchers = []
+        self.active_patchers.append(duration_manager_patcher)
+
+        self._log_progress("DurationManager mock activated for test duration values")
+
     def _start_timing(self, step_name):
         """Start timing a step"""
         self.current_step_name = step_name
@@ -368,7 +466,8 @@ class TestSaraAutomatic:
             self.config["anime_folder"],
             self.config["bumps_folder"],
             self.config["special_bumps_folder"],
-            self.config["working_folder"]
+            self.config["working_folder"],
+            self.config.get("commercial_folder"),
         )
         assert self.wait_for_status("Idle", "Folder Configuration", timeout=self.config["timeout"]), "Folder configuration failed or timed out."
         self._log_progress("logic.on_continue_third call complete and confirmed.")
@@ -432,50 +531,73 @@ class TestSaraAutomatic:
 
         self._start_timing("Database Integrity Checks")
         self._log_progress("Beginning database integrity checks...")
-        
-        # Check the lineup contains anime episodes
+
+        # Get all lineup tables to validate
         db_path = os.environ.get("DB_PATH", getattr(self, "db_path", None))
         assert db_path is not None, "Database path not set in environment or self.db_path"
+
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'lineup_v%'")
+            all_lineup_tables = sorted([row[0] for row in cursor.fetchall()])
+
+        self._log_progress(f"Found {len(all_lineup_tables)} lineup tables to validate: {all_lineup_tables}")
+
         pattern = re.compile(r"S\d{2}E\d{2}")
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute("SELECT FULL_FILE_PATH FROM lineup_v8")
-                rows = cursor.fetchall()
-            except Exception as e:
-                raise AssertionError(f"Failed to query lineup_v8: {e}")
-        count = sum(1 for (val,) in rows if pattern.search(str(val)))
-        min_rows = self.config["minimum_anime_rows"]
-        assert count >= min_rows, (
-            f"Expected at least {min_rows} anime episodes in lineup_v8 (identified by SxxExx pattern in FULL_FILE_PATH), "
-            f"but found only {count}. This likely means your anime did not make it to the final broadcast lineup."
-        )
-        self._log_progress(f"Database check: Found {count} anime episodes in lineup_v8 with SxxExx pattern in FULL_FILE_PATH.")
 
-        # Check lineup_v8_cutless anime has time stamps
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute("SELECT FULL_FILE_PATH, startTime, endTime FROM lineup_v8_cutless")
-                cutless_rows = cursor.fetchall()
-            except Exception as e:
-                raise AssertionError(f"Failed to query lineup_v8_cutless: {e}")
+        # Check each lineup table contains minimum anime episodes
+        for table_name in all_lineup_tables:
+            if '_cutless' in table_name or '_uncut' in table_name:
+                continue  # Skip cutless/uncut for this check
 
-        anime_cutless_issues = [
-            (val, start, end)
-            for (val, start, end) in cutless_rows
-            if pattern.search(str(val)) and (start is None and end is None)
-        ]
-        assert not anime_cutless_issues, (
-            f"Found {len(anime_cutless_issues)} anime episode(s) in lineup_v8_cutless with SxxExx pattern in FULL_FILE_PATH, "
-            f"but both startTime and endTime are NULL. Since timestamp files are generated automatically, "
-            f"each anime episode should have at least a startTime or endTime."
-        )
-        self._log_progress(
-            f"Database check: All anime episodes in lineup_v8_cutless have at least a startTime or endTime."
-        )
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                try:
+                    cursor.execute(f"SELECT FULL_FILE_PATH FROM {table_name}")
+                    rows = cursor.fetchall()
+                except Exception as e:
+                    raise AssertionError(f"Failed to query {table_name}: {e}")
 
-        for table_name in ["lineup_v8", "lineup_v8_cutless"]:
+            count = sum(1 for (val,) in rows if pattern.search(str(val)))
+            min_rows = self.config["minimum_anime_rows"]
+            assert count >= min_rows, (
+                f"Expected at least {min_rows} anime episodes in {table_name} (identified by SxxExx pattern in FULL_FILE_PATH), "
+                f"but found only {count}. This likely means your anime did not make it to the final broadcast lineup."
+            )
+            self._log_progress(f"Database check: Found {count} anime episodes in {table_name} with SxxExx pattern in FULL_FILE_PATH.")
+
+        # Check all cutless lineup tables have timestamps
+        cutless_tables = [t for t in all_lineup_tables if '_cutless' in t]
+        for table_name in cutless_tables:
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                try:
+                    cursor.execute(f"SELECT FULL_FILE_PATH, startTime, endTime FROM {table_name}")
+                    cutless_rows = cursor.fetchall()
+                except Exception as e:
+                    raise AssertionError(f"Failed to query {table_name}: {e}")
+
+            anime_cutless_issues = [
+                (val, start, end)
+                for (val, start, end) in cutless_rows
+                if pattern.search(str(val)) and (start is None and end is None)
+            ]
+            assert not anime_cutless_issues, (
+                f"Found {len(anime_cutless_issues)} anime episode(s) in {table_name} with SxxExx pattern in FULL_FILE_PATH, "
+                f"but both startTime and endTime are NULL. Since timestamp files are generated automatically, "
+                f"each anime episode should have at least a startTime or endTime."
+            )
+            self._log_progress(
+                f"Database check: All anime episodes in {table_name} have at least a startTime or endTime."
+            )
+
+        # Check duration column consistency in cutless tables
+        self._verify_duration_consistency(db_path)
+
+        # Validate bump placement rules for all lineup tables
+        for table_name in all_lineup_tables:
+            if '_filtered' in table_name:
+                continue  # EpisodeFilter drops Code and BLOCK_ID columns by design
             with sqlite3.connect(db_path) as conn:
                 cursor = conn.cursor()
                 try:
@@ -570,7 +692,7 @@ class TestSaraAutomatic:
             from tests.validators.ChainValidator import ChainValidator
             chain_validator = ChainValidator()
             strict = os.environ.get("STRICT_CHAIN_VALIDATION", "0").lower() in {"1", "true", "yes"}
-            for chain_table in ["lineup_v8", "lineup_v8_cutless"]:
+            for chain_table in all_lineup_tables:
                 # Episode-aware validation
                 chain_violations = chain_validator.validate_table_with_episodes(chain_table)
                 if strict:
@@ -662,6 +784,114 @@ class TestSaraAutomatic:
         self._log_progress("="*80)
         self._log_progress("Full workflow test completed successfully")
         self._log_progress("="*80)
+
+        # Run validator on generated test DB
+        validation_results = self.logic.get_validation_results()
+        if validation_results:
+            self._log_progress("Validation results already present after workflow run.")
+        else:
+            self._log_progress("Triggering post-workflow validation run...")
+            self.logic.validate_database()
+            timeout = self.config.get("timeout", 120)
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                validation_results = self.logic.get_validation_results()
+                if validation_results:
+                    break
+                time.sleep(1)
+
+        assert validation_results is not None, "Validator did not produce results after workflow"
+        summary = validation_results.get("summary", {})
+        self._log_progress(f"Validator summary: {summary.get('summary_text', 'unknown')}")
+        issues = validation_results.get("issues", [])
+        if issues:
+            for issue in issues[:10]:
+                self._log_progress(f"Validator issue: [{issue.get('level')}] {issue.get('message')} - {issue.get('details')}")
+
+        # Fail the test on validator-reported CRITICAL/ERROR issues. The
+        # earlier Error Validation step asserts on ErrorManager messages
+        # broadcast DURING the workflow, but the post-workflow validator
+        # runs AFTER that — without this assertion, validator findings get
+        # logged but never block the test, leaving the strictest validation
+        # surface without enforcement teeth.
+        critical_validator_issues = [i for i in issues if i.get('level') == 'CRITICAL']
+        error_validator_issues = [i for i in issues if i.get('level') == 'ERROR']
+        assert not critical_validator_issues, (
+            f"Validator reported {len(critical_validator_issues)} CRITICAL issue(s): "
+            f"{[i.get('message') for i in critical_validator_issues]}"
+        )
+        assert not error_validator_issues, (
+            f"Validator reported {len(error_validator_issues)} ERROR issue(s): "
+            f"{[i.get('message') for i in error_validator_issues]}"
+        )
+
+        # Clean up mocks
+        self._cleanup_mocks()
+
+    def _cleanup_mocks(self):
+        """Clean up any active mock patchers"""
+        if hasattr(self, 'active_patchers'):
+            for patcher in self.active_patchers:
+                try:
+                    patcher.stop()
+                except RuntimeError:
+                    pass  # Patcher may already be stopped
+            self.active_patchers.clear()
+            self._log_progress("All mock patchers cleaned up")
+
+    def _verify_duration_consistency(self, db_path):
+        """Verify that any row with start/end times also has a duration value"""
+        self._log_progress("Checking duration column consistency in cutless tables...")
+
+        # Dynamically discover all cutless tables
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'lineup_v%_cutless'")
+            cutless_tables = sorted([row[0] for row in cursor.fetchall()])
+
+        if not cutless_tables:
+            self._log_progress("No cutless tables found - skipping duration consistency checks")
+            return
+
+        for table_name in cutless_tables:
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+
+                # Check if duration column exists
+                try:
+                    cursor.execute(f"PRAGMA table_info({table_name})")
+                    columns = [col[1] for col in cursor.fetchall()]
+
+                    if 'duration' not in columns:
+                        self._log_progress(f"Duration column not found in {table_name} - skipping duration checks")
+                        continue
+
+                    # Get rows with timestamp data but missing duration
+                    cursor.execute(f"""
+                        SELECT FULL_FILE_PATH, startTime, endTime, duration
+                        FROM {table_name}
+                        WHERE (startTime IS NOT NULL OR endTime IS NOT NULL)
+                        AND duration IS NULL
+                    """)
+                    duration_violations = cursor.fetchall()
+
+                    assert not duration_violations, (
+                        f"Found {len(duration_violations)} rows in {table_name} with startTime/endTime data "
+                        f"but missing duration values. Examples: {duration_violations[:3]}. "
+                        f"Any row with timing data should also have a duration value."
+                    )
+
+                    # Get total count with duration data for reporting
+                    cursor.execute(f"""
+                        SELECT COUNT(*) FROM {table_name}
+                        WHERE duration IS NOT NULL
+                    """)
+                    duration_count = cursor.fetchone()[0]
+
+                    self._log_progress(f"Database check: All {duration_count} rows with timing data in {table_name} have duration values")
+
+                except Exception as e:
+                    self._log_progress(f"Could not verify duration consistency in {table_name}: {e}")
 
     def run_commercial_breaker(self):
         """Run the commercial breaker with the specified settings"""

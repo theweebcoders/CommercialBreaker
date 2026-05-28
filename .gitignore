@@ -12,5 +12,6 @@ logs
 /venv/
 /tom_env/
 tests/test_toonami.db
-.gitignore
 tests/fixtures/sample.txt
+tests/fixtures
+.DS_Store

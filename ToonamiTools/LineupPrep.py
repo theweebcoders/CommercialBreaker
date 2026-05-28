@@ -1,5 +1,4 @@
 import os
-import pandas as pd
 import re
 import shutil
 from API.utils.DatabaseManager import get_db_manager
@@ -63,31 +62,48 @@ class MediaProcessor:
             raise
         return media_files
 
-    def _save_to_sql(self, df, table_name):
+    def _save_to_sql(self, data, table_name):
         print(f"Saving data to {table_name} table...")
-        
+
         try:
+            if not data:
+                print(f"No data to save to {table_name} table.")
+                return
+
             if self.db_manager.table_exists(table_name):
-                # Read existing data using pandas with the connection
-                with self.db_manager.transaction() as conn:
-                    existing_df = pd.read_sql(f'SELECT * FROM {table_name}', conn)
-                    # Append new data and drop duplicates
-                    combined_df = pd.concat([existing_df, df], ignore_index=True)
-                    duplicates = combined_df.duplicated(keep='last')
-                    combined_df = combined_df[~duplicates]
-                    # Replace the table with updated data
-                    combined_df.to_sql(table_name, conn, if_exists='replace', index=False)
+                # Read existing data
+                existing_data = self.db_manager.fetchall_as_dicts(f'SELECT * FROM {table_name}')
+
+                # Combine existing and new data
+                combined_data = existing_data + data
+
+                # Collect all unique columns from all rows
+                all_columns = set()
+                for row in combined_data:
+                    all_columns.update(row.keys())
+                all_columns = sorted(all_columns)
+
+                # Deduplicate by creating tuple keys from all values, keeping last occurrence
+                seen = {}
+                for row in combined_data:
+                    # Create a tuple key from all values
+                    key = tuple(row.get(col) for col in all_columns)
+                    seen[key] = row  # This keeps the last occurrence
+
+                combined_data = list(seen.values())
+
+                # Replace table with combined deduplicated data
+                self.db_manager.replace_table_data(table_name, combined_data)
             else:
-                # Create a new table and insert the data
-                with self.db_manager.transaction() as conn:
-                    df.to_sql(table_name, conn, if_exists='replace', index=False)
+                # Create new table
+                self.db_manager.replace_table_data(table_name, data)
 
             print(f"Data saved to {table_name} table.")
-            
+
         except Exception as e:
             self.error_manager.send_error_level(
                 source="LineupPrep",
-                operation="_save_to_sql", 
+                operation="_save_to_sql",
                 message=f"Could not save processed bump data to {table_name}",
                 details=str(e),
                 suggestion="Try running this step again. If the problem persists, you may need to restart from the beginning"
@@ -384,7 +400,7 @@ class MediaProcessor:
                     multi_bumps_matched_shows += 1
 
                 for col in ['SHOW_NAME_1', 'SHOW_NAME_2', 'SHOW_NAME_3']:
-                    if col in matched_data and pd.notna(matched_data[col]):
+                    if col in matched_data and matched_data[col] is not None and matched_data[col] != '':
                         # Map the show name
                         mapped_name = show_name_mapper.map(matched_data[col], strategy='all')
                         # Clean it for consistency with database shows
@@ -421,44 +437,52 @@ class MediaProcessor:
         print(f"  Multi-bumps matching structure: {multi_bumps_matched_structure}")
         print(f"  Multi-bumps matching your shows: {multi_bumps_matched_shows}")
 
-        return pd.DataFrame(new_df, columns=self.columns), no_match_df
+        # Ensure all rows have all columns from self.columns
+        # This fills missing columns with None for consistency
+        for row in new_df:
+            for col in self.columns:
+                if col not in row:
+                    row[col] = None
+
+        return new_df, no_match_df
     
-    def _analyze_show_multibump_coverage(self, processed_df, shows):
+    def _analyze_show_multibump_coverage(self, processed_data, shows):
         """
         Analyze which shows have usable multi-bumps and which don't.
         All shows are already lowercase for consistency.
-        
+
         Returns:
             tuple: (shows_with_complete_multibumps, shows_with_incomplete_multibumps, shows_without_multibumps)
         """
         # Shows are already lowercase, no conversion needed
         shows_set = set(shows)
-        
+
         # Track shows that appear in multi-bumps
         shows_with_complete_multibumps = set()
         shows_with_incomplete_multibumps = set()
         shows_in_any_multibump = set()
-        
+
         # Get all multi-bumps (has SHOW_NAME_2 or SHOW_NAME_3 populated)
-        multibump_df = processed_df[
-            (processed_df['SHOW_NAME_2'].notna()) | 
-            (processed_df['SHOW_NAME_3'].notna())
+        multibump_data = [
+            row for row in processed_data
+            if (row.get('SHOW_NAME_2') is not None and row.get('SHOW_NAME_2') != '') or
+               (row.get('SHOW_NAME_3') is not None and row.get('SHOW_NAME_3') != '')
         ]
-        
-        print(f"\nDebug: Found {len(multibump_df)} multi-bumps in processed data")
-        
-        for _, row in multibump_df.iterrows():
+
+        print(f"\nDebug: Found {len(multibump_data)} multi-bumps in processed data")
+
+        for row in multibump_data:
             # Check if this multi-bump is complete (Status == 'nice')
             is_complete = row['Status'] == 'nice'
-            
+
             # Collect all shows mentioned in this bump
             shows_in_this_bump = []
             for col in ['SHOW_NAME_1', 'SHOW_NAME_2', 'SHOW_NAME_3']:
-                if col in row and pd.notna(row[col]):
+                if col in row and row[col] is not None and row[col] != '':
                     show_name = str(row[col]).lower()
                     shows_in_this_bump.append(show_name)
                     shows_in_any_multibump.add(show_name)
-            
+
             # If complete, all shows in this bump have at least one complete multi-bump
             if is_complete:
                 for show in shows_in_this_bump:
@@ -469,16 +493,16 @@ class MediaProcessor:
                 for show in shows_in_this_bump:
                     if show in shows_set and show not in shows_with_complete_multibumps:
                         shows_with_incomplete_multibumps.add(show)
-        
+
         # Shows not referenced in any multi-bump
         shows_without_multibumps = shows_set - shows_in_any_multibump
-        
+
         # Remove shows from incomplete list if they also have complete bumps
         shows_with_incomplete_multibumps -= shows_with_complete_multibumps
-        
+
         print(f"Debug: Shows in any multi-bump: {shows_in_any_multibump}")
         print(f"Debug: Shows with complete multi-bumps: {shows_with_complete_multibumps}")
-        
+
         return shows_with_complete_multibumps, shows_with_incomplete_multibumps, shows_without_multibumps
     
     def _set_status(self, matched_data, shows):
@@ -497,7 +521,7 @@ class MediaProcessor:
 
         # Then, handle other cases using the new method
         for col in ['SHOW_NAME_1', 'SHOW_NAME_2', 'SHOW_NAME_3']:
-            if col in matched_data and pd.notna(matched_data[col]):
+            if col in matched_data and matched_data[col] is not None and matched_data[col] != '':
                 cleaned_value = str(matched_data[col]).strip()
                 if not cleaned_value:
                     continue
@@ -568,29 +592,27 @@ class MediaProcessor:
 
         try:
             print("Retrieving Toonami Shows from the database...")
-            with self.db_manager.transaction() as conn:
-                # In the run method, after retrieving shows from database:
-                shows_df = pd.read_sql_query("SELECT * FROM Toonami_Shows", conn)
-                
-                if shows_df.empty:
-                    self.error_manager.send_warning(
-                        source="LineupPrep",
-                        operation="run",
-                        message="No Toonami shows were found in your library",
-                        details="The previous step didn't find any shows that aired on Toonami",
-                        suggestion="Make sure your anime files are named correctly (e.g., 'Show Name - S01E01') and try running the process again. See: https://github.com/theweebcoders/CommercialBreaker/wiki/File-Naming-Conventions"
-                    )
-                
-                # Clean show names consistently - remove special characters
-                shows = []
-                for show_title in shows_df['Title'].tolist():
-                    # Apply mapping then clean for consistent DB-key form
-                    mapped = show_name_mapper.map(show_title, strategy='all')
-                    cleaned_show = show_name_mapper.clean(mapped, mode='matching')
-                    shows.append(cleaned_show)
-                
-                print("Toonami Shows retrieved.")
-            
+            # In the run method, after retrieving shows from database:
+            shows_data = self.db_manager.fetchall_as_dicts("SELECT * FROM Toonami_Shows")
+
+            if len(shows_data) == 0:
+                self.error_manager.send_warning(
+                    source="LineupPrep",
+                    operation="run",
+                    message="No Toonami shows were found in your library",
+                    details="The previous step didn't find any shows that aired on Toonami",
+                    suggestion="Make sure your anime files are named correctly (e.g., 'Show Name - S01E01') and try running the process again. See: https://github.com/theweebcoders/CommercialBreaker/wiki/File-Naming-Conventions"
+                )
+
+            # Clean show names consistently - remove special characters
+            shows = []
+            for show_entry in shows_data:
+                # Apply mapping then clean for consistent DB-key form
+                mapped = show_name_mapper.map(show_entry['Title'], strategy='all')
+                cleaned_show = show_name_mapper.clean(mapped, mode='matching')
+                shows.append(cleaned_show)
+
+            print("Toonami Shows retrieved.")
 
         except Exception as e:
             self.error_manager.send_error_level(
@@ -619,8 +641,8 @@ class MediaProcessor:
                 )
                 raise Exception("No bump files found to process")
             
-            processed_df, no_match_data = self._process_data_patterns(media_files, shows)
-            print(f"Processed into {len(processed_df)} entries.")
+            processed_data, no_match_data = self._process_data_patterns(media_files, shows)
+            print(f"Processed into {len(processed_data)} entries.")
             
             # NEW: Analyze all multi-bumps for coverage report
             multibump_analysis = self._analyze_all_multibumps(media_files, shows)
@@ -734,17 +756,20 @@ class MediaProcessor:
 
         try:
             # Additional analysis: which shows have multi-bumps and which don't
-            nice_df = processed_df[processed_df['Status'] == 'nice'].copy()
-            
+            nice_data = [row for row in processed_data if row['Status'] == 'nice']
+
             # Collect all shows mentioned in multi-bumps
             shows_in_multibumps = set()
-            multibump_df = nice_df[nice_df['PLACEMENT_2'].str.contains('from|next|later', case=False, na=False)]
-            
+            multibump_data = [
+                row for row in nice_data
+                if row.get('PLACEMENT_2') and
+                   any(keyword in row['PLACEMENT_2'].lower() for keyword in ['from', 'next', 'later'])
+            ]
+
             for col in ['SHOW_NAME_1', 'SHOW_NAME_2', 'SHOW_NAME_3']:
-                if col in multibump_df.columns:
-                    show_names = multibump_df[col].dropna()
-                    if len(show_names) > 0:
-                        shows_in_multibumps.update(show_names.str.lower())
+                for row in multibump_data:
+                    if col in row and row[col] is not None and row[col] != '':
+                        shows_in_multibumps.add(row[col].lower())
             
             # Find shows that will be excluded (no multi-bumps)
             shows_without_multibumps = set(s.lower() for s in shows) - shows_in_multibumps
@@ -774,7 +799,7 @@ class MediaProcessor:
             raise
 
         # Check ratio of matched vs unmatched files
-        matched_count = len(processed_df)
+        matched_count = len(processed_data)
         if matched_count == 0:
             self.error_manager.send_error_level(
                 source="LineupPrep",
@@ -793,25 +818,15 @@ class MediaProcessor:
             )
 
         print("Making a list...")
-        nice_df = processed_df[processed_df['Status'] == 'nice'].copy()
-        naughty_df = processed_df[processed_df['Status'] == 'naughty']
+        nice_data = [row for row in processed_data if row['Status'] == 'nice']
+        naughty_data = [row for row in processed_data if row['Status'] == 'naughty']
         
         # Check for shows with no matching bumps
         nice_shows = set()
-        if not nice_df.empty and 'SHOW_NAME_1' in nice_df.columns:
-            show_names_1 = nice_df['SHOW_NAME_1'].dropna()
-            if len(show_names_1) > 0:  # Only use .str if we have actual data
-                nice_shows.update(show_names_1.str.lower())
-        
-        if not nice_df.empty and 'SHOW_NAME_2' in nice_df.columns:
-            show_names_2 = nice_df['SHOW_NAME_2'].dropna()
-            if len(show_names_2) > 0:  # Only use .str if we have actual data
-                nice_shows.update(show_names_2.str.lower())
-        
-        if not nice_df.empty and 'SHOW_NAME_3' in nice_df.columns:
-            show_names_3 = nice_df['SHOW_NAME_3'].dropna()
-            if len(show_names_3) > 0:  # Only use .str if we have actual data
-                nice_shows.update(show_names_3.str.lower())
+        for row in nice_data:
+            for col in ['SHOW_NAME_1', 'SHOW_NAME_2', 'SHOW_NAME_3']:
+                if col in row and row[col] is not None and row[col] != '':
+                    nice_shows.add(row[col].lower())
                 
         shows_without_bumps = set(s.lower() for s in shows) - nice_shows
         if len(shows_without_bumps) > len(shows) * 0.5:  # More than 50% of shows have no bumps
@@ -827,13 +842,23 @@ class MediaProcessor:
 
         try:
             print("Saving processed data to SQLite tables...")
-            self._save_to_sql(nice_df, "nice_list")
-            self._save_to_sql(naughty_df, "naughty_list")
-            self._save_to_sql(pd.DataFrame(no_match_data, columns=['ORIGINAL_FILE_PATH', 'CLEANED_BUMP']), "no_match")
+            self._save_to_sql(nice_data, "nice_list")
+            self._save_to_sql(naughty_data, "naughty_list")
+            # Convert no_match_data tuples to dicts
+            no_match_dicts = [
+                {'ORIGINAL_FILE_PATH': item[0], 'CLEANED_BUMP': item[1]}
+                for item in no_match_data
+            ]
+            self._save_to_sql(no_match_dicts, "no_match")
             print("Data saved to SQLite tables.")
 
             print("Saving additional processed files...")
-            self._save_to_sql(nice_df.drop(columns=['ORIGINAL_FILE_PATH', 'Status']), "lineup_prep_out")
+            # Drop ORIGINAL_FILE_PATH and Status columns
+            lineup_prep_data = [
+                {k: v for k, v in row.items() if k not in ['ORIGINAL_FILE_PATH', 'Status']}
+                for row in nice_data
+            ]
+            self._save_to_sql(lineup_prep_data, "lineup_prep_out")
             print("Additional files saved.")
 
         except Exception as e:

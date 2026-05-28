@@ -1,11 +1,12 @@
 import os
 from API.utils.ErrorManager import get_error_manager
+from API.utils.PlexConnectionHelper import PlexConnectionHelper
 
 
 class GetPlexTimestamps:
     def __init__(self, plex_url, plex_token, library_name, save_dir):
         self.error_manager = get_error_manager()
-        
+
         # Validate inputs
         if not plex_url or not plex_token:
             self.error_manager.send_error_level(
@@ -16,10 +17,14 @@ class GetPlexTimestamps:
                 suggestion="Make sure you're logged into Plex before running this operation"
             )
             raise ValueError("Missing Plex connection details")
-            
+
         try:
-            from plexapi.server import PlexServer
-            self.plex = PlexServer(plex_url, plex_token)
+            # Connect to Plex with smart reconnection
+            self.plex = PlexConnectionHelper.connect_smart(
+                plex_token=plex_token,
+                plex_url=plex_url,
+                timeout=15
+            )
         except Exception as e:
             if "unauthorized" in str(e).lower():
                 self.error_manager.send_error_level(

@@ -10,17 +10,23 @@ class VideoFilesManager:
         if cls._instance is None:
             cls._instance = super(VideoFilesManager, cls).__new__(cls)
             cls._instance.video_files = []
+            # Parallel set keyed by (original_file, dirpath, filename) for O(1) dedup
+            cls._instance._seen = set()
         return cls._instance
 
     def add_file(self, original_file, dirpath, filename):
         """Add a file to the manager, but only if it isn't already present."""
-        if any(f.original_file == original_file and f.dirpath == dirpath and f.filename == filename 
-               for f in self.video_files):
+        key = (original_file, dirpath, filename)
+        if key in self._seen:
             return
-        video_file = VideoFile(original_file, dirpath, filename)
-        self.video_files.append(video_file)
+        self._seen.add(key)
+        self.video_files.append(VideoFile(original_file, dirpath, filename))
 
     def remove_file(self, original_file, dirpath, filename):
+        key = (original_file, dirpath, filename)
+        if key not in self._seen:
+            return
+        self._seen.discard(key)
         file_to_remove = next((file for file in self.video_files if
                                file.original_file == original_file and
                                file.dirpath == dirpath and
@@ -36,3 +42,4 @@ class VideoFilesManager:
 
     def clear_files(self):
         self.video_files.clear()
+        self._seen.clear()

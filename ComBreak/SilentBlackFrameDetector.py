@@ -1,12 +1,9 @@
-import os
 from pathlib import Path
 import subprocess
-from bisect import bisect_left
 import config
-import cv2
-import numpy as np
-from ComBreak.VideoLoader import VideoLoader
+from ComBreak.VideoLoader import VideoLoader, CAP_PROP_FPS, CAP_PROP_POS_MSEC, CAP_PROP_FRAME_COUNT
 from ComBreak.utils import get_executable_path
+from ComBreak.DurationManager import get_duration_manager
 
 
 class SilentBlackFrameDetector:
@@ -15,8 +12,7 @@ class SilentBlackFrameDetector:
         self.orchestrator = SilentBlackFrameOrchestrator(input_handler)
 
     def detect_silent_black_frames(
-        self, input_path, output_path, total_frames, video_files_data,
-        total_videos, file_counter, unprocessed_files_manager,
+        self, input_path, output_path, unprocessed_files_manager,
         progress_callback, status_callback, reset_callback
     ):
         # Reset UI before starting, since we'll be using a unified progress bar
@@ -24,8 +20,7 @@ class SilentBlackFrameDetector:
             reset_callback()
         # Run orchestrator and return processed frame count
         return self.orchestrator.run(
-            input_path, output_path, total_frames, video_files_data,
-            total_videos, file_counter, unprocessed_files_manager,
+            input_path, output_path, unprocessed_files_manager,
             progress_callback, status_callback
         )
 
@@ -98,14 +93,12 @@ class SilentBlackFrameOrchestrator:
         self.cleaner = ResourceCleaner()
 
     def run(
-        self, input_path, output_path, total_frames, video_files_data,
-        total_videos, file_counter, unprocessed_files_manager,
+        self, input_path, output_path, unprocessed_files_manager,
         progress_callback, status_callback
     ):
         # Phase 1: gather files
-        gathered, _, total_videos, _ = self.gatherer.gather(
-            input_path, output_path, total_frames, total_videos,
-            file_counter, unprocessed_files_manager,
+        gathered = self.gatherer.gather(
+            input_path, output_path, unprocessed_files_manager,
             status_callback, None # Don't use main progress_callback for gathering
         )
 
@@ -145,7 +138,7 @@ class SilentBlackFrameOrchestrator:
                         # Use VideoLoader's get_frame_count to estimate frames in periods
                         temp_loader = VideoLoader(str(original_file))
                         # Calculate how many frames per second after FRAME_RATE sampling
-                        fps = temp_loader.cap.get(cv2.CAP_PROP_FPS) / config.FRAME_RATE
+                        fps = temp_loader.cap.get(CAP_PROP_FPS) / config.FRAME_RATE
                         temp_loader.release()
                         
                         for period in silence_periods:
@@ -193,7 +186,7 @@ class SilentBlackFrameOrchestrator:
                 try:
                     # Use the same FPS calculation as above for consistency
                     temp_loader = VideoLoader(str(original_file))
-                    fps = temp_loader.cap.get(cv2.CAP_PROP_FPS) / config.FRAME_RATE
+                    fps = temp_loader.cap.get(CAP_PROP_FPS) / config.FRAME_RATE
                     temp_loader.release()
                     
                     for period in silence_periods:
@@ -272,20 +265,12 @@ class SilentBlackFrameOrchestrator:
                 # 2.4 Get video duration for filtering
                 video_duration = None
                 try:
-                    # Try to get duration from the original file
-                    import subprocess
-                    cmd = [
-                        get_executable_path("ffprobe", config.ffprobe_path),
-                        "-v", "error",
-                        "-show_entries", "format=duration",
-                        "-of", "default=noprint_wrappers=1:nokey=1",
-                        str(original_file)
-                    ]
-                    result = subprocess.run(cmd, capture_output=True, text=True)
-                    if result.returncode == 0 and result.stdout.strip():
-                        video_duration = float(result.stdout.strip())
-                        if status_callback:
-                            status_callback(f"Video duration: {video_duration:.1f} seconds")
+                    # Use DurationManager to get duration (returns milliseconds, convert to seconds for reducer)
+                    duration_manager = get_duration_manager()
+                    video_duration_ms = duration_manager.get_duration(str(original_file))
+                    video_duration = video_duration_ms / 1000  # Convert to seconds for TimestampReducer
+                    if status_callback:
+                        status_callback(f"Video duration: {video_duration:.1f} seconds")
                 except Exception as e:
                     if status_callback:
                         status_callback(f"Could not get video duration: {e}")
@@ -345,14 +330,12 @@ class VideoFileGatherer:
         self.input_handler = input_handler
 
     def gather(
-        self, input_path, output_path, total_frames, total_videos,
-        file_counter, unprocessed_files_manager,
+        self, input_path, output_path, unprocessed_files_manager,
         status_callback, progress_callback
     ):
         files = unprocessed_files_manager.get_files()
-        total_videos = len(files)
         if status_callback:
-            status_callback(f"Processing {total_videos} files for black frame detection")
+            status_callback(f"Processing {len(files)} files for black frame detection")
         gathered = []
         for video_file in files:
             original, dirpath, filename = video_file.values()
@@ -371,35 +354,10 @@ class VideoFileGatherer:
             gathered.append((filename, original, str(out_dir)))
         if status_callback:
             status_callback(f"Successfully prepared {len(gathered)} videos for processing")
-        return gathered, total_frames, total_videos, file_counter
+        return gathered
 
 
 class VideoPreprocessor:
-    def preprocess(
-        self, original_file, output_dir, index, total,
-        status_callback, progress_step
-    ):
-        downscaled = Path(output_dir) / f"downscaled_{Path(original_file).name}"
-        cmd = [
-            get_executable_path("ffmpeg", config.ffmpeg_path),
-            "-threads", "0",
-            "-i", original_file,
-            "-vf", f"scale=-2:{config.DOWNSCALE_HEIGHT}:flags=neighbor",
-            "-preset", "ultrafast",
-            "-vcodec", "libx264", "-crf", "23", "-an",
-            str(downscaled),
-            "-y"
-        ]
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        _, stderr = process.communicate()
-        process.terminate()
-        if b"Error" in stderr and status_callback:
-            status_callback(f"An error occurred while downscaling video {index+1} of {total}: {stderr.decode('utf-8')}")
-        progress_step()
-        loader = VideoLoader(str(downscaled))
-        frame_count = loader.get_frame_count()
-        return str(downscaled), loader, frame_count
-
     def preprocess_segments(
         self, original_file, output_dir, silence_periods, index, total,
         status_callback, progress_step_downscale=None # Changed argument name
@@ -452,10 +410,10 @@ class VideoPreprocessor:
                 process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 _, stderr = process.communicate()
                 process.terminate() # Ensure process is terminated
-                
+
                 stderr_str = stderr.decode('utf-8', errors='ignore')
-                if "Error" in stderr_str and status_callback:
-                    status_callback(f"Error downscaling segment {i+1}: {stderr_str}")
+                if process.returncode != 0 and status_callback:
+                    status_callback(f"Error downscaling segment {i+1} (ffmpeg exit {process.returncode}): {stderr_str}")
                     # Don't add file, but DO step progress
                 elif segment_path.exists() and segment_path.stat().st_size > 0:
                     segment_files.append({
@@ -567,9 +525,9 @@ class FFMpegSilence:
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             _, stderr = proc.communicate()
             proc.terminate()
-            
-            if b"Error" in stderr and status_callback:
-                raise Exception(f"Encountered an error while detecting silence: {stderr.decode('utf-8')}")
+
+            if proc.returncode != 0:
+                raise Exception(f"Encountered an error while detecting silence (ffmpeg exit {proc.returncode}): {stderr.decode('utf-8', errors='ignore')}")
             
             lines = [line.decode('utf-8') for line in stderr.splitlines() if 'silence_' in line.decode('utf-8')]
             
@@ -592,29 +550,6 @@ class FFMpegSilence:
 
 
 class BlackFrameAnalyzer:
-    def analyze(
-        self, video_loader, silence_periods,
-        status_callback, progress_step,
-        processed_frames, total_frames
-    ):
-        timestamps = []
-        flat_ts = sorted([t for p in silence_periods for t in (p['start'], p['end'])])
-        if not flat_ts:
-            frame_count = video_loader.get_frame_count()
-            for _ in range(frame_count):
-                processed_frames += 1
-                progress_step()
-            return [], processed_frames
-        for frame in video_loader:
-            frame_time = video_loader.cap.get(cv2.CAP_PROP_POS_MSEC) / 1000
-            processed_frames += 1
-            progress_step()
-            idx = bisect_left(flat_ts, frame_time)
-            if idx > 0 and idx % 2 != 0:
-                if np.mean(np.asarray(frame)) < config.BLACK_FRAME_THRESHOLD:
-                    timestamps.append(frame_time)
-        return timestamps, processed_frames
-    
     def analyze_segments(
         self, segment_files, 
         status_callback, progress_step,
@@ -687,16 +622,20 @@ class BlackFrameAnalyzer:
                                f"{segment_frame_count} frames from {segment_start_time:.2f}s to {segment_end_time:.2f}s")
             
             loader = None
+            frames_done_in_segment = 0  # Reset per segment so error-recovery math is correct
             try:
                 loader = VideoLoader(segment_path)
-                
+
                 for frame in loader:
+                    if frame is None:
+                        continue
+
                     # Get time within the segment
-                    frame_time_in_segment = loader.cap.get(cv2.CAP_PROP_POS_MSEC) / 1000
-                    
+                    frame_time_in_segment = loader.cap.get(CAP_PROP_POS_MSEC) / 1000
+
                     # Calculate actual time in original video
                     actual_frame_time = segment_start_time + frame_time_in_segment
-                    
+
                     # Verify the timestamp is within expected bounds
                     if actual_frame_time < segment_start_time or actual_frame_time > segment_end_time:
                         if status_callback:
@@ -704,21 +643,23 @@ class BlackFrameAnalyzer:
                                           f"bounds ({segment_start_time:.3f}s-{segment_end_time:.3f}s). Adjusting.")
                         # Clamp to ensure we're in range
                         actual_frame_time = max(segment_start_time, min(actual_frame_time, segment_end_time))
-                    
-                    # Check if this is a black frame
-                    if np.mean(np.asarray(frame)) < config.BLACK_FRAME_THRESHOLD:
+
+                    # Check if this is a black frame (calculate mean of all pixel values)
+                    if sum(frame) / len(frame) < config.BLACK_FRAME_THRESHOLD:
                         timestamps.append(actual_frame_time)
-                    
+
                     # Update progress
                     processed_frames += 1
+                    frames_done_in_segment += 1
                     progress_step()
-                    
+
             except Exception as e:
                 if status_callback:
                     status_callback(f"Error analyzing segment {i+1}: {str(e)}")
-                
-                # Account for frames we couldn't process for progress bar accuracy
-                remaining_frames = segment_frame_count - (processed_frames - (processed_frames % segment_frame_count))
+
+                # Advance the bar over the remainder of THIS segment so the displayed
+                # value stays in sync with the (segment-count × frames-per-segment) total
+                remaining_frames = max(0, segment_frame_count - frames_done_in_segment)
                 if remaining_frames > 0:
                     if status_callback:
                         status_callback(f"Accounting for {remaining_frames} unprocessed frames in progress bar")
@@ -778,24 +719,6 @@ class TimestampReducer:
 
 
 class ResourceCleaner:
-    def clean(self, video_loader, downscaled_file, status_callback=None):
-        try:
-            if video_loader and hasattr(video_loader, 'cap') and video_loader.cap.isOpened():
-                video_loader.release()
-        except Exception as e:
-            if status_callback:
-                status_callback(f"Error releasing video loader: {e}")
-        if downscaled_file:
-            df = Path(downscaled_file)
-            if df.exists():
-                try:
-                    df.unlink()
-                    if status_callback:
-                        status_callback("Successfully deleted downscaled file")
-                except Exception as e:
-                    if status_callback:
-                        status_callback(f"Error deleting downscaled file: {e}")
-    
     def clean_segments(self, segment_files, status_callback=None):
         """
         Delete all segment files after processing.

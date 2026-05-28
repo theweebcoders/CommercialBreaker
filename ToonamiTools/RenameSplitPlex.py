@@ -1,5 +1,5 @@
 import re
-from plexapi.server import PlexServer
+from API.utils.PlexConnectionHelper import PlexConnectionHelper
 from API.utils.ErrorManager import get_error_manager
 
 
@@ -10,7 +10,7 @@ class PlexLibraryUpdater:
         self.library_name = library_name
         self.pattern = r'\/([^\/]+)\.mp4$'
         self.error_manager = get_error_manager()
-        
+
         # Validate inputs
         if not plex_url or not plex_token:
             self.error_manager.send_error_level(
@@ -21,10 +21,14 @@ class PlexLibraryUpdater:
                 suggestion="Make sure you're logged into Plex before running this operation"
             )
             raise ValueError("Missing Plex connection details")
-            
-        # Try to connect to Plex
+
+        # Try to connect to Plex with smart reconnection
         try:
-            self.plex = PlexServer(self.plex_url, self.plex_token)
+            self.plex = PlexConnectionHelper.connect_smart(
+                plex_token=plex_token,
+                plex_url=plex_url,
+                timeout=15
+            )
         except Exception as e:
             error_msg = str(e).lower()
             if "unauthorized" in error_msg or "401" in error_msg:

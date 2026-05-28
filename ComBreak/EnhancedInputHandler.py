@@ -2,8 +2,13 @@
 EnhancedInputHandler module provides flexible input methods for the Commercial Breaker application.
 """
 import os
+import re
 from pathlib import Path
 import config
+
+# "Season N" with optional whitespace, case insensitive. Requires a number so
+# `season-finale`, `pre-season-special`, etc. don't trigger the season-folder branch.
+_SEASON_FOLDER_RE = re.compile(r'^season\s*\d+$', re.IGNORECASE)
 
 class EnhancedInputHandler:
     """
@@ -149,14 +154,13 @@ class EnhancedInputHandler:
         
         # For individually selected files, look for season folders and show names
         parts = list(input_file_path.parts)
-        parent_dir = input_file_path.parent.name.lower()
-        
+        parent_dir = input_file_path.parent.name.strip()
+
         # Check if the immediate parent is a season folder
         is_season_folder = False
         show_name = None
-        
-        # Check if parent directory is a season folder
-        if parent_dir.startswith("season") or "season" in parent_dir:
+
+        if _SEASON_FOLDER_RE.match(parent_dir):
             is_season_folder = True
             # If it's a season folder, the show name is likely one level up
             if len(parts) >= 3:  # Need at least /show/season/file.mp4

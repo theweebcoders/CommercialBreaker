@@ -82,7 +82,7 @@ Chapter markers skip all this computational work.
 - ✅ Preserves original files completely
 - ✅ Faster processing after detection
 - ✅ Saves massive amounts of disk space
-- ❌ Only works with our DizqueTV fork
+- ❌ Requires DizqueTV 1.7+
 - ❌ Limited platform compatibility
 
 ### Q: When should I use Destructive Mode?
@@ -108,12 +108,9 @@ Chapter markers skip all this computational work.
 
 Community contributions for other platforms are welcome!
 
-### Q: What's this about a "DizqueTV fork"?
+### Q: What DizqueTV version do I need for Cutless Mode?
 
-**A**: For Cutless Mode, you need our modified version of DizqueTV that understands start/end timestamps. You can:
-- Use our fork: [theweebcoders/dizquetv](https://github.com/theweebcoders/dizquetv)
-- Use the official dev branch (may have issues)
-- Use traditional cutting with any DizqueTV version
+**A**: Cutless Mode requires DizqueTV 1.7+ Traditional cutting works with any DizqueTV version.
 
 ### Q: Why doesn't Cutless Mode work with Tunarr?
 
@@ -178,6 +175,136 @@ Even small deviations (like missing spaces around hyphens) will cause files to b
 
 ---
 
+## S.A.R.A. & Validation
+
+### Q: What is S.A.R.A.?
+
+**A**: **S.A.R.A. (System Analysis and Reporting Assistant)** is the comprehensive database validation and diagnostics system. It validates all 20 pipeline steps, checks data integrity, detects platform compatibility issues, and provides actionable suggestions for fixing problems.
+
+S.A.R.A. follows the philosophy: **"Validate everything, trust nothing."**
+
+### Q: How do I access S.A.R.A. diagnostics?
+
+**A**: **Hidden Panic Button**: Click any page title 5 times in 2 seconds
+
+The panic button is an easter egg feature for quick diagnostic access.
+
+### Q: When should I run diagnostics?
+
+**A**: Run S.A.R.A. diagnostics:
+- **After initial setup** - Verify configuration is correct
+- **After content preparation** - Ensure all content processed successfully
+- **After commercial detection** - Check all episodes have timestamps
+- **Before channel creation** - Catch issues before final export
+- **When troubleshooting** - Diagnose problems and get specific fixes
+
+Use "Refresh Status" for quick checks (< 1 second), "Run Full Validation" for comprehensive analysis (5-30 seconds).
+
+### Q: What do validation errors mean?
+
+**A**: S.A.R.A. uses four severity levels:
+
+- **CRITICAL (⊗)**: Step cannot proceed. Database table missing or corrupt. Fix immediately.
+- **ERROR (✗)**: Significant data quality problems. Address before channel creation.
+- **WARNING (⚠)**: Non-critical issues. Review but may be intentional.
+- **INFO (ℹ)**: Informational messages. No action required.
+
+Each issue includes:
+- **What**: User-friendly description
+- **Where**: Which step and table
+- **Why**: Technical details
+- **How to Fix**: Actionable suggestion
+
+### Q: Can S.A.R.A. fix issues automatically?
+
+**A**: No, S.A.R.A. is **read-only** and diagnostic only. It identifies problems and suggests fixes, but you must take action:
+- Re-run the failing step
+- Check configuration settings
+- Verify file naming conventions
+- Review platform compatibility
+
+This design prevents automatic "fixes" that might make problems worse.
+
+### Q: Why is there a "panic button"?
+
+**A**: The panic button (click title 5 times in 2 seconds) provides diagnostic access when:
+- Critical error breaks normal navigation
+- You need quick access without memorizing menus
+- Pipeline seems stuck and you want to check status
+
+It's implemented on all pages (except Page5 in TOM due to layout complexity).
+
+### Q: What's the difference between "Refresh Status" and "Run Full Validation"?
+
+**A**:
+
+**Refresh Status** (quick check):
+- Takes < 1 second
+- Checks which steps have completed
+- Updates progress indicators
+- Use for frequent monitoring
+
+**Run Full Validation** (comprehensive check):
+- Takes 5-30 seconds depending on database size
+- Validates all 20 pipeline steps
+- Checks data quality and integrity
+- Cross-table consistency validation
+- Use after major steps or when troubleshooting
+
+### Q: How does S.A.R.A. know if I'm in cutless mode?
+
+**A**: S.A.R.A. automatically detects your processing mode by checking:
+- Existence of `_cutless` suffixed tables
+- Timing columns in `commercial_injector_prep`
+- `cutless_mode_used` flag in `app_data`
+- Platform selection (cutless only works with DizqueTV/ComBreakDirect)
+
+It will warn you about platform incompatibilities (e.g., cutless mode with Tunarr).
+
+### Q: What are "integrity validators"?
+
+**A**: In addition to 18 step validators, S.A.R.A. includes 2 cross-cutting integrity validators:
+
+**LineupIntegrityValidator:**
+- Validates bump placement rules
+- Ensures multibumps are followed by anime
+- Checks intro bumps match BLOCK_IDs
+- Verifies "back" and "to ads" placement
+
+**ReferentialIntegrityValidator:**
+- Validates cross-table consistency
+- Ensures BLOCK_IDs exist in lineup_prep
+- Checks file paths are consistent
+- Verifies show names match across tables
+
+These catch issues that span multiple pipeline steps.
+
+### Q: Can I use S.A.R.A. from the command line?
+
+**A**: The S.A.R.A. interface currently lives inside the GUI apps:
+- **TOM** (Tkinter): Native desktop Page8
+- **Absolution** (Web): Browser-based Page8
+
+Use one of those interfaces when you need database diagnostics. The Clydes CLI does not expose a standalone validation screen yet.
+
+### Q: How do I include validation results in bug reports?
+
+**A**: On Page8:
+1. Run "Full Validation"
+2. Wait for results to appear
+3. Click "Copy All Results" button
+4. Paste into your bug report or support request
+
+The copied text includes:
+- Pipeline status and completion percentage
+- All validation issues with severity levels
+- Detailed error messages and suggestions
+- Metadata about platform, mode, and versions
+
+This helps developers diagnose your issue quickly.
+
+---
+
 ## Content and Usage
 
 ### Q: Where do I get Toonami bumps?
@@ -222,6 +349,16 @@ Even small deviations (like missing spaces around hyphens) will cause files to b
 2. New channels start from the next available episode
 3. If Naruto ended at episode 26, the next channel starts at episode 27
 4. Helps create ongoing, continuous Toonami marathons
+
+**For ComBreakDirect users**: this happens automatically and continuously. Every ComBreakDirect channel runs a `LineupExtender` watchdog that, a few hours before the channel ends, generates a fresh chunk of content with the per-show cursor already advanced — same mechanism, just always on. You don't toggle anything. Page 7 ("Let's Make Another Channel") is hidden for ComBreakDirect channels because there's nothing to do manually.
+
+### Q: Do my ComBreakDirect channels ever run out?
+
+**A**: No. Every ComBreakDirect channel is born with a self-extending watchdog: roughly three hours before the channel's last program would end, the system runs ShowScheduler again (with each show's cursor advanced past whatever just aired) and stitches the new chunk onto the end of the existing lineup. It's wall-clock based — fires whether or not anyone is currently streaming the channel — so if you walk away for a week and come back, the channel kept growing while you were gone. You can override the lead time with `INFINITE_EXTEND_LEAD_MS` in `config.py` if you want a different runway buffer. Default is 3 hours.
+
+### Q: Can I disable the auto-extension on a ComBreakDirect channel?
+
+**A**: It's not a UI toggle — the design assumption is that ComBreakDirect channels are infinite. If you really need to stop extension on a specific channel, edit `channels.json` (in `combreak_direct_data/` for native installs or the working folder for Docker) and set the channel's `_infinite_meta.enabled` to `false`. The watchdog will see that on its next tick and stop scheduling. The Studio's modulo loop will keep the channel playing what's already there, looping the existing content until the channel is removed.
 
 ### Q: What are "Special Bumps"?
 

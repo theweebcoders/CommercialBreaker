@@ -86,7 +86,7 @@ ComBreak is an application designed to identify commercial break points in video
 4. **Final Timestamp Cleanup**
    - TimestampManager's `cleanup_timestamps` method:
      - Processes all timestamp files in the output directory
-     - Re-applies the two-stage filtering to ensure consistency
+     - Re-applies the canonical `TimestampReducer.reduce` (START_BUFFER + TIMESTAMP_THRESHOLD filtering, plus END_BUFFER filtering when the source video's duration is resolvable)
      - Particularly important since timestamps might come from different sources (chapters, manual files, detection)
 
 ### Cutting Phase
@@ -398,9 +398,10 @@ ComBreak is an application designed to identify commercial break points in video
     - Finds all timestamp files in output directory
     - For each file:
       - Reads timestamps
-      - Applies reduce_timestamps to filter values
+      - Resolves the source video's duration via `DurationManager` when available (enhanced input mode)
+      - Calls `TimestampReducer.reduce` (defined in SilentBlackFrameDetector) to apply START_BUFFER, END_BUFFER (when duration is known), and TIMESTAMP_THRESHOLD filtering
       - Writes back cleaned timestamps
-  
+
   - `read_timestamps(input_path, output_path, ...)`
     - Looks for plex_timestamps.txt files
     - Parses file for timestamp mappings (filename = timestamp)
@@ -408,11 +409,6 @@ ComBreak is an application designed to identify commercial break points in video
       - Creates output directory
       - Writes timestamp to .txt file
       - Removes file from unprocessed manager
-  
-  - `reduce_timestamps(timestamps)`
-    - Two-stage filtering:
-      1. Remove timestamps < config.START_BUFFER
-      2. Remove timestamps < config.TIMESTAMP_THRESHOLD from previous
 
 ### 7. VideoCutter.py
 - **Purpose:** Cuts videos at identified break points
@@ -448,11 +444,12 @@ ComBreak is an application designed to identify commercial break points in video
   - Crucial for tracking progress through multiple detection methods
 
 ### 9. VideoLoader.py
-- **Purpose:** Simplified interface for OpenCV video processing
+- **Purpose:** Simplified interface for video processing
 - **Key Features:**
   - Implements Python iterator protocol for easy frame-by-frame access
   - Applies frame rate reduction (only processes every Nth frame)
   - Provides utility methods for frame count and resource cleanup
+  - **File-aware frame counting:** probes stream metadata (`has_b_frames`) first, then picks ffprobe's `-count_packets` (fast, accurate when no B-frames present) or `-count_frames` (slower but accurate when B-frames are present) per file. Adds one cheap header-read probe per file in exchange for guaranteed-correct frame counts across all codecs.
 
 ### 10. VirtualCut.py
 - **Purpose:** Implements "cutless mode" database recording

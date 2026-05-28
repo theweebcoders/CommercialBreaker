@@ -1,6 +1,6 @@
-import requests
 import json
 from API.utils.ErrorManager import get_error_manager
+from API.utils.NetworkUtils import CurlHttpClient, Timeout, ConnectionError, RequestException
 
 class DizqueTVManager:
     def __init__(self, platform_url, channel_number, duration, network):
@@ -91,8 +91,8 @@ class DizqueTVManager:
         # Validate connection to DizqueTV
         try:
             print(f'Getting channel {self.channel_number} from {self.api_url}')
-            response = requests.get(f'{self.api_url}/channel/{self.channel_number}', timeout=10)
-        except requests.exceptions.ConnectionError:
+            response = CurlHttpClient.get(f'{self.api_url}/channel/{self.channel_number}', timeout=10)
+        except ConnectionError:
             self.error_manager.send_error_level(
                 source="FlexInjector",
                 operation="main",
@@ -101,7 +101,7 @@ class DizqueTVManager:
                 suggestion="Check that DizqueTV is running and the URL is correct"
             )
             raise
-        except requests.exceptions.Timeout:
+        except Timeout:
             self.error_manager.send_error_level(
                 source="FlexInjector",
                 operation="main",
@@ -165,12 +165,12 @@ class DizqueTVManager:
         # Update the channel
         print(f'Updating channel {self.channel_number}...')
         try:
-            update_response = requests.post(
-                f'{self.api_url}/channel', 
-                json=modified_channel,
+            update_response = CurlHttpClient.post(
+                f'{self.api_url}/channel',
+                json_data=modified_channel,
                 timeout=30  # Longer timeout for updates
             )
-        except requests.exceptions.ConnectionError:
+        except ConnectionError:
             self.error_manager.send_error_level(
                 source="FlexInjector",
                 operation="main",
@@ -179,7 +179,7 @@ class DizqueTVManager:
                 suggestion="Check DizqueTV status and try running Flex Injector again"
             )
             raise
-        except requests.exceptions.Timeout:
+        except Timeout:
             self.error_manager.send_error_level(
                 source="FlexInjector",
                 operation="main",

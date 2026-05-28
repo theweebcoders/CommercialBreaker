@@ -5,10 +5,9 @@ import json
 from API.utils.DatabaseManager import get_db_manager
 from API.utils.ErrorManager import get_error_manager
 import logging
-import requests
-import pandas as pd
+from API.utils.NetworkUtils import CurlHttpClient, RequestException
+from API.utils.PlexConnectionHelper import PlexConnectionHelper
 from datetime import datetime
-from plexapi.server import PlexServer
 import config
 
 # ------------------------------------------------------------------
@@ -37,7 +36,19 @@ if DEBUG_MODE:
 class PlexToTunarr:
     def __init__(self, plex_url, plex_token, library_name, table, tunarr_url, channel_number, flex_duration, channel_name=None):
         self.error_manager = get_error_manager()
-        
+
+        # Store parameters first (needed for smart reconnection)
+        self.plex_url = plex_url
+        self.plex_token = plex_token
+        self.library_name = library_name
+        self.tunarr_url = tunarr_url.rstrip('/')
+        self.channel_number = channel_number
+        self.flex_duration = flex_duration
+        self.channel_name = channel_name or library_name
+        self.table = table
+        self.skip_reasons = {}  # Used to tally why items might be skipped if needed
+        self.plex = None  # Will be initialized in run()
+
         # Validate flex duration format
         if not re.match(r'^\d+:\d{2}$', flex_duration):
             self.error_manager.send_error_level(
@@ -48,23 +59,10 @@ class PlexToTunarr:
                 suggestion="Flex duration should be in format MM:SS (e.g., 02:30 for 2 minutes 30 seconds)"
             )
             raise ValueError("Invalid flex duration format")
-            
-        # Try to connect to Plex
-        try:
-            self.plex = PlexServer(plex_url, plex_token)
-        except Exception as e:
-            self.error_manager.send_error_level(
-                source="PlexToTunarr",
-                operation="__init__",
-                message="Cannot connect to Plex",
-                details=str(e),
-                suggestion="Check that your Plex server is running and your credentials are correct"
-            )
-            raise
-            
+
         # Test Tunarr connection - just see if we can reach it
         try:
-            response = requests.get(f"{tunarr_url}/api/channels", timeout=5)
+            response = CurlHttpClient.get(f"{tunarr_url}/api/channels", timeout=5)
             # Don't check status code - Tunarr is beta and unpredictable
         except Exception as e:
             self.error_manager.send_error_level(
@@ -75,19 +73,9 @@ class PlexToTunarr:
                 suggestion="Make sure Tunarr is running and the URL is correct"
             )
             raise
-            
-        self.plex_url = plex_url
-        self.plex_token = plex_token
-        self.plex = PlexServer(plex_url, plex_token)
-        self.library_name = library_name
-        self.tunarr_url = tunarr_url.rstrip('/')
-        self.channel_number = channel_number
-        self.flex_duration = flex_duration
-        self.channel_name = channel_name or library_name
-        self.table = table
+
         self.df = self.load_db_data()
-        self.skip_reasons = {}  # Used to tally why items might be skipped if needed
-        self.plex_source_info = self.get_plex_source_info()
+        self.plex_source_info = None  # Will be initialized in run() after Plex connection
 
     # ------------------------------------------------------------------
     # Helper: Log skip messages.
@@ -135,11 +123,10 @@ class PlexToTunarr:
                         suggestion="Run 'Prepare Cut Anime for Lineup' first to create the necessary lineup data"
                     )
                     raise Exception(f"Table {self.table} not found")
-                    
-                with db_manager.transaction() as conn:
-                    df = pd.read_sql_query(f"SELECT * FROM {self.table}", conn)
-                    
-                if df.empty:
+
+                data = db_manager.fetchall_as_dicts(f"SELECT * FROM {self.table}")
+
+                if not data:
                     self.error_manager.send_error_level(
                         source="PlexToTunarr",
                         operation="load_db_data",
@@ -148,9 +135,9 @@ class PlexToTunarr:
                         suggestion="Run 'Prepare Cut Anime for Lineup' to populate the lineup data"
                     )
                     raise Exception("Lineup table is empty")
-                    
-                logger.info("Loaded %d rows from table '%s'", len(df), self.table)
-                return df
+
+                logger.info("Loaded %d rows from table '%s'", len(data), self.table)
+                return data
             except Exception as e:
                 if "not found" not in str(e) and "empty" not in str(e):
                     logger.error("Error connecting to database: %s", e)
@@ -166,7 +153,7 @@ class PlexToTunarr:
     # ------------------------------------------------------------------
     def get_channel_by_number(self, channel_number):
         try:
-            response = requests.get(f"{self.tunarr_url}/api/channels")
+            response = CurlHttpClient.get(f"{self.tunarr_url}/api/channels")
             if response.status_code == 200:
                 channels = response.json()
                 for channel in channels:
@@ -204,7 +191,7 @@ class PlexToTunarr:
             "guideMinimumDuration": 0
         }
         logger.debug("Creating channel with data: %s", channel_data)
-        response = requests.post(f"{self.tunarr_url}/api/channels", json=channel_data)
+        response = CurlHttpClient.post(f"{self.tunarr_url}/api/channels", json_data=channel_data)
         if response.status_code == 201:
             new_channel = response.json()
             logger.info("Channel '%s' created successfully.", new_channel.get("name"))
@@ -216,7 +203,7 @@ class PlexToTunarr:
 
     def get_transcode_configs(self):
         try:
-            response = requests.get(f"{self.tunarr_url}/api/transcode_configs")
+            response = CurlHttpClient.get(f"{self.tunarr_url}/api/transcode_configs")
             if response.status_code == 200:
                 return response.json()
             return []
@@ -228,7 +215,7 @@ class PlexToTunarr:
         payload = {"type": "manual", "programs": [], "lineup": []}
         logger.debug("Deleting all programs from channel: %s", channel_id)
         url = f"{self.tunarr_url}/api/channels/{channel_id}/programming"
-        response = requests.post(url, json=payload)
+        response = CurlHttpClient.post(url, json_data=payload)
         return response.status_code == 200
 
     def get_plex_source_info(self):
@@ -243,7 +230,7 @@ class PlexToTunarr:
     def get_plex_media_source_id(self):
         """Get the ID of the Plex media source in Tunarr"""
         try:
-            response = requests.get(f"{self.tunarr_url}/api/media-sources")
+            response = CurlHttpClient.get(f"{self.tunarr_url}/api/media-sources")
             if response.status_code == 200:
                 sources = response.json()
                 # Print out all available media sources for debugging
@@ -291,9 +278,9 @@ class PlexToTunarr:
                 "sendChannelUpdates": False
             }
             
-            response = requests.post(
+            response = CurlHttpClient.post(
                 f"{self.tunarr_url}/api/media-sources",
-                json=media_source_data
+                json_data=media_source_data
             )
             
             if response.status_code == 201:
@@ -517,7 +504,7 @@ class PlexToTunarr:
 
         logger.debug("Final JSON payload to POST:\n%s", json.dumps(payload, indent=2))
         url = f"{self.tunarr_url}/api/channels/{channel_id}/programming"
-        response = requests.post(url, json=payload)
+        response = CurlHttpClient.post(url, json_data=payload)
         if response.status_code == 200:
             logger.info("Programs added successfully!")
             return True
@@ -532,6 +519,27 @@ class PlexToTunarr:
     # MAIN RUN LOGIC
     # ------------------------------------------------------------------
     def run(self):
+        # Connect to Plex with smart reconnection
+        try:
+            self.plex = PlexConnectionHelper.connect_smart(
+                plex_token=self.plex_token,
+                plex_url=self.plex_url,
+                timeout=15
+            )
+            logger.info("Successfully connected to Plex")
+        except Exception as e:
+            self.error_manager.send_error_level(
+                source="PlexToTunarr",
+                operation="run",
+                message="Cannot connect to Plex",
+                details=str(e),
+                suggestion="Check that your Plex server is running and your credentials are correct"
+            )
+            raise
+
+        # Now initialize plex_source_info after successful Plex connection
+        self.plex_source_info = self.get_plex_source_info()
+
         try:
             # Fetch all Plex media from the given library section.
             all_media = self.plex.library.section(self.library_name).all()
@@ -547,13 +555,13 @@ class PlexToTunarr:
             raise
 
         # Filter Plex items based on the DB table (match file name)
-        if self.df is not None and not self.df.empty and "FULL_FILE_PATH" in self.df.columns:
+        if self.df is not None and len(self.df) > 0 and "FULL_FILE_PATH" in self.df[0]:
             media_dict = {}
             for item in all_media:
                 if item.media and item.media[0].parts:
                     fname = self.get_filename_from_path(item.media[0].parts[0].file)
                     media_dict[fname] = item
-            db_file_names = [self.get_filename_from_path(p) for p in self.df["FULL_FILE_PATH"].tolist()]
+            db_file_names = [self.get_filename_from_path(row["FULL_FILE_PATH"]) for row in self.df]
             filtered_media = []
             for fname in db_file_names:
                 if fname in media_dict:

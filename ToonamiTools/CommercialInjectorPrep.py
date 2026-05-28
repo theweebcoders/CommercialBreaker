@@ -1,6 +1,5 @@
 import os
 import re
-import pandas as pd
 import config
 from API.utils import get_db_manager
 from API.utils.ErrorManager import get_error_manager
@@ -14,7 +13,7 @@ class AnimeFileOrganizer:
 
     def organize_files(self):
         print(f"Starting to organize files in {self.anime_dir}...")
-        
+
         # Check if directory exists
         if not os.path.exists(self.anime_dir):
             self.error_manager.send_error_level(
@@ -25,7 +24,7 @@ class AnimeFileOrganizer:
                 suggestion="Make sure you've run CommercialBreaker to cut your episodes first"
             )
             raise FileNotFoundError(f"Directory not found: {self.anime_dir}")
-        
+
         # Check if we have read permissions
         if not os.access(self.anime_dir, os.R_OK):
             self.error_manager.send_error_level(
@@ -50,12 +49,18 @@ class AnimeFileOrganizer:
             for dirpath, dirnames, filenames in os.walk(self.anime_dir):
                 for filename in filenames:
                     if filename.endswith(".mp4"):
-                        if match := re.search(pattern, filename):
+                        match = re.search(pattern, filename)
+                        if match:
                             show_name = match[1]
                             season_episode = match[2]
                             part_number = match[3]
                             path = os.path.join(dirpath, filename)
-                            data.append([show_name, season_episode, part_number, path])
+                            data.append({
+                                'SHOW_NAME_1': show_name,
+                                'Season and Episode': season_episode,
+                                'Part Number': part_number,
+                                'FULL_FILE_PATH': path
+                            })
         except Exception as e:
             self.error_manager.send_error_level(
                 source="CommercialInjectorPrep",
@@ -66,8 +71,8 @@ class AnimeFileOrganizer:
             )
             raise
 
-        print("Data has been organized into a DataFrame.")
-        
+        print("Data has been organized.")
+
         # Check if we found any cut files
         if not data:
             self.error_manager.send_error_level(
@@ -79,11 +84,11 @@ class AnimeFileOrganizer:
             )
             raise Exception("No cut episode files found")
 
-        # Create DataFrame
-        df = pd.DataFrame(data, columns=['SHOW_NAME_1', 'Season and Episode', 'Part Number', 'FULL_FILE_PATH'])
-        
-        # Check how many unique episodes were cut
-        unique_episodes = df.groupby(['SHOW_NAME_1', 'Season and Episode']).size()
+        # Count unique episodes (combinations of show name and season/episode)
+        unique_episodes = set()
+        for row in data:
+            unique_episodes.add((row['SHOW_NAME_1'], row['Season and Episode']))
+
         if len(unique_episodes) < 3:
             self.error_manager.send_warning(
                 source="CommercialInjectorPrep",
@@ -95,21 +100,29 @@ class AnimeFileOrganizer:
 
         try:
             # Check if table exists
-            result = self.db_manager.fetchone(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='commercial_injector_prep'"
-            )
-            table_exists = bool(result)
+            table_exists = self.db_manager.table_exists('commercial_injector_prep')
 
-            with self.db_manager.transaction() as conn:
-                if table_exists:
-                    existing_df = pd.read_sql('SELECT * FROM commercial_injector_prep', conn)
-                    combined_df = pd.concat([existing_df, df], ignore_index=True)
-                    duplicates = combined_df.duplicated(subset=['FULL_FILE_PATH'], keep='last')
-                    combined_df = combined_df[~duplicates]
-                    combined_df.to_sql('commercial_injector_prep', conn, index=False, if_exists='replace')
-                else:
-                    df.to_sql('commercial_injector_prep', conn, index=False, if_exists='replace')
-                    
+            if table_exists:
+                # Load existing data
+                existing_data = self.db_manager.fetchall_as_dicts('SELECT * FROM commercial_injector_prep')
+
+                # Combine with new data
+                combined_data = existing_data + data
+
+                # Remove duplicates based on FULL_FILE_PATH, keeping the last occurrence
+                seen_paths = {}
+                for row in combined_data:
+                    seen_paths[row['FULL_FILE_PATH']] = row
+
+                combined_data = list(seen_paths.values())
+
+                # Save combined data
+                self.db_manager.replace_table_data('commercial_injector_prep', combined_data)
+            else:
+                # Create new table
+                if data:
+                    self.db_manager.create_table_from_dicts('commercial_injector_prep', data)
+
         except Exception as e:
             self.error_manager.send_error_level(
                 source="CommercialInjectorPrep",
@@ -121,4 +134,4 @@ class AnimeFileOrganizer:
             raise
 
         print(f"Completed organizing files in {self.anime_dir}.")
-        print(f"Found {len(df)} cut episode parts from {len(unique_episodes)} unique episodes")
+        print(f"Found {len(data)} cut episode parts from {len(unique_episodes)} unique episodes")

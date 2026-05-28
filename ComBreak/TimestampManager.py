@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 import config
+from ComBreak.SilentBlackFrameDetector import TimestampReducer
+from ComBreak.DurationManager import get_duration_manager
 
 class TimestampManager:
     def __init__(self, input_handler):
@@ -9,46 +11,52 @@ class TimestampManager:
     # ------------------- Timestamp Cleanup Method -------------------
     def cleanup_timestamps(self, output_path, progress_callback=None, status_callback=None):
         """
-        Clean up timestamp files by applying the reduction logic to remove points that are too close together.
-        This method reads each timestamp file, applies the reduction, and writes back the cleaned-up timestamps.
+        Clean up timestamp files by applying the canonical reduction logic.
+        Reads each timestamp file, applies TimestampReducer.reduce (which includes
+        START_BUFFER + END_BUFFER + TIMESTAMP_THRESHOLD filtering), writes back.
         """
-        # Find all timestamp files
-        timestamp_files = []
+        # Collect (input_file_or_none, timestamp_file) pairs so we can look up
+        # duration per file and apply END_BUFFER filtering (enhanced mode only —
+        # legacy mode doesn't carry the input_path here so the end-buffer pass is skipped).
+        timestamp_entries = []
         if self.input_handler.has_input():
-            # Enhanced mode - look for timestamp files in the output folders
             for input_file in self.input_handler.get_consolidated_paths():
                 output_dir = self.input_handler.get_output_path_for_file(input_file, output_path)
                 if output_dir.exists():
                     for file in output_dir.glob("*.txt"):
-                        # Exclude specific files like plex_timestamps.txt and failedtocut.txt
                         if file.name not in ["plex_timestamps.txt", "failedtocut.txt"]:
-                            timestamp_files.append(file)
+                            timestamp_entries.append((input_file, file))
         else:
-            # Legacy folder mode - walk through the output directory
             for dirpath, _, filenames in os.walk(output_path):
                 for filename in filenames:
-                    # Exclude specific files like plex_timestamps.txt and failedtocut.txt
                     if filename.endswith('.txt') and filename not in ["plex_timestamps.txt", "failedtocut.txt"]:
-                        timestamp_files.append(Path(dirpath) / filename)
+                        timestamp_entries.append((None, Path(dirpath) / filename))
 
-        total_files = len(timestamp_files)
+        total_files = len(timestamp_entries)
         if status_callback:
             status_callback(f"Found {total_files} timestamp files to clean up")
 
-        # Process each timestamp file
-        for i, timestamp_file in enumerate(timestamp_files):
+        duration_manager = get_duration_manager()
+
+        for i, (input_file, timestamp_file) in enumerate(timestamp_entries):
             try:
                 if status_callback:
                     status_callback(f"Cleaning timestamp file {i+1} of {total_files}: {timestamp_file.name}")
 
-                # Read the timestamps
                 with open(timestamp_file, "r") as f:
-                    timestamps = [float(line.strip()) for line in f if line.strip()] # Ensure empty lines are skipped
+                    timestamps = [float(line.strip()) for line in f if line.strip()]
 
-                # Apply the reduction logic
-                reduced_timestamps = self.reduce_timestamps(timestamps)
+                # Look up duration if we know the source video so end-buffer filtering applies.
+                # TimestampReducer.reduce takes seconds; DurationManager returns ms.
+                video_duration = None
+                if input_file:
+                    try:
+                        video_duration = duration_manager.get_duration(input_file) / 1000.0
+                    except Exception:
+                        pass  # No duration -> reduce without end-buffer filter, same as before
 
-                # Write back the reduced timestamps
+                reduced_timestamps = TimestampReducer.reduce(timestamps, video_duration, status_callback)
+
                 with open(timestamp_file, "w") as f:
                     for timestamp in reduced_timestamps:
                         f.write(f"{timestamp}\n")
@@ -60,36 +68,9 @@ class TimestampManager:
                 if status_callback:
                     status_callback(f"Error cleaning timestamp file {timestamp_file.name}: {e}")
 
-    @staticmethod
-    def reduce_timestamps(timestamps):
-        """
-        Eliminate timestamp points using a two-stage process:
-        1. First remove timestamps that are less than starting buffer
-        2. Then remove timestamps that are too close to the previous ones
-        """
-        if not timestamps:
-            return []
-
-        # Stage 1: Remove timestamps less than START_BUFFER
-        filtered_by_buffer = [t for t in timestamps if t >= config.START_BUFFER]
-
-        if not filtered_by_buffer:
-            return []
-
-        # Stage 2: Remove timestamps that are too close to the previous ones
-        filtered_timestamps = [filtered_by_buffer[0]] # Start with the first valid timestamp
-
-        for i in range(1, len(filtered_by_buffer)):
-            timestamp = filtered_by_buffer[i]
-            # Keep timestamp if it's sufficiently far from the last *kept* timestamp
-            if timestamp - filtered_timestamps[-1] > config.TIMESTAMP_THRESHOLD:
-                filtered_timestamps.append(timestamp)
-
-        return filtered_timestamps
-
     # ------------------- Read Timestamps Method -------------------
-    def read_timestamps(self, input_path, output_path, total_frames, video_files_data, total_videos,
-                        file_counter, unprocessed_files_manager, progress_callback, status_callback):
+    def read_timestamps(self, input_path, output_path, unprocessed_files_manager,
+                        progress_callback, status_callback):
         # Check if we're using enhanced input handling or legacy folder mode
         if self.input_handler.has_input():
             # Enhanced mode - look for matching files in plex_timestamps.txt

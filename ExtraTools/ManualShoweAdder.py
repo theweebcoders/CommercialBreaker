@@ -1,6 +1,5 @@
 import os
 import re
-import pandas as pd
 import random
 import sqlite3
 from functools import cmp_to_key
@@ -79,8 +78,8 @@ class AnimeShowProcessor:
         print(f"Generics: {generics}")
         print(f"Show Folder: {show_folder}")
 
-        # Prepare DataFrame to store results
-        result_df = pd.DataFrame(columns=["FULL_FILE_PATH", "BLOCK_ID"])
+        # Prepare list to store results
+        result_data = []
 
         # Custom comparison function for sorting
         def compare(file1, file2):
@@ -105,11 +104,12 @@ class AnimeShowProcessor:
 
                     # Check if new episode (different block_id)
                     if current_block_id and block_id != current_block_id:
-                        # Using pd.concat to append DataFrames
-                        result_df = pd.concat([result_df, pd.DataFrame({
-                            "FULL_FILE_PATH": sequence,
-                            "BLOCK_ID": [current_block_id] * len(sequence)
-                        })], ignore_index=True)
+                        # Append sequence to result data
+                        for path in sequence:
+                            result_data.append({
+                                "FULL_FILE_PATH": path,
+                                "BLOCK_ID": current_block_id
+                            })
                         sequence = []  # Reset sequence for new episode
 
                     # Determine if the current file is the first or last part
@@ -122,21 +122,23 @@ class AnimeShowProcessor:
                     current_block_id = block_id
 
         # Append remaining sequence for the last episode
-        result_df = pd.concat([result_df, pd.DataFrame({
-            "FULL_FILE_PATH": sequence,
-            "BLOCK_ID": [current_block_id] * len(sequence)
-        })], ignore_index=True)
+        for path in sequence:
+            result_data.append({
+                "FULL_FILE_PATH": path,
+                "BLOCK_ID": current_block_id
+            })
 
-        # Save the Excel file
-        print(f"Final result DataFrame:\n{result_df}")
-        self.add_to_commercial_injector_final(result_df)
+        # Save the data
+        print(f"Final result data count: {len(result_data)}")
+        self.add_to_commercial_injector_final(result_data)
 
-    def add_to_commercial_injector_final(self, result_df):
+    def add_to_commercial_injector_final(self, result_data):
         db = sqlite3.connect(config.DATABASE_PATH)
         c = db.cursor()
 
-        # Add a 'Priority' column to the DataFrame and set it to 'High'
-        result_df['Priority'] = 'High'
+        # Add a 'Priority' field to each row and set it to 'High'
+        for row in result_data:
+            row['Priority'] = 'High'
 
         # Check if 'Priority' column exists in SQLite table; if not, add it
         c.execute("PRAGMA table_info(commercial_injector_final);")
@@ -147,8 +149,14 @@ class AnimeShowProcessor:
         # Update existing records in SQLite table to have 'Low' in 'Priority' column if they are blank or NULL
         c.execute("UPDATE commercial_injector_final SET Priority = 'Low' WHERE Priority IS NULL OR Priority = '';")
 
-        # Append DataFrame to SQLite table
-        result_df.to_sql('commercial_injector_final', db, if_exists='append', index=False)
+        # Append data to SQLite table
+        if result_data:
+            column_names = list(result_data[0].keys())
+            placeholders = ','.join(['?' for _ in column_names])
+            c.executemany(
+                f"INSERT INTO commercial_injector_final ({','.join(column_names)}) VALUES ({placeholders})",
+                [tuple(row[col] for col in column_names) for row in result_data]
+            )
 
         # Commit changes and close connection
         db.commit()

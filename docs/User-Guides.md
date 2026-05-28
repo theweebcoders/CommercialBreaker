@@ -23,25 +23,53 @@ TOM is your mission control for creating Toonami channels. It guides you through
 
 ### Getting Started with TOM
 
-#### Phase 1: Plex Setup
+#### Phase 1: Platform and Plex Setup
 
-**Step 1: Login to Plex**
-- Click "Login with Plex"
-- A browser window opens - log into your Plex account
-- Click "Allow" when prompted
-- Close the success window
+**Page 1: Choose Your Platform**
 
-**Step 2: Select Plex Server**
-- Use the dropdown to select your Plex server
-- Even with one server, you may need to click the dropdown
+1. **Select your platform**
+   - Choose between **DizqueTV**, **Tunarr**, or **ComBreakDirect**
+   - **DizqueTV/Tunarr**: External channel platforms requiring a URL
+   - **ComBreakDirect**: Self-hosted streaming server (no URL needed, auto-configured)
 
-**Step 3: Choose Libraries**
-- **Anime Library**: Your existing anime collection (for intro timestamps)
-- **Toonami Library**: Create a new library for cut content and bumps
+2. **Enter Platform URL** (unless using ComBreakDirect)
+   - Enter your platform's URL (e.g., `http://192.168.1.100:3000` for DizqueTV or `http://192.168.1.100:8000` for Tunarr)
+   - ComBreakDirect users skip this - it's auto-configured
 
-**Step 4: Select Platform**
-- Choose between **DizqueTV** or **Tunarr**
-- Enter your platform's URL (e.g., `http://192.168.1.100:3000`)
+3. **Navigation**
+   - Click "Skip" (ComBreakDirect) or "Continue" (DizqueTV/Tunarr) at bottom right
+
+**Page 2: Login to Plex** (Optional - Not shown for ComBreakDirect)
+
+**Note**: ComBreakDirect users won't see this page - the UI navigates directly to folder selection.
+
+1. **Login with Plex**
+   - Click "Login with Plex" button
+   - Browser window opens - log into your Plex account
+   - Click "Allow" when prompted
+   - Close the success window
+
+2. **Select Plex Server**
+   - Use the dropdown to select your Plex server
+   - Even with one server, you may need to click the dropdown
+
+3. **Select Anime Library**
+   - Choose your existing anime collection (used for intro timestamps)
+
+4. **Select Toonami Library**
+   - Choose or create a new library for cut content and bumps
+
+5. **Continue**
+   - After selecting libraries, "Skip" button changes to "Continue"
+   - Click "Continue" to proceed to folder selection
+
+**Page 2 Alternate: Manual Entry**
+
+**Note**: DizqueTV/Tunarr users can access this page by clicking "Skip" at the bottom right of the Plex login page.
+
+- Enter Plex URL and Token manually
+- Enter platform URL
+- Type library names instead of selecting from dropdowns
 
 **Pro Tip**: Toggle dark mode with the button in the bottom-left corner.
 
@@ -73,7 +101,12 @@ TOM is your mission control for creating Toonami channels. It guides you through
   - **Move Files (Legacy)**: Traditional file moving
   - **Prepopulate Selection**: Prepare for selective processing
 
+**Note**: If you selected ComBreakDirect in Page 1, these processing mode options won't appear - the system automatically uses "Prepopulate Selection" mode.
+
 **Step 2: Get Plex Timestamps (Optional but Recommended)**
+
+**Note**: If you selected ComBreakDirect in Page 1, this option won't appear since ComBreakDirect doesn't use Plex timestamps.
+
 - Click "Get Plex Timestamps"
 - Extracts intro markers from Plex (requires Plex Pass)
 - Provides backup when automatic detection fails
@@ -100,20 +133,27 @@ This is where the magic happens! See the [Commercial Breaking detailed guide](#c
 - "Prepare Plex": Optimizes Plex library compatibility
 
 **Step 5: Create Channel**
-- **DizqueTV**: "Create Toonami Channel" 
+- **DizqueTV**: "Create Toonami Channel"
 - **Tunarr**: "Create Toonami Channel with Flex"
+- **ComBreakDirect**: "Create ComBreakDirect Channel"
 
 **Step 6: Add Flex (DizqueTV Only)**
 - Adds commercial break spacing between segments
+
+> **ComBreakDirect users**: the channel auto-extends forever from the moment it's created. The "Continue" button at the bottom of this step is hidden for you, and Page 7 (Let's Make Another Channel) is removed from the navigation — there's nothing to continue manually. A few hours before your channel would naturally end, a fresh batch of episodes gets stitched onto it, picking up each show right where it left off. This happens whether you're streaming or not.
 
 ### Advanced TOM Features
 
 #### Creating Additional Channels
 
-**Continue from Last Episode**: 
+**For DizqueTV and Tunarr users**, Page 7 lets you build sequential channels that pick up where a prior one left off.
+
+**Continue from Last Episode**:
 - Checkbox option for sequential channels
 - Starts new channel where previous one ended
-- Requires running "Prepare Toonami Channel" twice on first use
+- Requires running "Prepare Toonami Channel" twice on first use *(historical quirk — fixed in the ComBreakDirect infinite-channel work, the cursor table is now initialized on first run)*
+
+> **ComBreakDirect users**: this section doesn't apply to you. Your channel never ends, so there's no "Let's Make Another Channel" — Page 7 is hidden. If you want a different version of Toonami (e.g., a separate channel for Uncut Mixed), go back to Page 6 and create another ComBreakDirect channel with a different channel number; each one extends independently.
 
 #### Dark Mode
 Toggle with the button in bottom-left corner for comfortable viewing.
@@ -186,7 +226,38 @@ Clydes provides a question-based command-line interface for users who prefer ter
 
 #### Advanced Option (Change Network)
 - On launch, Clydes offers an advanced prompt to change the active network.
-- Enter a network (e.g., “Cartoon Network”) and confirm. Clydes will persist the setting and ask you to re‑run.
+- Enter a network (e.g., "Cartoon Network") and confirm. Clydes will persist the setting and ask you to re‑run.
+
+#### Using Networkless Mode
+
+**Networkless mode** bypasses Wikipedia validation entirely, allowing you to create custom channels with any content collection—perfect for fansubs, non-broadcast anime, or custom compilations.
+
+**Setup Steps**:
+
+1. **Set network to "Networkless"**:
+   - Via Clydes advanced prompt: Enter `Networkless` when asked for network name
+   - Via config.py: Set `network = "Networkless"`
+   - Via TOM/Absolution: Use Advanced Settings to change network to `Networkless`
+
+2. **Rename your bumps**:
+   - All bump files must use the "Networkless" prefix
+   - Example: `Networkless 2 0 ShowName back 4 red.mp4`
+   - See [File Naming Conventions](File-Naming-Conventions.md) for complete naming patterns
+
+3. **Process content normally**:
+   - Run ToonamiChecker - it will skip Wikipedia and use ALL shows in your library
+   - Continue with the normal workflow
+   - All shows in your anime folder will be included without filtering
+
+**Requirements**:
+- Bump files MUST be named with "Networkless" prefix
+- Bumps should be in folders containing "bump" or "special" in the path for proper filtering
+
+**When to use Networkless mode**:
+- Custom content that didn't air on broadcast networks
+- Fansubs or unofficial releases
+- Creating themed channels without network restrictions
+- Testing with limited content collections
 
 ### When to Use Clydes
 
@@ -196,6 +267,212 @@ Clydes provides a question-based command-line interface for users who prefer ter
 - **Low resource**: Minimal system overhead
 
 **Note**: While functional, TOM and Absolution provide more comprehensive experiences with better error handling and visual feedback.
+
+---
+
+## S.A.R.A. Diagnostics (Page8)
+
+**S.A.R.A. (System Analysis and Reporting Assistant)** provides comprehensive database validation and diagnostics inside the GUI experiences. Page8 is the diagnostics interface accessible from TOM and Absolution.
+
+### Accessing S.A.R.A. Diagnostics
+
+**Access Method:**
+
+**Hidden Panic Button**: Click any page title **5 times in 2 seconds** → automatically navigates to diagnostics
+
+**Why the Panic Button?**
+- Quick access without memorizing menu structure
+- Especially useful during critical errors that break normal navigation
+
+### Page8 Features
+
+#### Pipeline Status Display
+Shows which pipeline steps have been completed:
+- ✓ (Checkmark) - Step completed successfully
+- ✗ (X) - Step failed or incomplete
+- ○ (Circle) - Step not yet run
+
+**Information Shown:**
+- Current processing phase (0-6)
+- Overall completion percentage
+- Processing mode (Cutless vs Traditional)
+- Platform selection (DizqueTV, Tunarr, or ComBreakDirect)
+- Available Toonami versions
+
+#### Validation Controls
+
+**Run Full Validation**
+- Executes comprehensive database validation
+- Checks all 20 pipeline steps
+- Validates data integrity and cross-table consistency
+- Takes 5-30 seconds depending on database size
+- Results appear in real-time as validation progresses
+
+**Refresh Status**
+- Quick status check without full validation
+- Updates pipeline completion checklist
+- Takes less than 1 second
+- Use this for frequent progress checks
+
+**Copy All Results**
+- Copies validation results to clipboard
+- Useful for bug reports and troubleshooting
+- Includes all errors, warnings, and suggestions
+
+#### Validation Results Display
+
+Results are grouped by severity:
+
+**CRITICAL (⊗):**
+- Step cannot proceed
+- Database table missing or corrupt
+- Required configuration not set
+- **Action Required**: Fix immediately before continuing
+
+**ERROR (✗):**
+- Significant data quality problems
+- Missing timestamps or file paths
+- Invalid BLOCK_ID formats
+- **Action Required**: Address before channel creation
+
+**WARNING (⚠):**
+- Non-critical issues
+- Duplicate episodes in lineup
+- Unusual bump placement
+- **Action Suggested**: Review but may be intentional
+
+**INFO (ℹ):**
+- Informational messages
+- Platform and mode confirmations
+- Version detection results
+- **No Action Required**: Informational only
+
+**Each Issue Includes:**
+- **What**: User-friendly description of the problem
+- **Where**: Which step and table has the issue
+- **Why**: Technical details for understanding
+- **How to Fix**: Actionable suggestion
+
+### Using S.A.R.A. Diagnostics
+
+#### When to Run Diagnostics
+
+**After Initial Setup:**
+- Verify platform configuration
+- Check folder paths are correct
+- Confirm Plex authentication (if required)
+
+**After Content Preparation:**
+- Validate bump preparation completed
+- Check episode filtering worked correctly
+- Verify lineup organization
+
+**After Commercial Detection:**
+- Ensure all episodes have timestamps
+- Check for detection method used
+- Validate break point quality
+
+**Before Channel Creation:**
+- Comprehensive validation of entire pipeline
+- Catch issues before final export
+- Verify cutless mode configuration (if applicable)
+
+**When Troubleshooting:**
+- Diagnose unexpected behavior
+- Understand which step failed
+- Get specific suggestions for fixes
+
+#### Understanding Validation Results
+
+**Example Validation Output:**
+
+```
+Pipeline Status: 85% complete (17/20 steps)
+Current Phase: Phase 4 (Prepare Cut Anime)
+Mode: Cutless | Platform: DizqueTV
+
+✓ PlatformSelection - Completed successfully
+✓ PlexAuth - Completed successfully
+✓ FolderMaker - Completed successfully
+✓ ToonamiChecker - Completed successfully
+✓ LineupPrep - Completed successfully
+...
+✗ CommercialBreaker - Failed: 2 error(s)
+○ CommercialInjector - Not run yet
+
+[ERROR] CommercialBreaker → cuts
+Message: 3 episodes missing commercial break timestamps
+Details: Files: Naruto S01E05.mkv, Naruto S01E06.mkv, Bleach S02E03.mkv
+Suggestion: Re-run CommercialBreaker in normal mode (not low power) to detect breaks
+```
+
+**Interpreting Results:**
+- **85% complete** means most of pipeline has run successfully
+- **✗ CommercialBreaker** indicates where the problem occurred
+- **Specific file names** tell you exactly which episodes need attention
+- **Suggestion** provides actionable next step
+
+#### Common Validation Issues
+
+**"Table does not exist" (CRITICAL)**
+- **Meaning**: Pipeline step has not been run yet
+- **Fix**: Run the step from the interface (e.g., "Prepare Toonami Channel")
+
+**"Table has insufficient data" (ERROR)**
+- **Meaning**: Step ran but didn't process any content
+- **Fix**: Check input folders have files, verify file naming conventions
+
+**"Episodes missing timestamps" (ERROR)**
+- **Meaning**: Commercial detection didn't find break points
+- **Fix**: Re-run CommercialBreaker in normal mode (not low power)
+
+**"Cutless mode active but platform is Tunarr" (WARNING)**
+- **Meaning**: Platform incompatibility detected
+- **Fix**: Change platform to DizqueTV or disable cutless mode
+
+**"Episode repeated in lineup" (INFO)**
+- **Meaning**: Same episode appears multiple times
+- **Usually Intentional**: Marathon format often repeats episodes
+
+### Interface-Specific Details
+
+#### TOM (Tkinter) Page8
+- Native desktop interface
+- Scrollable text widget for detailed results
+- Buttons for validation controls
+- Copy functionality uses system clipboard
+- Panic button on all pages except Page5
+
+#### Absolution (Web) Page8
+- Web-based interface accessible via browser
+- Collapsible sections for easier reading
+- JavaScript-based clipboard copying
+- Styled with Toonami theming
+- Panic button on all page titles
+
+> **Note:** The Clydes CLI does not expose a Page8-equivalent diagnostics view. Run validation from TOM or Absolution when you need the S.A.R.A. interface.
+
+### Tips for Using S.A.R.A.
+
+**Regular Checks:**
+- Use "Refresh Status" frequently to monitor progress
+- Run full validation after each major step
+- Check diagnostics if any step seems stuck
+
+**Before Asking for Help:**
+- Run full validation and copy results
+- Include validation output in bug reports
+- Check suggestions before asking questions
+
+**Understanding Your Pipeline:**
+- Phase numbers help you understand "where am I?"
+- Completion percentage shows overall progress
+- Current step tells you what to do next
+
+**Performance:**
+- Full validation: 5-30 seconds depending on database size
+- Quick status: <1 second, use for frequent checks
+- No impact on other operations (runs in background)
 
 ---
 

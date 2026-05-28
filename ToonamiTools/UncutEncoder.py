@@ -1,18 +1,17 @@
 import os
-import re
-import pandas as pd
 from API.utils.DatabaseManager import get_db_manager
 from API.utils.ErrorManager import get_error_manager
 from itertools import cycle
 import config
 from .utils import show_name_mapper
+from .utils.FilenameParser import FilenameParser
 
 
 class UncutEncoder:
     def __init__(self):
         self.file_paths = []
         self.block_ids = []
-        self.bumps_df = None
+        self.bumps_data = None
         self.intro_bump_cycle = {}
         self.generic_bump_cycle = {}
         self.default_bump_cycle = None  # Cycling default bumps
@@ -25,8 +24,7 @@ class UncutEncoder:
 
     def load_bumps_data(self):
         try:
-            with self.db_manager.transaction() as conn:
-                self.bumps_df = pd.read_sql('SELECT * FROM singles_data', conn)
+            self.bumps_data = self.db_manager.fetchall_as_dicts('SELECT * FROM singles_data')
         except Exception as e:
             self.error_manager.send_critical(
                 source="UncutEncoder",
@@ -36,8 +34,8 @@ class UncutEncoder:
                 suggestion="Something went wrong accessing your processed bumps. Try running Prepare Content again"
             )
             raise
-            
-        if self.bumps_df.empty:
+
+        if len(self.bumps_data) == 0:
             self.error_manager.send_error_level(
                 source="UncutEncoder",
                 operation="load_bumps_data",
@@ -46,19 +44,24 @@ class UncutEncoder:
                 suggestion="You need at least some single-show bumps for the uncut lineup. Add intro or generic bumps to your bump folder"
             )
             raise Exception("No single-show bumps available")
-            
+
         # Normalize bump show names for consistent matching against BLOCK_ID-derived names
-        self.bumps_df['SHOW_NAME_1'] = (
-            self.bumps_df['SHOW_NAME_1']
-            .apply(lambda s: show_name_mapper.map(str(s), strategy='all'))
-            .apply(lambda s: show_name_mapper.clean(s, mode='matching'))
-        )
-        
+        for row in self.bumps_data:
+            sn1 = row.get('SHOW_NAME_1', '')
+            mapped = show_name_mapper.map(str(sn1), strategy='all')
+            cleaned = show_name_mapper.clean(mapped, mode='matching')
+            row['SHOW_NAME_1'] = cleaned
+
         # Check for default/fallback bumps
-        if default_bumps := self.bumps_df[
-            (self.bumps_df['SHOW_NAME_1'].str.contains('clydes', case=False))
-            | (self.bumps_df['SHOW_NAME_1'].str.contains('robot', case=False))
-        ]['FULL_FILE_PATH'].tolist():
+        default_bumps = [
+            row['FULL_FILE_PATH'] for row in self.bumps_data
+            if row.get('SHOW_NAME_1') and (
+                'clydes' in row['SHOW_NAME_1'].lower() or
+                'robot' in row['SHOW_NAME_1'].lower()
+            )
+        ]
+
+        if default_bumps:
             self.default_bump_cycle = cycle(default_bumps)
         else:
             self.error_manager.send_warning(
@@ -73,8 +76,8 @@ class UncutEncoder:
         # Query the database for the full file paths
         query = "SELECT Full_File_Path FROM toonami_episodes"
         try:
-            with self.db_manager.transaction() as conn:
-                df = pd.read_sql(query, conn)
+            rows = self.db_manager.fetchall(query)
+            file_paths = [row[0] for row in rows]
         except Exception as e:
             self.error_manager.send_error_level(
                 source="UncutEncoder",
@@ -84,8 +87,8 @@ class UncutEncoder:
                 suggestion="Something went wrong accessing your episode list. Try running Prepare Content again"
             )
             raise
-            
-        if df.empty:
+
+        if len(file_paths) == 0:
             self.error_manager.send_error_level(
                 source="UncutEncoder",
                 operation="find_files",
@@ -95,38 +98,31 @@ class UncutEncoder:
             )
             raise Exception("No episodes to process")
 
-        # Extract episode data with show, season, episode info
+        # Extract episode data with show, season, episode info via centralized parser
         episode_data = []
-        pattern = re.compile(r"/([^/]+)/Season (\d+)/[^/]+ - S(\d+)E(\d+)")
-        
-        for full_path in df['Full_File_Path']:
+        for full_path in file_paths:
             normalized_path = os.path.normpath(full_path)
             if normalized_path.endswith((".mkv", ".mp4")):
-                if match := pattern.search(normalized_path.replace('\\', '/')):
-                    show_name = match[1]
-                    season = int(match[3])  # Use S number from pattern
-                    episode = int(match[4])  # Use E number from pattern
-                    # Store path, extracted info for sorting
-                    episode_data.append((normalized_path, show_name, season, episode))
+                parsed = FilenameParser.parse_episode_filename(os.path.basename(normalized_path))
+                if parsed:
+                    episode_data.append((normalized_path, parsed['show_name'], parsed['season'], parsed['episode']))
                 else:
                     episode_data.append((normalized_path, "", 0, 0))
 
         # Sort by show, season, episode
         episode_data.sort(key=lambda x: (x[1], x[2], x[3]))
-        
+
         # Update file_paths and block_ids
         self.file_paths = []
         self.block_ids = []
-        for path, *_ in episode_data:
+        for path, show_name, season, episode in episode_data:
             self.file_paths.append(path)
-            if match := pattern.search(path.replace('\\', '/')):
-                block_id = show_name_mapper.to_block_id(match[1])
-                season = match[3]
-                episode = match[4]
-                self.block_ids.append(f"{block_id}_S{season.zfill(2)}E{episode.zfill(2)}")
+            if show_name:
+                block_id = show_name_mapper.to_block_id(show_name)
+                self.block_ids.append(f"{block_id}_S{season:02d}E{episode:02d}")
             else:
                 self.block_ids.append("")
-                
+
         # Check if we failed to parse any episodes
         failed_files = [self.file_paths[i] for i, bid in enumerate(self.block_ids) if bid == ""]
         if failed_files:
@@ -142,63 +138,68 @@ class UncutEncoder:
     def insert_intro_bumps(self):
         shows_without_bumps = set()
         shows_with_bumps = set()
-        
+
         for i in range(len(self.file_paths) - 1, -1, -1):
             block_id = self.block_ids[i]
             if not block_id:  # Skip files that couldn't be parsed
                 continue
-                
+
             # Derive show_name from BLOCK_ID, then map+clean to the same DB key form
             show_name = block_id.split('_S')[0].replace('_', ' ')
             mapped_name = show_name_mapper.map(show_name, strategy='all')
             show_name = show_name_mapper.clean(mapped_name, mode='matching')
-            
+
             intro_bump = None
-            
+
             # Try to find intro bumps
-            if intro_bumps := self.bumps_df[
-                (self.bumps_df['SHOW_NAME_1'] == show_name)
-                & (self.bumps_df['PLACEMENT_2'].str.contains('Intro', case=False))
-            ]['FULL_FILE_PATH'].tolist():
+            intro_bumps = [
+                row['FULL_FILE_PATH'] for row in self.bumps_data
+                if row.get('SHOW_NAME_1') == show_name and
+                row.get('PLACEMENT_2') and
+                'intro' in row['PLACEMENT_2'].lower()
+            ]
+
+            if intro_bumps:
                 if show_name not in self.intro_bump_cycle:
                     self.intro_bump_cycle[show_name] = cycle(intro_bumps)
                 intro_bump = next(self.intro_bump_cycle[show_name])
                 shows_with_bumps.add(show_name)
 
             # Try generic bumps if no intro found
-            elif generic_bumps := self.bumps_df[
-                (self.bumps_df['SHOW_NAME_1'] == show_name)
-                & (
-                    self.bumps_df['PLACEMENT_2'].str.contains(
-                        'Generic', case=False
-                    )
-                )
-            ]['FULL_FILE_PATH'].tolist():
-                if show_name not in self.generic_bump_cycle:
-                    self.generic_bump_cycle[show_name] = cycle(generic_bumps)
-                intro_bump = next(self.generic_bump_cycle[show_name])
-                shows_with_bumps.add(show_name)
-
-            # Use default bumps as last resort
             else:
-                shows_without_bumps.add(show_name)
-                if self.default_bump_cycle:
-                    intro_bump = next(self.default_bump_cycle)
+                generic_bumps = [
+                    row['FULL_FILE_PATH'] for row in self.bumps_data
+                    if row.get('SHOW_NAME_1') == show_name and
+                    row.get('PLACEMENT_2') and
+                    'generic' in row['PLACEMENT_2'].lower()
+                ]
+
+                if generic_bumps:
+                    if show_name not in self.generic_bump_cycle:
+                        self.generic_bump_cycle[show_name] = cycle(generic_bumps)
+                    intro_bump = next(self.generic_bump_cycle[show_name])
+                    shows_with_bumps.add(show_name)
+
+                # Use default bumps as last resort
                 else:
-                    # No fallback available - this is a critical issue
-                    self.error_manager.send_error_level(
-                        source="UncutEncoder",
-                        operation="insert_intro_bumps",
-                        message=f"No bumps available for show: {show_name}",
-                        details=f"'{show_name}' has no intro, generic, or fallback bumps",
-                        suggestion="Add bumps for this show or generic Toonami bumps to continue"
-                    )
-                    raise Exception(f"No bumps available for {show_name}")
+                    shows_without_bumps.add(show_name)
+                    if self.default_bump_cycle:
+                        intro_bump = next(self.default_bump_cycle)
+                    else:
+                        # No fallback available - this is a critical issue
+                        self.error_manager.send_error_level(
+                            source="UncutEncoder",
+                            operation="insert_intro_bumps",
+                            message=f"No bumps available for show: {show_name}",
+                            details=f"'{show_name}' has no intro, generic, or fallback bumps",
+                            suggestion="Add bumps for this show or generic Toonami bumps to continue"
+                        )
+                        raise Exception(f"No bumps available for {show_name}")
 
             if intro_bump:
                 self.file_paths.insert(i, intro_bump)
                 self.block_ids.insert(i, block_id)
-                
+
         # Report shows without specific bumps
         if shows_without_bumps:
             if self.default_bump_cycle:
@@ -213,11 +214,22 @@ class UncutEncoder:
 
     def create_table(self):
         print("Creating table in the database")
-        df = pd.DataFrame(list(zip(self.file_paths, self.block_ids)), columns=['FULL_FILE_PATH', 'BLOCK_ID'])
-        
+        data = [{'FULL_FILE_PATH': fp, 'BLOCK_ID': bid}
+                for fp, bid in zip(self.file_paths, self.block_ids)]
+
         try:
             with self.db_manager.transaction() as conn:
-                df.to_sql('uncut_encoded_data', conn, index=False, if_exists='replace')
+                conn.execute("DROP TABLE IF EXISTS uncut_encoded_data")
+
+                if data:
+                    columns = list(data[0].keys())
+                    column_names = ','.join([f'"{col}"' for col in columns])
+                    placeholders = ','.join(['?' for _ in columns])
+                    conn.execute(f"CREATE TABLE uncut_encoded_data ({column_names})")
+                    conn.executemany(
+                        f"INSERT INTO uncut_encoded_data VALUES ({placeholders})",
+                        [tuple(row[col] for col in columns) for row in data]
+                    )
         except Exception as e:
             self.error_manager.send_error_level(
                 source="UncutEncoder",
@@ -227,7 +239,7 @@ class UncutEncoder:
                 suggestion="There was an issue saving your lineup. Try running Prepare Content again"
             )
             raise
-            
+
         print("Table created in the database.")
 
     def run(self):

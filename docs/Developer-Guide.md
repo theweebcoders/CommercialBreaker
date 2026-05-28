@@ -41,7 +41,10 @@ CommercialBreaker/
 │       ├── MessageBroker.py    # In-memory pub/sub for real-time updates
 │       ├── DatabaseManager.py  # Thread-safe database operations
 │       ├── ErrorManager.py     # Centralized error handling and history
-│       └── NetworkManager.py   # Network validation & config persistence
+│       ├── NetworkManager.py   # Network validation & config persistence
+│       ├── PlexClient.py       # Custom Plex OAuth and account client
+│       ├── PlexServer.py       # Lightweight Plex Media Server client
+│       └── PlexConnectionHelper.py # Smart connection retry logic
 ├── GUI/                    # User interfaces
 │   ├── TOM.py              # Primary Tkinter GUI
 │   ├── Absolution.py       # Web interface (REMI)
@@ -64,6 +67,327 @@ CommercialBreaker/
 │   ├── commercialinjector.py # Bump insertion
 │   └── ...
 └── ExtraTools/             # Case use utilities
+```
+
+## Plex Client Architecture
+
+CommercialBreaker includes a Plex client implementation that uses minimal dependencies and provides reliable connection handling through smart retry logic.
+
+### Architecture Overview
+
+The Plex integration consists of three main components:
+
+1. **PlexClient.py** - OAuth authentication and account management
+2. **PlexServer.py** - Minimal Plex Media Server client
+3. **PlexConnectionHelper.py** - Smart connection retry logic
+
+### Design Rationale
+
+- **Minimal Dependencies**: Uses Python stdlib `urllib` and `CurlHttpClient`
+- **Focused Implementation**: Only includes features actually used by CommercialBreaker
+- **Connection Reliability**: Smart retry logic automatically tries all available URLs (local, relay, direct)
+- **Stability**: Direct control over Plex API interactions
+- **Performance**: Lightweight implementation with minimal overhead
+
+### Component Details
+
+#### PlexClient.py
+
+Handles Plex authentication and account management:
+
+```python
+from API.utils.PlexClient import PlexAuthClient, PlexAccountClient
+
+# OAuth authentication
+auth_client = PlexAuthClient()
+auth_url, pin_id = auth_client.start_auth()
+# User visits auth_url and approves
+
+# Poll for token
+token = auth_client.poll_for_token(pin_id)
+
+# Account management
+account = PlexAccountClient(token)
+resources = account.get_resources()  # Returns list of PlexResource objects
+
+for resource in resources:
+    if resource.provides == 'server':
+        print(f"Server: {resource.name}")
+        print(f"  Connections: {resource.connections}")
+```
+
+**Key Classes:**
+- `PlexAuthClient`: Handles OAuth PIN flow
+- `PlexAccountClient`: Manages account operations and server discovery
+- `PlexResource`: Represents Plex servers/devices with connection info
+
+#### PlexServer.py
+
+Minimal Plex Media Server client with only needed functionality:
+
+```python
+from API.utils.PlexServer import SimplePlexServer
+
+# Connect to server
+server = SimplePlexServer(base_url, token)
+
+# Get libraries
+libraries = server.get_libraries()
+
+# Get library sections
+for library in libraries:
+    sections = library.get_sections()
+    for section in sections:
+        print(f"Section: {section.title}")
+
+        # Get shows
+        shows = section.get_shows()
+        for show in shows:
+            # Get episodes
+            episodes = show.get_episodes()
+```
+
+**Key Classes:**
+- `SimplePlexServer`: Main server interface
+- `SimplePlexLibrary`: Library container
+- `SimplePlexSection`: Library section (TV Shows, Movies, etc.)
+- `SimplePlexShow`: TV show with episode access
+- `SimplePlexEpisode`: Individual episode with metadata
+
+#### PlexConnectionHelper.py
+
+Smart connection logic with automatic URL retry:
+
+```python
+from API.utils.PlexConnectionHelper import PlexConnectionHelper
+
+# Initialize helper
+helper = PlexConnectionHelper(token)
+
+# Smart connect - tries all URLs automatically
+server = helper.connect_smart(plex_resource)
+# Returns SimplePlexServer or None if all connections fail
+
+# Connect by server name
+server = helper.connect_with_server_name(server_name)
+# Discovers server, tries all URLs, returns working connection
+```
+
+**Connection Strategy:**
+1. Try local network URLs first (fastest)
+2. Fall back to direct connections
+3. Use relay URLs as last resort
+4. Returns first successful connection
+5. Logs all attempts for debugging
+
+### Usage in ToonamiTools
+
+The custom Plex client is integrated throughout ToonamiTools:
+
+```python
+# In LoginToPlex.py
+from API.utils.PlexClient import PlexAuthClient, PlexAccountClient
+from API.utils.PlexConnectionHelper import PlexConnectionHelper
+
+# Authenticate
+auth_client = PlexAuthClient()
+token = auth_client.get_token()
+
+# Get servers with smart connection
+helper = PlexConnectionHelper(token)
+server = helper.connect_with_server_name(server_name)
+
+# Use server
+libraries = server.get_libraries()
+```
+
+### Migration from plexapi
+
+**Old Code:**
+```python
+from plexapi.myplex import MyPlexAccount
+from plexapi.server import PlexServer
+
+account = MyPlexAccount(token)
+server = account.resource(server_name).connect()
+```
+
+**New Code:**
+```python
+from API.utils.PlexConnectionHelper import PlexConnectionHelper
+
+helper = PlexConnectionHelper(token)
+server = helper.connect_with_server_name(server_name)
+```
+
+### HTTP Client Layer
+
+All HTTP operations use `CurlHttpClient` from ToonamiTools:
+
+```python
+from ToonamiTools.CurlHttpClient import CurlHttpClient
+
+client = CurlHttpClient()
+response = client.get(url, headers=headers)
+data = response.json()
+```
+
+**Benefits:**
+- Consistent HTTP handling across the codebase
+- Uses Python stdlib for HTTP operations
+- Built-in error handling and retry logic
+
+### Debugging Tips
+
+**Connection Issues:**
+```python
+# Enable verbose logging to see all connection attempts
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
+# The connection helper logs each URL attempt
+helper = PlexConnectionHelper(token)
+server = helper.connect_smart(resource)  # Check logs for failures
+```
+
+**Authentication Issues:**
+```python
+# Manually test token
+from API.utils.PlexClient import PlexAccountClient
+
+account = PlexAccountClient(token)
+resources = account.get_resources()
+print(f"Found {len(resources)} resources")
+```
+
+### Testing
+
+The Plex client can be tested independently:
+
+```python
+# Test authentication flow
+from API.utils.PlexClient import PlexAuthClient
+
+auth = PlexAuthClient()
+url, pin_id = auth.start_auth()
+print(f"Visit: {url}")
+# After approving...
+token = auth.poll_for_token(pin_id, timeout=120)
+print(f"Token: {token}")
+
+# Test connection helper
+from API.utils.PlexConnectionHelper import PlexConnectionHelper
+
+helper = PlexConnectionHelper(token)
+servers = helper.discover_servers()
+print(f"Discovered {len(servers)} servers")
+
+for server in servers:
+    connected = helper.connect_smart(server)
+    print(f"{server.name}: {'Connected' if connected else 'Failed'}")
+```
+
+### ComBreakDirect Streaming Architecture (Alpha)
+
+The ComBreakDirect stack uses **Studio → FIFO → Broadcast FFmpeg → BroadcastTower** architecture for continuous MPEG-TS streaming with multi-client support.
+
+- **ComBreakDirectServer.py**
+  - Flask entry point that wires REST endpoints.
+  - `/playlist.m3u8`, `/api/xmltv.xml` use FactoryFloor generators.
+  - `/video/channel/<number>` connects an Antenna to the BroadcastTower and streams chunks.
+
+- **docks/UnloadingDock.py**
+  - **Studio Thread** (`build_stream`): Calculates channel position, spawns FFmpeg per program with normalization (H.264 1080p 30fps, AAC stereo 48kHz, CBR 5.4 Mbps), writes MPEG-TS to FIFO (`/tmp/studio_ch{N}.fifo`)
+  - **Broadcast FFmpeg** (`start_broadcast_ffmpeg`): Reads FIFO with `-fflags +genpts+discardcorrupt`, creates continuous stream by regenerating PTS, rate limits broadcasting (13ms per chunk)
+  - **Lifecycle Management** (`ensure_channel_ready`): Creates FIFO, starts studio thread, starts broadcast FFmpeg, creates BroadcastTower
+  - **Client Connection** (`connect_client`): Creates Antenna for client, returns iterator yielding chunks
+
+- **utilities/BroadcastTower.py**
+  - `BroadcastTower.broadcast(chunk)`: Sends chunk to ALL connected antennas immediately (no tower buffering)
+  - `BroadcastTower.connect_antenna(client_id)`: Creates new Antenna with 132-chunk buffer
+  - `Antenna.__iter__()`: Yields chunks with 13ms rate limiting to prevent client buffering ahead
+  - `BroadcastTower.has_antennas()`: Used by broadcast FFmpeg to detect when no clients connected
+
+- **Concurrency & Efficiency**
+  - **Single studio FFmpeg** transcodes per channel (regardless of client count)
+  - **Single broadcast FFmpeg** creates continuous stream per channel
+  - **BroadcastTower distributes** to unlimited clients with minimal CPU overhead
+  - **Auto lifecycle**: Studio and broadcast FFmpeg only run when clients connected
+  - **Multi-client support**: Each client gets dedicated Antenna with independent buffer
+  - **Critical fix**: Broadcast FFmpeg's `+genpts` prevents transition freezing in Jellyfin/Plex
+
+### Channel Ingestion Pipeline (Loading Dock → Factory Floor → Streaming)
+
+1. **`POST /channels`** (Flask handler in `ComBreakDirectServer.py`)
+   - Validates payload, extracts metadata (`channel_number`, `flex_duration`, optional `commercial_folder`, optional `infinite` + `infinite_meta`).
+   - Hands off to `LoadingDock.process_lineup`.
+2. **`LoadingDock.process_lineup`**
+   - Caches the current commercial folder; swaps libraries if a payload override is provided.
+   - `_inject_commercials` looks for consecutive bump items (based on network name or `/bump/` path) and reserves pre-rendered breaks via `CommercialBreakRenderer.plan_break`.
+   - `_prime_initial_breaks` calls `CommercialBreakRenderer.pre_render_window` to warm the cache for the first hour of upcoming breaks.
+   - `_format_for_streaming` normalises timelines, assigns fallback `block_id`s, and emits a channel dictionary with ISO timestamps. The inner program-builder is extracted as `_format_programs(lineup_data, anchor_time)` so extension chunks can reuse it.
+   - When the payload has `infinite: true`, LoadingDock stashes a fully populated `channel_data['_infinite_meta']` block before handing to FactoryFloor.
+3. **`FactoryFloor.store_channel`**
+   - Writes the channel into `channels.json` (under `CBDIRECT_DATA_ROOT`), guarded by a threading lock.
+   - Successive `GET /playlist.m3u8` and `GET /api/xmltv.xml` calls read the cached data via `generate_playlist` / `generate_xmltv`.
+   - Calls `_maybe_spawn_extender(channel_data)` so infinite channels get their `LineupExtender` armed immediately.
+4. **Break Rendering (`utilities/CommercialBreakRenderer.py`)**
+   - `plan_break` reserves `_pre_rendered_breaks/<break_id>.ts`.
+   - `get_or_build_break` renders with ffmpeg, selecting audio tracks through `AudioTrackSelector`.
+   - `start_background_renderer` (invoked at server start if channels already exist) keeps the cache warm by scanning active channels.
+   - `_load_existing_breaks` hardened to skip files that vanish between `listdir()` and `stat()` (race condition with `CleanupManager`/concurrent renders that previously crashed the subprocess on boot).
+5. **Serving clients**
+   - Plex/Jellyfin hit `/video/channel/{N}` which connects an Antenna to the BroadcastTower
+   - Flask generator iterates Antenna chunks and yields to client
+   - Studio thread calculates position, starts FFmpeg, writes to FIFO
+   - Broadcast FFmpeg reads FIFO, creates continuous stream, broadcasts to tower
+   - BroadcastTower distributes to all Antennas simultaneously
+
+#### Infinite Channel Extension Pattern
+
+For any channel with `_infinite_meta.enabled=True`, a `LineupExtender` (in `docks/LineupExtender.py`) runs alongside it:
+
+1. `FactoryFloor._maybe_spawn_extender(channel_data)` constructs a `LineupExtender(self, channel_number)` at `store_channel` time and again for each loaded channel during `_load_channels` startup. The extender is keyed in `FactoryFloor._extenders` to prevent double-spawn.
+2. `LineupExtender.start()` calls `_schedule_next()`, which arms a `threading.Timer(delay, self._on_timer_fire)` where `delay = max(0, (channel_end_iso - now_utc).total_seconds() - lead_s)`. Channels shorter than the lead window (or already past their end) fire immediately.
+3. When the timer fires:
+   - Race-check the channel still exists; cancel if not.
+   - Bail if `_infinite_meta.enabled` was flipped off externally, or if `consecutive_failures` has hit `MAX_CONSECUTIVE_FAILURES` (3).
+   - Disk-space gate: skip with retry if `< INFINITE_MIN_FREE_DISK_BYTES` free in the storage partition.
+   - Call `_build_extension(channel_data, meta)`, which delegates to `ToonamiTools.InfiniteChannelExtender.generate_chunk(channel_number, meta)`:
+     - `ShowScheduler(continue_from_last_used_episode_block=True)` runs against a new per-extension table named `{merger_out}_inf_ch{channel}_ext{seq}`.
+     - `CutlessFinalizer.run_for_table(input, output_cutless)` produces the cutless companion.
+     - Returns `(rows, output_table)` for the caller.
+   - `loading_dock.format_extension(rows, channel_data)` formats the new programs with `anchor_time = channel_data['programs'][-1]['stop']` so timestamps stay contiguous.
+   - `factory_floor.extend_channel(channel_number, new_programs)` appends (under the factory lock), bumps `extension_seq`, persists `channels.json`.
+   - `_schedule_next()` recomputes the new channel-end and arms a fresh timer.
+
+**Append-only invariant**: never replace `channel_data['programs']` with a new list. The Studio thread reads `programs[current_index % len(programs)]` continuously; appending is safe under the GIL, replacing would break the live read. `FactoryFloor.extend_channel` uses `programs.extend()` deliberately.
+
+**Lazy LoadingDock lookup**: `LineupExtender` holds the FactoryFloor reference and accesses `factory_floor.loading_dock` via a `@property` on demand. Constructed with `LoadingDock` directly would AttributeError on watchdog respawn during `_load_channels`, because at that exact moment `LoadingDock.__init__` is still mid-assignment of `self.factory_floor = FactoryFloor(...)`.
+
+**Failure handling**: recoverable failures (transient disk pressure, single build error) bump `_infinite_meta.consecutive_failures` and retry in `RETRY_AFTER_FAILURE_MS` (5 min). Three failures in a row trigger `_disable(channel_data, reason)` which sets `_infinite_meta.enabled=False`, persists, surfaces via `ErrorManager`, and cancels the watchdog. The Studio's modulo loop keeps playing existing programs so the channel doesn't die — it just stops growing.
+
+**Wall-clock not playback**: the trigger condition is `(last_program.stop - now_utc) < lead_ms`. Studio's `current_index` (only updated while a client is connected) is deliberately NOT consulted. This is what makes channels keep growing while idle.
+
+#### Debugging Tips
+
+- **Studio Thread**: Look for `[STUDIO]` prefix in logs - shows program transitions, FIFO writes, BrokenPipeError on disconnect
+- **Broadcast FFmpeg**: Look for `[BROADCAST_FFMPEG]` prefix - shows startup, broadcasting, stop on no clients
+- **BroadcastTower**: Look for `[BROADCAST_TOWER]` prefix - shows antenna connections/disconnections, active count
+- **Antenna**: Look for `[ANTENNA]` prefix - shows chunks received, "lost signal" when buffer overflows
+- **LineupExtender**: Look for `[LINEUP_EXTENDER]` prefix - shows timer scheduling (`next extension in X.X min`), watchdog spawn, extension success (`appended N programs`), and any retries/disables
+- **FactoryFloor extension**: Look for `[FACTORY_FLOOR] Armed LineupExtender for channel N` and `[FACTORY_FLOOR] Extended channel N by M programs`
+- **Cursor inspection**: `sqlite3 Toonami.db 'SELECT * FROM last_used_episode_block'` shows per-show BLOCK_ID cursors. After the first extension fires this table should be populated.
+- **Per-extension tables**: extension chunks live at `lineup_v{N}_cont_inf_ch{ch}_ext{seq}` and `lineup_v{N}_cont_inf_ch{ch}_ext{seq}_cutless`. List them with `SELECT name FROM sqlite_master WHERE name LIKE 'lineup_v%_inf_ch%'`.
+- **FIFO Issues**: Check `/tmp/studio_ch{N}.fifo` exists when streaming, verify both studio and broadcast FFmpeg running
+- **Transition Freezing**: Ensure broadcast FFmpeg has `+genpts` flag - critical for continuous stream
+- When editing the streaming stack, rebuild/restart the Docker container so the running server picks up changes:
+
+```bash
+docker compose build
+docker compose up -d
+docker compose logs -f
+```
 ```
 
 ## Database Operations
@@ -113,20 +437,135 @@ with self.db_manager.transaction() as conn:
     # Automatically commits on success, rolls back on exception
 ```
 
-### Working with Pandas
+### Working with Dictionary-Based Data
 
-When using pandas DataFrames with the database:
+All database operations return native Python data structures (lists of dictionaries). This approach eliminates heavy dependencies while maintaining excellent performance for typical dataset sizes.
+
+#### Reading Data as Dictionaries
 
 ```python
-with self.db_manager.transaction() as conn:
-    # Read data
-    df = pd.read_sql("SELECT * FROM table", conn)
-    
-    # Process dataframe
-    processed_df = process_data(df)
-    
-    # Write back to database
-    processed_df.to_sql("processed_table", conn, if_exists="replace", index=False)
+# Read all rows as list of dictionaries
+data = self.db_manager.fetchall_as_dicts("SELECT * FROM shows")
+# Returns: [{"id": 1, "name": "Naruto", "active": True}, {"id": 2, "name": "Bleach", "active": True}]
+
+# Read single row as dictionary
+row = self.db_manager.fetchone_as_dict("SELECT * FROM shows WHERE id = ?", (1,))
+# Returns: {"id": 1, "name": "Naruto", "active": True} or None if not found
+
+# With parameters
+active_shows = self.db_manager.fetchall_as_dicts(
+    "SELECT * FROM shows WHERE active = ?",
+    (True,)
+)
+```
+
+#### Filtering and Transforming Data
+
+```python
+# Filter using list comprehensions
+active_shows = [row for row in data if row['active'] == True]
+recent_episodes = [row for row in data if row['season'] > 1]
+
+# Transform data by modifying dictionaries in place
+for row in data:
+    row['normalized_name'] = row['name'].lower()
+    row['full_title'] = f"{row['name']} Season {row['season']}"
+
+# Chain filters
+filtered = [
+    row for row in data
+    if row['status'] == 'active' and row.get('episodes', 0) > 10
+]
+```
+
+#### Sorting Data
+
+```python
+# Sort by single key
+data.sort(key=lambda x: x['name'])
+
+# Sort by multiple keys
+data.sort(key=lambda x: (x['season'], x['episode']))
+
+# Sort in reverse
+data.sort(key=lambda x: x['episode_count'], reverse=True)
+```
+
+#### Saving Data
+
+```python
+# Bulk insert list of dictionaries
+new_rows = [
+    {"name": "One Piece", "season": 1, "active": True},
+    {"name": "Gundam", "season": 2, "active": True}
+]
+self.db_manager.bulk_insert_dicts("shows", new_rows)
+
+# Create table from data (with type inference)
+self.db_manager.create_table_from_dicts("new_table", data, if_exists='replace')
+
+# Replace all data in existing table
+processed_data = process(data)
+self.db_manager.replace_table_data("shows", processed_data)
+
+# Drop table if needed
+self.db_manager.drop_table("temporary_table")
+```
+
+#### Checking for None/Empty Values
+
+```python
+# Check for None or empty string
+if row.get('column') is None or row.get('column') == '':
+    # Handle missing/empty value
+    pass
+
+# Safe access with default
+value = row.get('optional_column', 'default_value')
+
+# Filter out rows with missing data
+valid_data = [
+    row for row in data
+    if row.get('required_field') and row['required_field'] != ''
+]
+```
+
+#### Deduplication
+
+```python
+# Deduplicate by key, keeping last occurrence
+seen = {}
+for row in data:
+    seen[row['unique_key']] = row
+deduplicated = list(seen.values())
+
+# Deduplicate by multiple columns
+seen = {}
+for row in data:
+    key = (row['show'], row['season'], row['episode'])
+    seen[key] = row
+deduplicated = list(seen.values())
+```
+
+#### Grouping Data
+
+```python
+from collections import defaultdict
+
+# Group by single key
+groups = defaultdict(list)
+for row in data:
+    groups[row['show_name']].append(row)
+
+# Process each group
+for show_name, episodes in groups.items():
+    print(f"{show_name}: {len(episodes)} episodes")
+
+# Group by multiple keys
+groups = defaultdict(list)
+for row in data:
+    key = (row['show'], row['season'])
+    groups[key].append(row)
 ```
 
 ### Important Notes
@@ -136,6 +575,8 @@ with self.db_manager.transaction() as conn:
 3. **Auto-retry** - Database locks are handled with exponential backoff
 4. **Transactions** - Use the `transaction()` context manager for atomic operations
 5. **Resource Cleanup** - Connections are managed automatically per thread
+6. **Dict Lists vs DataFrames** - For typical dataset sizes (< 10,000 rows), dict lists provide better memory efficiency and simpler code
+7. **Type Inference** - `create_table_from_dicts()` infers column types from the first row (int, float, or text)
 
 ## Error Handling
 
@@ -391,7 +832,7 @@ class YourNewTool:
         self.param2 = param2
         self.db_manager = get_db_manager()
         self.error_manager = get_error_manager()
-    
+
     def run(self):
         try:
             # Validate parameters
@@ -404,18 +845,24 @@ class YourNewTool:
                     suggestion="Provide param1 in configuration"
                 )
                 return None
-            
-            # Use DatabaseManager for all database operations
-            with self.db_manager.transaction() as conn:
-                df = pd.read_sql("SELECT * FROM shows", conn)
-                
-            # Use show_name_mapper for name normalization
-            for show in shows:
-                normalized = show_name_mapper.map(show, strategy='all')
-                # Process normalized name
-            
-            return result
-            
+
+            # Load data as list of dictionaries
+            data = self.db_manager.fetchall_as_dicts("SELECT * FROM shows")
+
+            # Transform data
+            for row in data:
+                # Use show_name_mapper for name normalization
+                row['normalized_name'] = show_name_mapper.map(row['show'], strategy='all')
+                row['clean_name'] = show_name_mapper.clean(row['normalized_name'], mode='matching')
+
+            # Filter data
+            active_shows = [row for row in data if row.get('active', False)]
+
+            # Save processed data
+            self.db_manager.replace_table_data("processed_shows", active_shows)
+
+            return len(active_shows)
+
         except Exception as e:
             self.error_manager.send_critical(
                 source="YourNewTool",

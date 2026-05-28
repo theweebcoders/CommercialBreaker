@@ -40,7 +40,8 @@ class ShowNameMapper:
             text: Text to clean
             mode: Cleaning mode:
                   - 'standard': Basic normalization (unidecode, lowercase, remove special chars)
-                  - 'matching': For comparison (remove all non-alphanumeric, lowercase)
+                  - 'matching': For comparison (remove non-alphanumeric except spaces, lowercase)
+                  - 'fuzzy': For fuzzy matching (remove ALL non-alphanumeric incl. spaces)
                   - 'display': For display (proper capitalization)
         
         Returns:
@@ -67,6 +68,12 @@ class ShowNameMapper:
             # 4) Collapse whitespace and lowercase
             cleaned = self._whitespace_pattern.sub(' ', cleaned).strip().lower()
             return cleaned
+
+        elif mode == 'fuzzy':
+            # For fuzzy show name matching where punctuation differences shouldn't matter
+            # E.g., "Fullmetal Alchemist: Brotherhood" matches "Fullmetal Alchemist - Brotherhood"
+            # Removes ALL non-alphanumeric characters including spaces
+            return re.sub(r'[^a-z0-9]', '', text.lower())
             
         elif mode == 'display':
             # For display (proper capitalization)
@@ -221,24 +228,28 @@ class ShowNameMapper:
             Set of all possible BLOCK_ID prefixes
         """
         prefixes = set()
-        
+
         # First, add the show itself (normalized with first mapping only)
         normalized_show = self.map(show_name, strategy='first', case_sensitive=False)
-        block_format = self._non_alnum_pattern.sub('_', normalized_show).upper()
+        # Use same logic as to_block_id(): replace spaces with underscores, then remove non-alphanumeric
+        block_format = normalized_show.upper().replace(' ', '_')
+        block_format = re.sub(r'[^A-Z0-9_]', '', block_format)
         prefixes.add(block_format)
-        
+
         # Also try the original show name (before normalization)
-        original_format = self._non_alnum_pattern.sub('_', show_name).upper()
+        original_format = show_name.upper().replace(' ', '_')
+        original_format = re.sub(r'[^A-Z0-9_]', '', original_format)
         if original_format != block_format:
             prefixes.add(original_format)
-        
+
         # Find all keys in mapping_1 that normalize to this show
         for mapping_key, mapping_value in self.mapping_1.items():
             if mapping_value == normalized_show and mapping_key != normalized_show:
                 # This key maps to our normalized show
-                key_format = self._non_alnum_pattern.sub('_', mapping_key).upper()
+                key_format = mapping_key.upper().replace(' ', '_')
+                key_format = re.sub(r'[^A-Z0-9_]', '', key_format)
                 prefixes.add(key_format)
-        
+
         return prefixes
     
     # ========== CONVENIENCE METHODS ==========

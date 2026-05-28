@@ -1,15 +1,16 @@
 import config
 import os
-import pandas as pd
 import re
-import requests
+import socket
+from typing import Callable, Optional
+
 from unidecode import unidecode
-from bs4 import BeautifulSoup
 from .utils import show_name_mapper
 from .utils.DirectoryScanner import fast_video_scan
+from .utils.FilenameParser import FilenameParser
 from API.utils import get_db_manager
 from API.utils.ErrorManager import get_error_manager
-import socket
+from API.utils.NetworkUtils import CurlHttpClient, WikipediaTableParser, Timeout, HTTPError, RequestException
 
 class ToonamiShowsFetcher:
     def __init__(self):
@@ -36,14 +37,17 @@ class ToonamiShowsFetcher:
             headers = {
                 'User-Agent': 'CommercialBreaker/1.0 (https://github.com/theweebcoders/CommercialBreaker)'
             }
-            response = requests.get("https://en.wikipedia.org", headers=headers, timeout=5)
+            response = CurlHttpClient.get("https://en.wikipedia.org", headers=headers, timeout=5)
             return response.status_code == 200
-        except requests.RequestException:
+        except RequestException:
             return False
                 
     def get_toonami_shows(self):
         """
-        Fetches data of shows aired on Toonami from Wikipedia API and returns it as a pandas DataFrame.
+        Fetches data of shows aired on Toonami from Wikipedia API.
+
+        Returns:
+            dict: Dictionary with 'Title' and 'Year' keys containing lists of show names and years.
         """
         # Check internet connectivity first
         if not self.check_internet_connection():
@@ -81,11 +85,11 @@ class ToonamiShowsFetcher:
         headers = {
             'User-Agent': 'CommercialBreaker/1.0 (https://github.com/theweebcoders/CommercialBreaker)'
         }
-        
+
         try:
-            response = requests.get(self.api_url, params=params, headers=headers, timeout=10)
+            response = CurlHttpClient.get(self.api_url, params=params, headers=headers, timeout=10)
             response.raise_for_status()
-        except requests.Timeout:
+        except Timeout:
             self.error_manager.send_error_level(
                 source="ToonamiShowsFetcher",
                 operation="get_toonami_shows",
@@ -94,16 +98,16 @@ class ToonamiShowsFetcher:
                 suggestion="Wikipedia may be slow. Try again in a few minutes"
             )
             raise
-        except requests.HTTPError as e:
+        except HTTPError as e:
             self.error_manager.send_error_level(
                 source="ToonamiShowsFetcher",
                 operation="get_toonami_shows",
-                message=f"Wikipedia API returned error: {e.response.status_code}",
+                message=f"Wikipedia API returned error: {response.status_code}",
                 details=f"Failed to fetch page: {params['page']}",
                 suggestion="Check if the page name is correct or if Wikipedia's API has changed"
             )
             raise
-        except requests.RequestException as e:
+        except RequestException as e:
             self.error_manager.send_error_level(
                 source="ToonamiShowsFetcher",
                 operation="get_toonami_shows",
@@ -128,15 +132,13 @@ class ToonamiShowsFetcher:
         
         html_content = data["parse"]["text"]["*"]
 
-        soup = BeautifulSoup(html_content, 'html.parser')
+        # Parse HTML tables using WikipediaTableParser
+        tables = WikipediaTableParser.parse_html_tables(html_content)
 
         # Initialize lists to hold titles and years
         titles = []
         years = []
 
-        # Find all tables with class 'wikitable'
-        tables = soup.find_all('table', {'class': 'wikitable'})
-        
         if not tables:
             self.error_manager.send_warning(
                 source="ToonamiShowsFetcher",
@@ -150,68 +152,64 @@ class ToonamiShowsFetcher:
         #     print(f"[DEBUG] Found {len(tables)} tables on Wikipedia page for {config.network}")
 
         for table in tables:
-            # Get the headers from the table
-            header_row = table.find('tr')
-            if not header_row:
+            headers = table.get('headers', [])
+            rows = table.get('rows', [])
+
+            if not headers:
                 continue
-            headers = [th.get_text(strip=True) for th in header_row.find_all('th')]
-            # Remove footnotes from headers (e.g., 'Airdate[a]' -> 'Airdate')
-            headers = [re.sub(r'\[.*?\]', '', h) for h in headers]
+
             # Normalize headers
-            headers = [h.strip().lower() for h in headers]
+            normalized_headers = [h.strip().lower() for h in headers]
 
             # Look for title-like columns (most universal pattern)
             # Check for exact matches first, then fuzzy matches
             title_idx = None
             title_candidates = ['title', 'program', 'series', 'show', 'name']
-            
+
             for candidate in title_candidates:
-                if candidate in headers:
-                    title_idx = headers.index(candidate)
+                if candidate in normalized_headers:
+                    title_idx = normalized_headers.index(candidate)
                     break
-            
+
             # If no exact match, look for headers containing these words
             if title_idx is None:
-                for i, header in enumerate(headers):
+                for i, header in enumerate(normalized_headers):
                     if any(word in header for word in ['title', 'program', 'series']):
                         title_idx = i
                         break
-            
+
             # Only process tables that have a title column
             if title_idx is not None:
                 # OPTIONAL: Try to find date-related headers (not required)
                 # Expanded list based on analysis
                 year_idx = None
-                date_keywords = ['year', 'date', 'aired', 'premiere', 'debut', 
+                date_keywords = ['year', 'date', 'aired', 'premiere', 'debut',
                                 'run', 'broadcast', 'first', 'last', 'original']
-                
-                for i, header in enumerate(headers):
+
+                for i, header in enumerate(normalized_headers):
                     if any(keyword in header for keyword in date_keywords):
                         year_idx = i
                         break
-                
+
                 # Uncomment for debugging new networks:
                 # if len(titles) == 0:  # Only log for first table processed
-                #     print(f"[DEBUG] Processing table with headers: {headers[:5]}...")
-                #     print(f"[DEBUG] Using column {title_idx} ('{headers[title_idx]}') for titles")
+                #     print(f"[DEBUG] Processing table with headers: {normalized_headers[:5]}...")
+                #     print(f"[DEBUG] Using column {title_idx} ('{normalized_headers[title_idx]}') for titles")
                 #     if year_idx is not None:
-                #         print(f"[DEBUG] Using column {year_idx} ('{headers[year_idx]}') for dates")
+                #         print(f"[DEBUG] Using column {year_idx} ('{normalized_headers[year_idx]}') for dates")
 
-                for row in table.find_all('tr')[1:]:  # Skip the header row
-                    cols = row.find_all(['td', 'th'])
+                for row in rows:
                     # Check if we have enough columns
                     min_cols = title_idx + 1
                     if year_idx is not None:
                         min_cols = max(title_idx, year_idx) + 1
-                    
-                    if len(cols) >= min_cols:
-                        title = cols[title_idx].get_text(strip=True)
-                        year = cols[year_idx].get_text(strip=True) if year_idx is not None else ""
-                        # Clean up the title by removing references in brackets
-                        title = re.sub(r'\[.*?\]', '', title)
-                        # Remove any extra spaces
-                        title = title.strip()
-                        # Filter out rows where title is empty or looks like a date/time
+
+                    if len(row) >= min_cols:
+                        title = row[title_idx]
+                        year = row[year_idx] if year_idx is not None and year_idx < len(row) else ""
+
+                        # Title is already cleaned by WikipediaTableParser
+                        # Additional filtering
                         if title and not re.match(r'^\d', title) and '–' not in title:
                             titles.append(title)
                             years.append(year)
@@ -231,19 +229,37 @@ class ToonamiShowsFetcher:
                 cleaned_year = y
             cleaned_years.append(cleaned_year)
 
-        # Create DataFrame
-        df = pd.DataFrame({'Title': titles, 'Year': cleaned_years})
+        # Create dict and remove duplicates (keep first occurrence)
+        seen = set()
+        unique_titles = []
+        unique_years = []
+        for title, year in zip(titles, cleaned_years):
+            if title not in seen:
+                seen.add(title)
+                unique_titles.append(title)
+                unique_years.append(year)
 
-        # Remove duplicates
-        df = df.drop_duplicates(subset='Title')
-
-        return df
+        return {'Title': unique_titles, 'Year': unique_years}
     
 class ToonamiChecker:
-    def __init__(self, anime_folder):
+    def __init__(self, anime_folder, status_callback: Optional[Callable[[str], None]] = None):
         self.anime_folder = anime_folder
         self.toonami_shows_fetcher = ToonamiShowsFetcher()
         self.error_manager = get_error_manager()
+        self.status_callback = status_callback
+
+    def _status(self, message: str, *, forward_only: bool = False) -> None:
+        if not forward_only:
+            print(message)
+        if self.status_callback:
+            try:
+                self.status_callback(message)
+            except Exception as exc:
+                # Keep execution going even if the UI callback fails
+                print(f"Warning: status callback failed with error: {exc}")
+
+    def _status_forward(self, message: str) -> None:
+        self._status(message, forward_only=True)
 
     def get_video_files(self):
         """
@@ -273,8 +289,13 @@ class ToonamiChecker:
             )
             raise PermissionError(f"No read access to: {folder_path}")
         
+        self._status(f"Scanning anime library at {folder_path}...")
+
         try:
-            episode_files, file_count = fast_video_scan(folder_path)
+            episode_files, file_count = fast_video_scan(
+                folder_path,
+                status_callback=self._status_forward
+            )
         except Exception as e:
             self.error_manager.send_error_level(
                 source="ToonamiChecker",
@@ -284,8 +305,8 @@ class ToonamiChecker:
                 suggestion="Check if the directory is accessible and not corrupted"
             )
             raise
-        
-        print(f"Processed {file_count} files.")
+
+        self._status(f"Processed {file_count} files.")
         
         if file_count == 0:
             self.error_manager.send_error_level(
@@ -302,48 +323,101 @@ class ToonamiChecker:
     def compare_shows(self):
         """
         Compares Toonami shows data with video files in a directory.
+
+        Special case: If config.network is set to "Networkless", this skips Wikipedia
+        validation and uses ALL shows from the video library without filtering.
         """
         folder_path = self.anime_folder
 
-        print("Comparing Toonami shows data with video files in directory.")
-        
+        self._status("Comparing Toonami shows data with video files in directory.")
+
+        # Networkless mode: Skip Wikipedia validation and use ALL shows
+        if config.network.lower() == "networkless":
+            self._status("Networkless mode detected: Skipping Wikipedia validation")
+            self._status("Using ALL shows from video library without filtering")
+
+            try:
+                video_files = self.get_video_files()
+            except Exception as e:
+                # Error already logged by get_video_files
+                return {}
+
+            toonami_episodes = {}
+            specials_skipped = 0
+
+            # Include ALL shows from video library
+            for show in video_files:
+                for episode in video_files[show]:
+                    parsed = FilenameParser.parse_episode_filename(episode)
+                    if parsed and parsed['season'] == 0:
+                        specials_skipped += 1
+                        continue
+                    full_path = os.path.join(folder_path, episode)
+                    normalized_path = os.path.normpath(full_path)
+                    toonami_episodes[(show, episode)] = normalized_path
+
+            self._status(f"Found {len(video_files)} unique shows in your library")
+            self._status(f"Found {len(toonami_episodes)} total episodes in Networkless mode")
+            if specials_skipped:
+                self._status(f"Skipped {specials_skipped} S00 specials (OVAs/recaps/movies don't fit commercial-break detection)")
+
+            if len(toonami_episodes) == 0:
+                self.error_manager.send_error_level(
+                    source="ToonamiChecker",
+                    operation="compare_shows",
+                    message="No video files found in library",
+                    details="The anime folder appears to be empty or files are not properly named",
+                    suggestion="Check if your files are named correctly (ShowName - S##E##). See: https://github.com/theweebcoders/CommercialBreaker/wiki/File-Naming-Conventions"
+                )
+                raise ValueError("No video files found")
+
+            return toonami_episodes
+
+        # Normal mode: Use Wikipedia validation
         try:
             toonami_shows = self.toonami_shows_fetcher.get_toonami_shows()
         except Exception as e:
             # Error already logged by get_toonami_shows
             return {}
-        
+
         try:
             video_files = self.get_video_files()
         except Exception as e:
             # Error already logged by get_video_files
             return {}
-        
+
         toonami_episodes = {}
 
         # Use the show_name_mapper to normalize and map Toonami show titles
         normalized_toonami_shows = [show_name_mapper.normalize_and_map(x) for x in toonami_shows['Title']]
-        
-        print(f"Found {len(normalized_toonami_shows)} shows from {config.network} Wikipedia page")
-        print(f"Found {len(video_files)} unique shows in your library")
-        
+
+        self._status(f"Found {len(normalized_toonami_shows)} shows from {config.network} Wikipedia page")
+        self._status(f"Found {len(video_files)} unique shows in your library")
+
         # Show first few of each for debugging
         if normalized_toonami_shows:
             print(f"First 5 {config.network} shows from Wikipedia: {normalized_toonami_shows[:5]}")
         if video_files:
             print(f"First 5 shows from your library: {list(video_files.keys())[:5]}")
 
+        specials_skipped = 0
         for show in video_files:
             # Use the show_name_mapper to normalize and map video file titles
             normalized_show = show_name_mapper.normalize_and_map(show)
 
             if normalized_show in normalized_toonami_shows:
                 for episode in video_files[show]:
+                    parsed = FilenameParser.parse_episode_filename(episode)
+                    if parsed and parsed['season'] == 0:
+                        specials_skipped += 1
+                        continue
                     full_path = os.path.join(folder_path, episode)
                     normalized_path = os.path.normpath(full_path)
                     toonami_episodes[(show, episode)] = normalized_path
 
-        print(f"Found matches for {len(toonami_episodes)} episodes.")
+        self._status(f"Found matches for {len(toonami_episodes)} episodes.")
+        if specials_skipped:
+            self._status(f"Skipped {specials_skipped} S00 specials (OVAs/recaps/movies don't fit commercial-break detection)")
         
         if len(toonami_episodes) == 0:
             self.error_manager.send_error_level(
@@ -357,7 +431,7 @@ class ToonamiChecker:
         return toonami_episodes
 
     def save_episodes_to_spreadsheet(self, toonami_episodes, db_path = config.DATABASE_PATH):
-        print(f"Writing episode data to SQLite database: {db_path}")
+        self._status(f"Writing episode data to SQLite database: {db_path}")
         db_manager = get_db_manager()
 
         # Check if table exists
@@ -373,22 +447,47 @@ class ToonamiChecker:
             mapped_title = show_name_mapper.map(show_title, strategy='all')
             mapped_episodes.append((mapped_title, episode, full_path.replace("\\", "/")))
         
-        df = pd.DataFrame(mapped_episodes, columns=['Title', 'Episode', 'Full_File_Path'])
-
         with db_manager.transaction() as conn:
-            if table_exists:
-                existing_df = pd.read_sql('SELECT * FROM Toonami_Episodes', conn)
-                combined_df = pd.concat([existing_df, df], ignore_index=True)
-                duplicates = combined_df.duplicated(subset=['Title', 'Episode', 'Full_File_Path'], keep='last')
-                combined_df = combined_df[~duplicates]
-                combined_df.to_sql('Toonami_Episodes', conn, if_exists='replace', index=False)
-            else:
-                df.to_sql('Toonami_Episodes', conn, if_exists='replace', index=False)
+            cursor = conn.cursor()
 
-        print(f'Successfully wrote rows to {db_path}')
+            if table_exists:
+                # Read existing data
+                cursor.execute('SELECT Title, Episode, Full_File_Path FROM Toonami_Episodes')
+                existing_rows = cursor.fetchall()
+
+                # Combine existing and new data
+                all_rows = list(existing_rows) + mapped_episodes
+
+                # Deduplicate keeping last occurrence
+                seen = {}
+                for title, episode, path in all_rows:
+                    key = (title, episode, path)
+                    seen[key] = (title, episode, path)
+
+                # Clear table and insert deduplicated data
+                cursor.execute('DELETE FROM Toonami_Episodes')
+                cursor.executemany(
+                    'INSERT INTO Toonami_Episodes (Title, Episode, Full_File_Path) VALUES (?, ?, ?)',
+                    seen.values()
+                )
+            else:
+                # Create table and insert new data
+                cursor.execute('''
+                    CREATE TABLE Toonami_Episodes (
+                        Title TEXT,
+                        Episode TEXT,
+                        Full_File_Path TEXT
+                    )
+                ''')
+                cursor.executemany(
+                    'INSERT INTO Toonami_Episodes (Title, Episode, Full_File_Path) VALUES (?, ?, ?)',
+                    mapped_episodes
+                )
+
+        self._status(f'Successfully wrote rows to {db_path}')
 
     def save_show_names_to_spreadsheet(self, toonami_episodes, db_path = config.DATABASE_PATH):
-        print(f"Writing show names to SQLite database: {db_path}")
+        self._status(f"Writing show names to SQLite database: {db_path}")
         unique_show_names = {k[0] for k in toonami_episodes.keys()}
         db_manager = get_db_manager()
 
@@ -405,22 +504,35 @@ class ToonamiChecker:
             mapped_name = show_name_mapper.map(show_name, strategy='all')
             mapped_show_names.append(mapped_name)
         
-        df = pd.DataFrame(mapped_show_names, columns=['Title'])
-
         with db_manager.transaction() as conn:
+            cursor = conn.cursor()
+
             if table_exists:
-                existing_df = pd.read_sql('SELECT * FROM Toonami_Shows', conn)
-                combined_df = pd.concat([existing_df, df], ignore_index=True)
-                # Step 4: Identify duplicates based on 'Title'
-                duplicates = combined_df.duplicated(subset=['Title'], keep='last')
-                # Remove entire rows where duplicates are found
-                combined_df = combined_df[~duplicates]
+                # Read existing data
+                cursor.execute('SELECT Title FROM Toonami_Shows')
+                existing_titles = [row[0] for row in cursor.fetchall()]
 
-                combined_df.to_sql('Toonami_Shows', conn, if_exists='replace', index=False)
+                # Combine and deduplicate (keep last occurrence)
+                all_titles = existing_titles + mapped_show_names
+                seen = {}
+                for title in all_titles:
+                    seen[title] = title
+
+                # Clear table and insert deduplicated data
+                cursor.execute('DELETE FROM Toonami_Shows')
+                cursor.executemany(
+                    'INSERT INTO Toonami_Shows (Title) VALUES (?)',
+                    [(title,) for title in seen.keys()]
+                )
             else:
-                df.to_sql('Toonami_Shows', conn, if_exists='replace', index=False)
+                # Create table and insert new data
+                cursor.execute('CREATE TABLE Toonami_Shows (Title TEXT)')
+                cursor.executemany(
+                    'INSERT INTO Toonami_Shows (Title) VALUES (?)',
+                    [(title,) for title in mapped_show_names]
+                )
 
-        print(f'Successfully wrote rows to {db_path}')
+        self._status(f'Successfully wrote rows to {db_path}')
 
     def prepare_episode_data(self):
         toonami_episodes = self.compare_shows()

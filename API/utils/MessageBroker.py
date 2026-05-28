@@ -7,9 +7,6 @@ class MessageBroker:
     """
     Thread-safe in-memory message broker for inter-component communication.
     
-    This broker replaces both external pub/sub and direct callback mechanisms with
-    a unified messaging system that works across all interfaces (GUI, WebUI, CLI).
-    
     Usage:
         # Get the singleton instance
         broker = get_message_broker()

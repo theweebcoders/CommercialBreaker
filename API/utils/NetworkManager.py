@@ -1,8 +1,7 @@
 import re
 import os
 from typing import Tuple
-from urllib.request import Request, urlopen
-from urllib.error import URLError, HTTPError
+from .NetworkUtils import CurlHttpClient, RequestException
 
 
 WIKIPEDIA_BASE = "https://en.wikipedia.org/wiki/"
@@ -30,48 +29,46 @@ def _candidate_pages(network_name: str) -> list[str]:
 
 def _url_exists(url: str, timeout: float = 5.0) -> bool:
     """Check if a URL exists and is accessible.
-    
+
     Args:
         url: The URL to check
         timeout: Request timeout in seconds
-        
+
     Returns:
         True if URL returns 2xx status code, False otherwise
     """
-    # Try HEAD first (lighter). Some sites reject HEAD; on 405, try GET
+    headers = {'User-Agent': 'CommercialBreaker/1.0'}
+
     try:
-        req = Request(url, method='HEAD', headers={'User-Agent': 'CommercialBreaker/1.0'})
-        with urlopen(req, timeout=timeout) as resp:
-            code = getattr(resp, 'status', resp.getcode())
-            return 200 <= code < 300
-    except HTTPError as e:
-        # Only retry with GET if server explicitly rejects HEAD method
-        if e.code == 405:
-            try:
-                req = Request(url, method='GET', headers={'User-Agent': 'CommercialBreaker/1.0'})
-                with urlopen(req, timeout=timeout) as resp:
-                    code = getattr(resp, 'status', resp.getcode())
-                    return 200 <= code < 300
-            except (HTTPError, URLError):
-                # Any error in fallback GET means URL doesn't exist or is inaccessible
-                return False
-        # HTTPError means 4xx/5xx response - URL doesn't exist or is forbidden
-        return False
-    except URLError:
-        # Network error, DNS failure, timeout, etc.
+        response = CurlHttpClient.get(url, headers=headers, timeout=int(timeout))
+        return 200 <= response.status_code < 300
+    except RequestException:
+        # Network error, DNS failure, timeout, HTTP error, etc.
         return False
     except Exception:
-        # Catch unexpected errors (shouldn't happen with urlopen, but be safe)
+        # Catch unexpected errors
         return False
 
 
 def validate_network_name(network_name: str) -> Tuple[bool, str]:
     """Validate the network by checking for an existing Wikipedia list page.
 
+    Special case: "Networkless" bypasses Wikipedia validation and allows use of all
+    shows in the library without filtering. Users must name their bumps with the
+    "Networkless" prefix (e.g., "Networkless 2 0 ShowName back 4 red.mp4").
+
     Returns (is_valid, message).
     """
     if not network_name or not network_name.strip():
         return False, "Network name cannot be empty"
+
+    # Special case: Networkless mode bypasses Wikipedia validation
+    if network_name.strip().lower() == "networkless":
+        return True, (
+            "Networkless mode: Wikipedia validation bypassed. "
+            "All shows in library will be used. "
+            "Ensure bumps are named with 'Networkless' prefix."
+        )
 
     # Basic sanity check to avoid obviously invalid values
     if len(network_name.strip()) > 80:

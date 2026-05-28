@@ -6,11 +6,14 @@ This document provides detailed information about each tool and module in the Co
 
 The tools work together in a specific sequence to create your Toonami channel:
 
+**Note**: Before any tools run, users must first select their platform (DizqueTV, Tunarr, or ComBreakDirect) via the UI. This determines the workflow path and whether Plex authentication is required.
+
 ```plaintext
-1. LoginToPlex (Optional) → 2. FolderMaker → 3. ToonamiChecker → 4. LineupPrep → 5. BumpEncoder → 
-6. UncutEncoder → 7. Multilineup → 8. ShowScheduler (Merger) X4 → 9. EpisodeFilter (EpisodeFilter) → 10. GetPlexTimestamps (Optional) → 
-11. CommercialBreaker → 
-12. CommercialInjectorPrep → 13. CommercialInjector → 14. BlockMaker (BlockIDCreator) → 15. ShowScheduler (Merger) (again) X4 → 16. CutlessFinalizer (If using cutless mode) → 17. ExtraBumps (FileProcessor) (Optional) → 18. PlexAutoSplitter (Optional) → 19. PlexSplitRenamer (Optional) → 20. PlexToDizqueTV/PlexToTunarr → 21. DizqueTVManager (FlexInjector) (If using DizqueTV)
+0. Platform Selection (UI) →
+1. LoginToPlex (Conditional - Required for DizqueTV/Tunarr, Skipped for ComBreakDirect) → 2. FolderMaker → 3. ToonamiChecker → 4. LineupPrep → 5. BumpEncoder →
+6. UncutEncoder → 7. Multilineup → 8. ShowScheduler (Merger) X4 → 9. EpisodeFilter (EpisodeFilter) → 10. GetPlexTimestamps (Optional) →
+11. CommercialBreaker → 11a. VirtualCut (Conditional - Required for cutless mode) →
+12. CommercialInjectorPrep (Conditional - Required for traditional mode) → 13. CommercialInjector → 14. BlockMaker (BlockIDCreator) → 14a. PostCutBumpFilter → 15. ShowScheduler (Merger) (again) X4 → 16. CutlessFinalizer (Conditional - Required for cutless mode) → 16a. BumpCalculator (Conditional - Required for ComBreakDirect) → 17. ExtraBumps (FileProcessor) (Optional) 18. PlexAutoSplitter (Optional) → 19. PlexSplitRenamer (Optional) → 20. PlexToDizqueTV/PlexToTunarr/ComBreakToComBreakDirect → 21. DizqueTVManager (FlexInjector) (Conditional - Required for DizqueTV) → 22. ComBreakDirect Server (Conditional - Required for ComBreakDirect)
 ```
 
 ---
@@ -44,61 +47,135 @@ The tools work together in a specific sequence to create your Toonami channel:
 - **Clydes** (`CLI/clydes.py`): Startup prompt to change network; instructs re‑run after persisting.
 
 ---
-## Authentication & Setup Components
+## Plex Client Utilities
+
+These utilities provide Plex integration with minimal dependencies.
+
+### PlexClient
+**File**: `API/utils/PlexClient.py`
+**Classes**: `PlexAuthClient`, `PlexAccountClient`, `PlexResource`
+**Purpose**: Handles Plex OAuth authentication and account management.
+
+**Key Components**:
+
+**`PlexAuthClient` Class**:
+- **Purpose**: Manages OAuth PIN-based authentication flow
+- **Key Methods**:
+  - `start_auth()` - Initiates OAuth flow, returns auth URL and PIN ID
+  - `poll_for_token(pin_id)` - Polls for user approval, returns auth token
+  - `get_token()` - Convenience method combining auth flow
+- **Implementation**: Uses Python stdlib `urllib` for HTTP operations
+- **Inputs**: None (OAuth is interactive)
+- **Outputs**: Plex authentication token
+
+**`PlexAccountClient` Class**:
+- **Purpose**: Manages Plex account operations and server discovery
+- **Key Methods**:
+  - `get_resources()` - Returns list of all Plex resources (servers, players, etc.)
+  - `get_servers()` - Returns only server resources
+- **Implementation**: Makes authenticated requests to Plex.tv API
+- **Inputs**: Plex authentication token
+- **Outputs**: List of `PlexResource` objects
+
+**`PlexResource` Class**:
+- **Purpose**: Represents a Plex server or device
+- **Attributes**:
+  - `name` - Resource name
+  - `client_identifier` - Unique ID
+  - `provides` - Resource type ('server', 'player', etc.)
+  - `owned` - Ownership status
+  - `connections` - List of connection URLs with metadata
+
+### PlexServer
+**File**: `API/utils/PlexServer.py`
+**Classes**: `SimplePlexServer`, `SimplePlexLibrary`, `SimplePlexSection`, `SimplePlexShow`, `SimplePlexEpisode`
+**Purpose**: Provides minimal Plex Media Server client functionality.
+
+**Key Components**:
+
+**`SimplePlexServer` Class**:
+- **Purpose**: Main server interface
+- **Key Methods**:
+  - `get_libraries()` - Returns all libraries
+  - `get_library_by_name(name)` - Find library by name
+- **Implementation**: Makes requests to Plex server API
+- **Inputs**: Server base URL, auth token, optional client identifier
+- **Outputs**: Library objects
+
+**`SimplePlexLibrary`, `SimplePlexSection`, `SimplePlexShow`, `SimplePlexEpisode` Classes**:
+- **Purpose**: Represent Plex library hierarchy
+- **Implementation**: Each class provides methods to navigate down the hierarchy
+- **Example Flow**: Server → Libraries → Sections → Shows → Episodes
+
+### PlexConnectionHelper
+**File**: `API/utils/PlexConnectionHelper.py`
+**Class**: `PlexConnectionHelper`
+**Purpose**: Smart connection management with automatic URL retry.
+
+**Key Features**:
+- **Smart Connection Logic**: Automatically tries all available server URLs
+- **Connection Priority**: Local network → Direct connections → Relay URLs
+- **Automatic Failover**: Returns first successful connection
+- **Connection Discovery**: Finds all available Plex servers
+
+**Key Methods**:
+- `discover_servers()` - Gets list of available Plex servers
+- `connect_smart(resource)` - Connects to server trying all URLs
+- `connect_with_server_name(name)` - Discovers and connects by name
+
+**Connection Strategy**:
+1. Sorts connection URLs by type (local, direct, relay)
+2. Attempts each URL with timeout
+3. Returns first successful connection
+4. Logs all connection attempts
 
 ### LoginToPlex
 **File**: `ToonamiTools/LoginToPlex.py`
 **Classes**: `PlexServerList`, `PlexLibraryManager`, `PlexLibraryFetcher`
-**Purpose**: Authenticates with Plex, retrieves a list of available Plex servers, and fetches libraries from a selected server. This information is crucial for other tools that interact with the user's Plex media.
+**Purpose**: High-level wrapper for Plex authentication workflow. Uses the Plex client utilities to authenticate, discover servers, and fetch libraries.
 
 **Key Features & Process**:
 
 **`PlexServerList` Class**:
--   **Purpose**: Handles the initial Plex authentication and retrieves a list of servers associated with the user's account.
--   **Authentication (`GetPlexToken` method)**:
-    -   Uses the `plexauth` library to initiate an OAuth flow with Plex.tv.
-    -   Constructs a payload with `X-Plex-*` headers identifying the application ("Commercial Breaker").
-    -   Obtains an authentication URL (`auth_url`) which the user must open in a browser to grant access.
-    -   Supports a callback mechanism (`auth_url_callback`) to pass the `auth_url` to the GUI or other handlers (e.g., for display or automatic opening). If no callback is provided, it defaults to opening the URL in a web browser and printing it to the console.
-    -   Waits for the user to authenticate and then retrieves the Plex access token.
-    -   Stores the token (`self.plex_token`) and the list of server names (`self.plex_servers`).
--   **Server Listing (`GetPlexServerList` method)**:
-    -   Calls `GetPlexToken` to ensure authentication.
-    -   Uses the obtained token to connect to `MyPlexAccount` (from `plexapi.myplex`).
-    -   Fetches the user's resources (Plex servers) and populates `self.plex_servers` with their names.
--   **Inputs**: User interaction for browser-based authentication.
--   **Outputs**:
-    -   Plex authentication token (stored and accessible via `self.plex_token`).
-    -   List of Plex server names (stored and accessible via `self.plex_servers`).
-    -   Authentication URL (passed to callback or opened in browser).
+- **Purpose**: Handles initial Plex authentication and retrieves server list
+- **Authentication Process**:
+  - Uses `PlexAuthClient` to initiate OAuth flow
+  - Obtains authentication URL for user to approve
+  - Supports callback mechanism for GUI integration
+  - Retrieves and stores Plex access token
+  - Uses `PlexAccountClient` to discover available servers
+- **Inputs**: User interaction for browser-based authentication
+- **Outputs**:
+  - Plex authentication token
+  - List of Plex server names
+  - Authentication URL (via callback or browser)
 
 **`PlexLibraryManager` Class**:
--   **Purpose**: Given a selected Plex server name and a token, it connects to that server and retrieves its base URL.
--   **Details Fetching (`GetPlexDetails` method)**:
-    -   Takes the selected server name and Plex token.
-    -   Connects to `MyPlexAccount` using the token.
-    -   Finds the specified server resource from the account's resources.
-    -   Connects to the selected Plex server (`selected_resource.connect()`).
-    -   Stores the server's base URL (`plex._baseurl`) in `self.plex_url`.
--   **Inputs**: Selected Plex server name, Plex authentication token.
--   **Outputs**: Plex server base URL (e.g., `http://localhost:32400`).
+- **Purpose**: Connects to selected Plex server and retrieves its URL
+- **Connection Process**:
+  - Takes selected server name and auth token
+  - Uses `PlexConnectionHelper.connect_with_server_name()` for smart connection
+  - Automatically handles connection retry with multiple URLs
+  - Stores server's base URL
+- **Inputs**: Selected Plex server name, Plex authentication token
+- **Outputs**: Plex server base URL (e.g., `http://192.168.1.100:32400`)
 
 **`PlexLibraryFetcher` Class**:
--   **Purpose**: Fetches a list of library names from a specific Plex server, given its URL and token.
--   **Library Fetching (`GetPlexLibraries` method)**:
-    -   Takes the Plex server URL and token.
-    -   Connects to the `PlexServer` using the provided URL and token.
-    -   Retrieves all library sections (`server.library.sections()`).
-    -   Populates `self.libraries` with the titles (names) of these libraries.
--   **Inputs**: Plex server base URL, Plex authentication token.
--   **Outputs**: List of library names available on the server.
+- **Purpose**: Fetches library list from Plex server
+- **Library Fetching**:
+  - Takes server URL and auth token
+  - Creates `SimplePlexServer` instance
+  - Calls `get_libraries()` to retrieve all library sections
+  - Populates list with library titles
+- **Inputs**: Plex server base URL, Plex authentication token
+- **Outputs**: List of library names available on server
 
 **Workflow Integration**:
-1.  `PlexServerList` is used first to log in and get available servers.
-2.  The user selects a server.
-3.  `PlexLibraryManager` uses the selected server name and token to get the server's URL.
-4.  `PlexLibraryFetcher` uses the server URL and token to get the list of libraries on that server.
-5.  The selected libraries (e.g., for anime, Toonami content) and Plex credentials (URL, token) are then stored (typically in `config.py` or a local database by `FrontEndLogic.py`) for use by other tools.
+1. `PlexServerList` authenticates and discovers servers
+2. User selects a server from the list
+3. `PlexLibraryManager` connects to selected server (with automatic retry)
+4. `PlexLibraryFetcher` retrieves available libraries
+5. Credentials and library selections stored for use by other tools
 
 ---
 
@@ -113,14 +190,17 @@ The tools work together in a specific sequence to create your Toonami channel:
 
 **`ToonamiShowsFetcher` Class**:
 -   **Purpose**: Fetches a list of programs broadcast by a specified network (e.g., "Toonami", configurable via `config.network`) from Wikipedia.
--   **Data Fetching (`get_toonami_shows` method)**:
+-   **Data Fetching (`get_toonami_shows` method)** *
     -   Uses the Wikipedia API (`action=parse`) to get the HTML content of the "List of programs broadcast by [network]" page.
-    -   Parses the HTML using `BeautifulSoup` to find tables with class `wikitable`.
+    -   **HTTP Client**: Uses `CurlHttpClient` from `API.utils.NetworkUtils` (curl subprocess) instead of the requests library.
+    -   **HTML Parsing**: Uses `WikipediaTableParser` (regex-based) from `API.utils.NetworkUtils` to extract tables instead of BeautifulSoup.
     -   Iterates through these tables, identifying relevant columns like 'title' (or 'program') and 'year(s) aired' (or 'airdate').
     -   Extracts show titles and their airing years, cleaning the data (removing footnotes, normalizing years).
-    -   Returns a Pandas DataFrame with 'Title' and 'Year' columns, with duplicates dropped.
+    -   **Data Structure**: Returns a dictionary containing show data (keys: 'Title', 'Year'), with duplicates removed.
 -   **Inputs**: `config.network` (e.g., "Toonami").
--   **Outputs**: Pandas DataFrame of Toonami shows and their airing years.
+-   **Outputs**: Dictionary of Toonami shows with their airing years (structure: `{"show_name": {"Title": "...", "Year": "..."}}`).
+
+*Uses stdlib-based HTTP operations (curl subprocess via `NetworkUtils`) and regex-based HTML parsing, eliminating dependencies on requests and beautifulsoup4 libraries.
 
 **`ToonamiChecker` Class**:
 -   **Purpose**: Compares the fetched list of Toonami shows with video files in a user-specified anime folder, identifies matches, and saves the results to a SQLite database.
@@ -134,7 +214,8 @@ The tools work together in a specific sequence to create your Toonami channel:
     -   Removes special characters and handles underscores using `unidecode` and regex.
     -   Applies custom name mappings defined in `config.show_name_mapping` to handle variations or alternative titles (e.g., "fmab" to "fullmetal alchemist brotherhood").
 -   **Comparison (`compare_shows` method)**:
-    -   Fetches Toonami shows using `ToonamiShowsFetcher`.
+    -   **Networkless Mode**: If `config.network.lower() == "networkless"`, Wikipedia validation is bypassed entirely. All shows in the video library are included without filtering, allowing use of any custom content collection.
+    -   **Standard Mode**: Fetches Toonami shows using `ToonamiShowsFetcher`.
     -   Gets local video files using `get_video_files`.
     -   Normalizes both the Wikipedia show titles and the local file show titles using `normalize_and_map`.
     -   Compares the normalized lists to find matches.
@@ -178,7 +259,7 @@ The tools work together in a specific sequence to create your Toonami channel:
         -   `count >= 3` (Triple show bumps, "later"): e.g., `Toonami [Version] [Placement1?] [ShowName1] [Placement2] [ShowName2] [Placement3] [ShowName3] [AdVersion?] [Color?]`
         -   `count == 0` (Generic/Robot bumps): e.g., `Toonami [Version] [robot|clyde] [AdVersion?]`
     -   **Data Extraction (`_extract_data_from_pattern` method)**: Applies the generated regex to the (transformed) filename to extract named groups like `TOONAMI_VERSION`, `SHOW_NAME_1`, `PLACEMENT_2`, `SHOW_NAME_2`, `AD_VERSION`, `COLOR`, etc.
--   **File Processing (`_process_data_patterns` method)**:
+-   **File Processing (`_process_data_patterns` method)** *
     -   Retrieves all media files (mkv, mp4) from the `bump_folder`.
     -   For each file, cleans the filename (removes extension, replaces underscores with spaces).
     -   Calls `_extract_data_from_pattern` to get metadata.
@@ -186,16 +267,18 @@ The tools work together in a specific sequence to create your Toonami channel:
     -   **Status Setting (`_set_status` method)**:
         -   Sets status to 'nice' if extracted show names are found in the list of known `shows` (from `Toonami_Shows` table) or if the bump is a recognized generic bump (from `config.genric_bumps`).
         -   Otherwise, sets status to 'naughty'.
-    -   Appends processed data to either a `new_df` (for matches) or `no_match_df`.
--   **Database Interaction (`run`, `_save_to_sql` methods)**:
-    -   Connects to the SQLite database (`[config.network].db`).
-    -   Reads the `Toonami_Shows` table to get the list of valid show titles (normalized).
-    -   Saves the processed bump data into several tables:
+    -   **Data Structure**: Appends processed data (as dictionaries) to lists: `new_data` (for matches) or `no_match_data` (for non-matches).
+-   **Database Interaction (`run`, `_save_to_sql` methods)** *
+    -   Connects to the SQLite database (`[config.network].db`) via `DatabaseManager`.
+    -   Reads the `Toonami_Shows` table using `fetchall_as_dicts()` to get the list of valid show titles (normalized).
+    -   **Data Processing**: Uses lists of dictionaries instead of pandas DataFrames for all bump data manipulation.
+    -   **Deduplication Strategy**: Combines existing data with new data, creates tuple keys from all column values, and keeps last occurrence of duplicates using dictionary-based deduplication.
+    -   Saves the processed bump data into several tables using `bulk_insert_dicts()` or `replace_table_data()`:
         -   `nice_list`: Bumps with 'nice' status.
         -   `naughty_list`: Bumps with 'naughty' status.
         -   `no_match`: Files for which no pattern was matched.
         -   `lineup_prep_out`: A subset of `nice_list` (dropping `ORIGINAL_FILE_PATH` and `Status`), which serves as the primary input for `BumpEncoder`.
-    -   Handles existing tables by appending new data and removing duplicates.
+    -   Handles existing tables by appending new data and removing duplicates via atomic table replacement.
 -   **Inputs**:
     -   `bump_folder` (path to bump files).
     -   `config.py` (keywords, show_name_mappings, colors, generic_bumps, network name).
@@ -209,8 +292,8 @@ The tools work together in a specific sequence to create your Toonami channel:
 **File**: `ToonamiTools/BumpEncoder.py`
 **Purpose**: Processes bump data from the `lineup_prep_out` database table to create standardized codes for each bump. These codes are used for efficient library management and bump selection during lineup generation by the `Merger (ShowScheduler)`.
 
-**Key Features & Process**:
-- **Input**: Reads data from the `lineup_prep_out` table (created by `LineupPrep`). This table is expected to have columns like `PLACEMENT_1`, `PLACEMENT_2`, `PLACEMENT_3`, `SHOW_NAME_1`, `SHOW_NAME_2`, `SHOW_NAME_3`, `TOONAMI_VERSION`, `AD_VERSION`, and `COLOR`.
+**Key Features & Process** *
+- **Input**: Reads data from the `lineup_prep_out` table (created by `LineupPrep`) using `fetchall_as_dicts()`. Each bump is represented as a dictionary with keys like `PLACEMENT_1`, `PLACEMENT_2`, `PLACEMENT_3`, `SHOW_NAME_1`, `SHOW_NAME_2`, `SHOW_NAME_3`, `TOONAMI_VERSION`, `AD_VERSION`, and `COLOR`.
 - **Show Abbreviation (`get_abbr` method)**:
     - For each unique show name encountered (e.g., in `SHOW_NAME_1`), it generates a 3-letter uppercase abbreviation.
         - If the name has multiple words, it uses the first two letters of the first word and the first letter of the second word (e.g., "Dragon Ball Z" -> "DRB").
@@ -219,7 +302,7 @@ The tools work together in a specific sequence to create your Toonami channel:
     - These abbreviations are stored in an internal dictionary (`self.codes`) mapping full names to abbreviations, and this dictionary is later saved to the `codes` table in the database.
     - The method returns a string like `S1:DRB` (for Show 1: Dragon Ball Z) or `P1:NXT` (for Placement 1: Next).
 - **Code Creation (`create_code` method)**:
-    - For each row (bump) in the input DataFrame:
+    - For each bump dictionary in the input data list:
         - It generates placement codes (e.g., `P1:BCK` for "Back") and show codes (e.g., `S1:GND` for "Gundam") using `get_abbr`.
         - It constructs a composite code string by concatenating:
             - Toonami Version (e.g., `V2.0` becomes `V2`)
@@ -228,21 +311,21 @@ The tools work together in a specific sequence to create your Toonami channel:
             - Color (e.g., `-B` if color is "Blue", taking the first letter)
             - Number of Shows (e.g., `-NS1` for a single show bump, `-NS2` for double, `-NS3` for triple).
     - **Example Code**: `V2-P1:BCK-S1:GND-P2:NXT-S2:BLE-AV1-R-NS2` (Toonami Version 2.0, Back Gundam, Next Bleach, Ad Version 1, Red, 2 Shows)
-- **DataFrame Encoding (`encode_dataframe` method)**:
-    - Applies `create_code` to each row to generate a `Code` column.
-    - Extracts `sort_ver` (e.g., `2` from `V2`) and `sort_ns` (e.g., `1` from `NS1`) from the `Code` for sorting purposes.
-    - Sorts the DataFrame by `sort_ver` then `sort_ns`.
-- **Database Output**:
-    - `codes` table: Stores the mapping of full show names (and placement names) to their generated abbreviations (e.g., "Dragon Ball Z" | "DRB").
-    - `main_data` table: Contains the original bump data along with the new `Code` column (and `sort_ver`, `sort_ns` dropped).
-    - `singles_data` table: A subset of `main_data` containing only single-show bumps (`Code` contains `-NS1`).
+- **Data Encoding (`encode_dataframe` method)** *(method name unchanged for compatibility)*:
+    - Iterates through each dictionary, applies `create_code` to generate a `Code` field.
+    - Uses `re.search()` to extract `sort_ver` (e.g., `2` from `V2`) and `sort_ns` (e.g., `1` from `NS1`) from the `Code` for sorting purposes.
+    - Sorts the list of dictionaries using `data.sort(key=lambda x: (x['sort_ver'], x['sort_ns']))`.
+- **Database Output** *(using dict-based DatabaseManager methods)*:
+    - `codes` table: Stores the mapping of full show names (and placement names) to their generated abbreviations (e.g., "Dragon Ball Z" | "DRB"). Saved using `bulk_insert_dicts()`.
+    - `main_data` table: Contains the original bump data along with the new `Code` field (with `sort_ver`, `sort_ns` removed). Created using `create_table_from_dicts()`.
+    - `singles_data` table: A subset of `main_data` containing only single-show bumps (`Code` contains `-NS1`). Filtered with list comprehension: `[row for row in data if '-NS1' in row['Code']]`.
     - `multibumps_v8_data` table: A subset of `main_data` containing multi-show bumps (`Code` contains `-NS2` or `-NS3`). (Note: the 'v8' seems hardcoded here in the `save_encoded_dataframes` method, which might be an oversight if it's meant to be dynamic).
-    - `multibumps_vX_data` tables: For each unique Toonami version (`sort_ver`) found in the multibumps, a separate table is created (e.g., `multibumps_v2_data`, `multibumps_v9_data`).
+    - `multibumps_vX_data` tables: For each unique Toonami version (`sort_ver`) found in the multibumps, a separate table is created (e.g., `multibumps_v2_data`, `multibumps_v9_data`). Created by grouping with `defaultdict` and filtering.
 - **Overall Workflow (`encode_and_save` method)**:
-    1. Reads `lineup_prep_out`.
-    2. Encodes the DataFrame.
-    3. Saves the various derived DataFrames (`main_data`, `singles_data`, `multibumps_vX_data`) to the database.
-    4. Saves the `codes` mapping table to the database.
+    1. Reads `lineup_prep_out` as list of dictionaries.
+    2. Encodes the data (iterates and adds `Code` field to each dict).
+    3. Saves the various derived data lists (`main_data`, `singles_data`, `multibumps_vX_data`) to the database using dict-based methods.
+    4. Saves the `codes` mapping table to the database using `bulk_insert_dicts()`.
 
 **Significance**:
 - The `BumpEncoder` standardizes bump representation, making it easier for the `Merger (ShowScheduler)` to identify and sequence bumps based on the shows they feature and their type (single, double, triple, version, etc.).
@@ -302,6 +385,9 @@ The tools work together in a specific sequence to create your Toonami channel:
 
 **Key Features & Process**:
 -   **Initialization**:
+    -   Takes optional `post_cut` parameter (default: `False`).
+        -   When `post_cut=False`: Operates on original `multibumps_vX_data` tables and creates `_reordered` output tables.
+        -   When `post_cut=True`: Operates on filtered `multibumps_vX_data_postcut` tables (created by `PostCutBumpFilter`) and creates `_reordered_postcut` output tables.
     -   Connects to the SQLite database (`[config.network].db`).
     -   Initializes `used_rows` (a set to track already processed bumps) and `recent_shows` (a list to de-prioritize recently featured shows).
 -   **Bump Selection Logic**:
@@ -330,14 +416,134 @@ The tools work together in a specific sequence to create your Toonami channel:
             -   Writes it to the reordered table.
             -   Updates `self.recent_shows`.
         -   Continues until all bumps from the original table are used.
-    -   `reorder_all_tables`: Iterates through potential table names (`multibumps_v0_data` to `multibumps_v9_data`) and calls `reorder_table` for each one that exists.
+    -   `reorder_all_tables`: Iterates through potential table names (`multibumps_v0_data` to `multibumps_v9_data`) with appropriate suffix and calls `reorder_table` for each one that exists.
 -   **Inputs**:
-    -   Various `multibumps_vX_data` tables from the database (created by `BumpEncoder`).
+    -   **Standard mode** (`post_cut=False`): Various `multibumps_vX_data` tables from the database (created by `BumpEncoder`).
+    -   **Post-cut mode** (`post_cut=True`): Various `multibumps_vX_data_postcut` tables from the database (created by `PostCutBumpFilter`).
     -   `config.network` (for database name).
 -   **Outputs**:
-    -   Creates new tables in the database with `_reordered` suffix (e.g., `multibumps_v2_data_reordered`), containing the bumps in a more logical sequence.
+    -   **Standard mode**: Creates new tables with `_reordered` suffix (e.g., `multibumps_v2_data_reordered`).
+    -   **Post-cut mode**: Creates new tables with `_reordered_postcut` suffix (e.g., `multibumps_v2_data_reordered_postcut`).
+    -   Both output types contain the bumps in a more logical sequence optimized for show transitions.
 
-**Significance**: `Multilineup` is crucial for creating engaging Toonami blocks where the announcements flow logically from one multi-show bump to the next. The reordered tables it produces are used by the `ShowScheduler` (Merger) to construct the final channel lineup, ensuring that transitions between shows are smooth and make narrative sense based on the bump announcements.
+**Significance**: `Multilineup` is crucial for creating engaging Toonami blocks where the announcements flow logically from one multi-show bump to the next. The tool runs twice in the pipeline: first before episode filtering to reorder all bumps, then again after `PostCutBumpFilter` (when using multi-show bumps) to reorder only the filtered bumps. The reordered tables it produces are used by the `ShowScheduler` (Merger) to construct the final channel lineup, ensuring that transitions between shows are smooth and make narrative sense based on the bump announcements.
+
+### CommercialInjectorPrep
+**File**: `ToonamiTools/CommercialInjectorPrep.py`
+**Class**: `AnimeFileOrganizer`
+**Purpose**: Scans and catalogs cut anime files from the `cut` directory, extracting metadata from filenames and organizing them into a structured database table. This prepares cut episode parts for commercial bump injection by creating an organized inventory of all available segments.
+
+**Important**: This component is **only used in traditional cutting mode**. In **Cutless Mode**, this step is skipped entirely and its role is taken over by `VirtualCut` (see CommercialBreaker System Overview below), which creates the `commercial_injector_prep` table with virtual segment references instead of physical cut file paths.
+
+**Key Features & Process** *
+-   **Initialization**:
+    -   Takes `anime_dir` (path to the `cut` folder containing cut episode parts) as input.
+    -   Uses `DatabaseManager` for all database operations and `ErrorManager` for error reporting.
+-   **File Discovery (`organize_files` method)**:
+    -   Recursively walks the `anime_dir` directory tree to find all `.mp4` files.
+    -   Uses regex pattern `r'(.+?) - (S\d{2}E\d{2}) - Part (\d{3})\.mp4'` to extract metadata from filenames:
+        -   Show name (e.g., "Naruto")
+        -   Season and episode (e.g., "S01E28")
+        -   Part number (e.g., "001", "002")
+    -   Creates a dictionary for each matched file containing:
+        -   `SHOW_NAME_1`: Extracted show name
+        -   `Season and Episode`: Season/episode identifier
+        -   `Part Number`: Part number within the episode
+        -   `FULL_FILE_PATH`: Absolute path to the file
+    -   Collects all matched files into a list of dictionaries.
+-   **Data Validation**:
+    -   Checks directory existence and read permissions
+    -   Verifies that cut files were found (raises error if empty)
+    -   Warns if fewer than 3 unique episodes detected (suggests running CommercialBreaker on more content)
+    -   Reports detailed error messages with suggestions for common issues
+-   **Database Operations** *
+    -   Checks if `commercial_injector_prep` table exists using `db_manager.table_exists()`
+    -   If table exists:
+        -   Reads existing data via `fetchall_as_dicts()`
+        -   Ensures column compatibility between existing and new data
+        -   Combines datasets and deduplicates by `FULL_FILE_PATH` (keeping last occurrence)
+        -   Replaces table atomically using `replace_table_data()`
+    -   If table doesn't exist:
+        -   Creates new table via `create_table_from_dicts()`
+    -   All operations use dict-based DatabaseManager methods instead of pandas
+
+**Inputs**:
+-   `anime_dir`: Path to directory containing cut episode parts (typically `[working_folder]/cut/`)
+-   Files must follow naming convention: `ShowName - SXXEXX - Part XXX.mp4`
+
+**Outputs**:
+-   `commercial_injector_prep` table in SQLite database with columns:
+    -   `SHOW_NAME_1`: Show name extracted from filename
+    -   `Season and Episode`: Season/episode identifier (e.g., "S01E28")
+    -   `Part Number`: Part number as string (e.g., "001")
+    -   `FULL_FILE_PATH`: Absolute path to the cut file
+
+**Significance**: This tool bridges the commercial detection phase and the bump injection phase **in traditional cutting mode**. After CommercialBreaker has cut episodes into parts, CommercialInjectorPrep catalogs all those parts in a structured format. This inventory allows CommercialInjector to systematically insert appropriate bumps between episode segments, creating the authentic Toonami commercial break experience. Without this cataloging step (or its cutless alternative, VirtualCut), the system wouldn't know what cut parts are available for lineup assembly.
+
+**Cutless Mode Alternative**: In cutless mode, this entire step is bypassed. VirtualCut (part of the CommercialBreaker system) directly creates the `commercial_injector_prep` table with virtual segment references, allowing the pipeline to continue seamlessly without physical file cutting.
+
+### CommercialInjector
+**File**: `ToonamiTools/CommercialInjector.py`
+**Class**: `LineupLogic`
+**Purpose**: The linchpin in creating an authentic cut anime lineup by inserting mid-episode bumps ("to ads", "back") between cut episode parts. Works synergistically with CommercialInjectorPrep to create complete episode sequences with contextually appropriate commercial break bumps, following a sophisticated fallback hierarchy when show-specific bumps are unavailable.
+
+**Key Features & Process** *
+-   **Initialization**:
+    -   Uses `DatabaseManager` for all database operations and `ErrorManager` for error reporting.
+    -   Imports `show_name_mapper` for consistent show name normalization across different data sources.
+-   **Data Loading (`generate_lineup` method)** *
+    -   Loads cut episode parts from `commercial_injector_prep` table as list of dictionaries via `fetchall_as_dicts()`
+    -   Loads single-show bumps from `singles_data` table (created by BumpEncoder) as list of dictionaries
+    -   Validates that both datasets contain data (raises errors with helpful suggestions if empty)
+-   **Bump Sanitization**:
+    -   Creates sanitized version of bump data by splitting `FULL_FILE_PATH` on 'Θ' delimiter
+    -   This handles bump files that may contain metadata suffixes
+-   **Show Name Normalization** *
+    -   Applies two-stage normalization to all show names in both parts and bumps data:
+        1. Maps to canonical values using `show_name_mapper.map(x, strategy='all')`
+        2. Cleans for matching using `show_name_mapper.clean(x, mode='matching')`
+    -   Ensures consistent naming between episode parts and bumps (handles ampersands, apostrophes, etc.)
+    -   Iterates through dict lists using native Python loops instead of pandas apply
+-   **Data Sorting** *
+    -   Sorts parts data using `data.sort(key=lambda x: (x['SHOW_NAME_1'], x['Season and Episode'], x['Part Number']))`
+    -   Ensures episode parts are processed in correct order
+-   **Bump Matching & Fallback Hierarchy**:
+    -   **Show-Specific Bumps (Priority 1)**: Attempts to find bumps specifically for the current show
+        -   Looks for placement-specific bumps (e.g., "Naruto to ads", "Naruto back")
+        -   Uses `defaultdict` to organize bumps by show name and placement
+    -   **Generic Anime Bumps (Priority 2)**: Falls back to anime-generic bumps if show-specific unavailable
+        -   Looks for bumps labeled with generic anime identifiers
+    -   **Universal Generic Bumps (Priority 3)**: Final fallback to Clydes or Robot bumps
+        -   Ensures every episode gets some form of commercial break, even without show-specific content
+        -   Uses `itertools.cycle` to rotate through available generic bumps
+-   **Lineup Assembly**:
+    -   Groups episode parts by `SHOW_NAME_1` and `Season and Episode` using `defaultdict(list)`
+    -   For each episode group:
+        -   Inserts intro/opening part
+        -   Inserts "to ads" bump before commercial break
+        -   Inserts middle content parts
+        -   Inserts "back" bump returning from commercial
+        -   Inserts closing/outro part
+    -   Builds final lineup as list of dictionaries with `FULL_FILE_PATH` entries
+-   **Database Output** *
+    -   Saves complete lineup to `commercial_injector` table
+    -   Uses `replace_table_data()` for atomic table replacement
+    -   Output contains alternating pattern of episode parts and bumps
+
+**Inputs**:
+-   `commercial_injector_prep` table: Cut episode parts with show names and part numbers
+-   `singles_data` table: Single-show bumps with placement information
+-   `config.network`: Network name for database selection
+
+**Outputs**:
+-   `commercial_injector` table in SQLite database containing:
+    -   Interleaved episode parts and commercial bumps
+    -   `FULL_FILE_PATH`: Paths to both episode segments and bump files
+    -   `SHOW_NAME_1`: Normalized show names
+    -   `Season and Episode`: Episode identifiers
+    -   `Part Number`: Part numbers for episode segments
+
+**Significance**: CommercialInjector is the core component that transforms cut anime episodes into authentic Toonami-style programming. By intelligently selecting and inserting appropriate commercial break bumps between episode parts, it recreates the classic Toonami viewing experience. The sophisticated fallback hierarchy ensures every episode gets proper commercial transitions, even when show-specific bumps are missing. This is the critical step that differentiates a simple episode collection from a professionally-produced Toonami block with authentic commercial break aesthetics.
 
 ### BlockMaker
 **File**: `ToonamiTools/BlockMaker.py` (Class: `BlockMaker`)
@@ -386,23 +592,31 @@ The tools work together in a specific sequence to create your Toonami channel:
 - **Dual Functionality**:
     1.  **Initial Run**: Creates a base lineup structure from a bump list (e.g., `multibumps_v9_data_reordered` from `config.TOONAMI_CONFIG[version]["merger_bump_list"]`) and an input episode data table (e.g., `commercial_injector_final` or `uncut_encoded_data` from `config.TOONAMI_CONFIG[version]["encoder_in"]`).
     2.  **Second Run**: Can be used to integrate commercial-cut content or refine lineups.
-- **Input Tables**:
-    - `encoder_table`: Contains bump data with encoded show information (e.g., `multibumps_v9_data_reordered`). This table has a `Code` column that indicates the shows involved in a bump (e.g., `-S1:DBZ-S2:GITS-NS3` for a triple bump).
-    - `commercial_table`: Contains episode data, including `FULL_FILE_PATH` and `BLOCK_ID` (e.g., `commercial_injector_final` for cut content, `uncut_encoded_data` for uncut).
-- **Output Table**: Saves the generated lineup to a specified table (e.g., `lineup_v9` from `config.TOONAMI_CONFIG[version]["merger_out"]`).
+- **Input Tables** *
+    - `encoder_table`: Contains bump data with encoded show information (e.g., `multibumps_v9_data_reordered`). This table has a `Code` column that indicates the shows involved in a bump (e.g., `-S1:DBZ-S2:GITS-NS3` for a triple bump). Loaded as list of dictionaries via `fetchall_as_dicts()`.
+    - `commercial_table`: Contains episode data, including `FULL_FILE_PATH` and `BLOCK_ID` (e.g., `commercial_injector_final` for cut content, `uncut_encoded_data` for uncut). Loaded as list of dictionaries.
+- **Output Table**: Saves the generated lineup to a specified table (e.g., `lineup_v9` from `config.TOONAMI_CONFIG[version]["merger_out"]`). Saved using `create_table_from_dicts()`.
 - **Show Name Normalization**:
-    - Decodes show codes via the `codes` table.
+    - Decodes show codes via the `codes` table (loaded as dict mapping).
+    - Uses `_assign_show_name_from_block_id()` method to parse BLOCK_ID strings (e.g., `"NARUTO_S01E01"` → `"naruto"`).
     - Normalizes decoded names using `show_name_mapper.map(name, strategy='all')` followed by `show_name_mapper.clean(mapped, mode='matching')` to align with bump and episode data.
+    - All string operations use native Python methods instead of pandas string methods.
 - **Episode Block Management**:
     - `reuse_episode_blocks` (boolean, constructor arg): If `True`, episode blocks for a show are reused from the beginning once exhausted. If `False`, the show is skipped once all its blocks are used.
     - `continue_from_last_used_episode_block` (boolean, constructor arg): If `True`, the scheduler attempts to continue from the last used episode block for each show (persisted in `last_used_episode_block` table). Otherwise, it resets tracking.
     - `shows_with_no_more_blocks` (internal set): Tracks shows that have run out of blocks when `reuse_episode_blocks` is `False`.
 - **Uncut Mode**:
     - `uncut` (boolean, constructor arg, also in `config.TOONAMI_CONFIG[version]["uncut"]`): If `True`, schedules for uncut content. This also influences `apply_ns3_logic`.
+- **Data Structures** *
+    - `self.encoder_data`: Bump list (List[Dict]) instead of DataFrame
+    - `self.decoded_data`: Decoded show names (List[Dict])
+    - `self.commercial_injector_data`: Episode blocks (List[Dict])
+    - `final_lineup`: Accumulated lineup list instead of DataFrame
+    - **Grouping**: Uses `collections.defaultdict` for grouping instead of pandas groupby
 
-**Core Scheduling Logic (`generate_schedule` method)**:
-1.  Iterates through the `encoder_df` (bump list).
-2.  For each bump (`row`), extracts the shows involved (`shows` list from `row["Code"]`) and the bump code itself (`code_value`).
+**Core Scheduling Logic (`generate_schedule` method)** *
+1.  Iterates through the `encoder_data` list (bump list dictionaries).
+2.  For each bump dictionary (`row`), extracts the shows involved (`shows` list from `row["Code"]`) and the bump code itself (`code_value`).
 3.  **NS2/NS3 Bump Handling** (`apply_ns3_logic` - enabled if NS2 bumps exist and not in `uncut` mode):
     -   **NS2 Bumps** (e.g., `Code` contains `-NS2`): These are typically "Next Show" transitions involving two shows (Show A, then Show B).
         -   Continuity guard: If Show A’s next episode block cannot be placed immediately after the NS2 code, the scheduler skips appending that NS2 bump to preserve the invariant that bump rows are followed by appropriate program content.
@@ -414,11 +628,12 @@ The tools work together in a specific sequence to create your Toonami channel:
         -   The NS3 bump file is added.
         -   Episode blocks for the shows in the NS3 list (potentially adjusted by the chain detection or if the *next* bump is also an NS3 for the same tail show) are inserted sequentially.
     -   `_attempt_interweave`: Adds a blank row for spacing if the next bump starts with a different show and there's no direct NS2/NS3 handoff.
-4.  **Episode Block Insertion (`_insert_episode_block`)**:
-    -   `get_next_episode_block(show)`: Retrieves the next available `BLOCK_ID` for the given `show` from `commercial_injector_df`.
+4.  **Episode Block Insertion (`_insert_episode_block`)** *
+    -   `get_next_episode_block(show)`: Retrieves the next available `BLOCK_ID` for the given `show` from `commercial_injector_data` (list of dicts).
         -   Considers `last_used_episode_block` if `continue_from_last_used_episode_block` is true.
         -   Handles `reuse_episode_blocks` or adds to `shows_with_no_more_blocks`.
-    -   The files corresponding to the selected `BLOCK_ID` are fetched from `commercial_injector_df` and appended to the `final_df`.
+        -   Uses list filtering: `[row for row in commercial_injector_data if row['show'] == target_show]`
+    -   The files corresponding to the selected `BLOCK_ID` are fetched from `commercial_injector_data` and appended to the `final_lineup` list.
     -   `delete_intro`: If true (usually after a transition bump), the first file of the block (assumed to be an intro) is skipped.
 5.  **NS3 Special Index Adjustment (`adjust_final_df_based_on_ns3_indices`)**:
     -   If `apply_ns3_logic` is true, `get_ns3_special_indices` finds NS3 bumps that immediately follow an NS2 bump for the *same show*.
@@ -444,6 +659,96 @@ The next bump processed would ideally start with "Now ShowC...".
 - Writes to: `save_table`, `last_used_episode_block` (optional).
 All table names are typically sourced from `config.TOONAMI_CONFIG` based on the selected Toonami version.
 
+### CutlessFinalization
+**File**: `ToonamiTools/CutlessFinalization.py`
+**Class**: `CutlessFinalizer`
+**Purpose**: Finalizes cutless mode lineups by calculating precise start/end timestamps for virtual segments and transforming the data into the format required by DizqueTV and Tunarr platforms. This critical step enables virtual cutting without physically modifying video files, preserving original media while providing frame-accurate playback control.
+
+**Key Features & Process** *
+-   **Initialization**:
+    -   Takes `network` name as parameter (e.g., "Toonami" from `config.network`)
+    -   Uses `DatabaseManager` for all database operations and `ErrorManager` for error reporting
+    -   Validates that required tables exist before processing
+-   **Cutless Mapping Loading (`_get_cutless_mapping` method)** *
+    -   Loads virtual cut data from `commercial_injector_prep` table as dictionary indexed by `FULL_FILE_PATH`
+    -   Validates critical columns exist (`startTime`, `endTime`, `ORIGINAL_FILE_PATH`)
+    -   Checks that data isn't empty and raises detailed errors if missing
+    -   Validates timestamp data quality:
+        -   Separates anime files from bump files (bumps contain network name in path)
+        -   Ensures anime files have either `startTime` OR `endTime` (at least one required)
+        -   Raises critical error if anime files missing both timestamps (indicates failed commercial detection)
+    -   Returns data as dict mapping `FULL_FILE_PATH` → row data for O(1) lookups
+-   **Bump Duration Loading (`_get_bump_durations` method)** *
+    -   Loads pre-calculated bump durations from `bump_durations` table
+    -   Created by BumpCalculator during Prepare Content workflow
+    -   Cleans and validates data:
+        -   Strips whitespace from file paths
+        -   Converts duration values to numeric (filters invalid values)
+        -   Removes duplicates (keeps last occurrence)
+    -   Returns as dict mapping `FULL_FILE_PATH` → duration for fast lookups
+    -   Gracefully handles missing table (returns empty dict with warning)
+-   **Lineup Table Discovery (`_get_lineup_tables` method)**:
+    -   Queries database schema for all tables matching pattern `lineup_v*`
+    -   Excludes uncut lineup tables (those containing "uncut" in name)
+    -   Returns list of cut lineup tables that need cutless finalization
+    -   Handles version-specific lineups (v2, v8, v9, etc.)
+-   **Duration Injection (`_inject_durations` method)** *
+    -   For each lineup entry:
+        -   Checks if duration already exists (skips if present)
+        -   Looks up duration in bump_durations dict for bump files
+        -   Calculates duration from timestamps for anime files:
+            -   If both startTime and endTime exist: `duration = endTime - startTime`
+            -   If only startTime exists: uses total video duration - startTime
+            -   Converts milliseconds to seconds for consistency
+        -   Falls back to probing file with DurationManager if no other method works
+    -   Validates all lineup rows have duration data before proceeding
+    -   Uses native Python dict operations and list iterations
+-   **Cutless Data Transformation**:
+    -   Merges lineup data with cutless mapping data:
+        -   Looks up each `FULL_FILE_PATH` in the cutless mapping dict
+        -   Adds `startTime`, `endTime`, and `ORIGINAL_FILE_PATH` fields
+        -   For bump files: `startTime` and `endTime` are null (plays full file)
+        -   For anime segments: precise millisecond timestamps for virtual cutting
+    -   Creates `lineup_vX_cutless` output table with complete timing metadata
+-   **Database Output** *
+    -   Processes each lineup table (`lineup_v2`, `lineup_v8`, `lineup_v9`, etc.)
+    -   Saves cutless-enabled version with `_cutless` suffix
+    -   Uses `replace_table_data()` for atomic table replacement
+    -   Final tables contain all data needed for cutless playback
+-   **Overall Workflow (`run` method)**:
+    1. Discover all cut lineup tables in database
+    2. Load cutless mapping data (virtual cut timestamps)
+    3. Load bump duration data
+    4. For each lineup table:
+        - Load lineup data as list of dicts
+        - Inject duration information
+        - Validate all rows have durations
+        - Merge with cutless mapping (add timestamps)
+        - Save to `lineup_vX_cutless` table
+
+**Inputs**:
+-   `commercial_injector_prep` table: Virtual cut mapping with `startTime`, `endTime`, `ORIGINAL_FILE_PATH`
+-   `bump_durations` table: Pre-calculated bump file durations (from BumpCalculator)
+-   `lineup_vX` tables: Cut lineup tables from Merger (ShowScheduler)
+-   `config.network`: Network name for database selection
+
+**Outputs**:
+-   `lineup_vX_cutless` tables in SQLite database containing:
+    -   `FULL_FILE_PATH`: Virtual segment path (may not physically exist)
+    -   `ORIGINAL_FILE_PATH`: Path to actual video file on disk
+    -   `startTime`: Start time in milliseconds (null for bumps)
+    -   `endTime`: End time in milliseconds (null for bumps/last segment)
+    -   `duration`: Segment duration in seconds
+    -   All other lineup metadata (show names, codes, etc.)
+
+**Significance**: CutlessFinalization is the transformative component that enables zero-disk-overhead Toonami channels. By calculating precise timestamps and preserving references to original files, it allows DizqueTV and Tunarr to play exact segments without creating thousands of cut files. This revolutionary approach:
+-   **Saves massive disk space** - No duplicate cut files needed
+-   **Preserves quality** - Original files remain untouched
+-   **Enables flexibility** - Commercial break points can be adjusted without re-cutting
+-   **Maintains compatibility** - Works seamlessly with existing Plex libraries
+
+This is the final critical step for cutless mode, transforming standard lineups into virtual-cut-ready data that platforms can use for frame-accurate playback. Without this finalization, the cutless workflow cannot function.
+
 ### EpisodeFilter
 **File**: `ToonamiTools/EpisodeFilter.py`
 **Purpose**: Processes a lineup table (e.g., `uncut_encoded_data` from `UncutEncoder`, or a `lineup_vX` table from `ShowScheduler`) which contains a mix of episode file paths and bump file paths. Its primary function is to **isolate the actual episode files** by filtering out bump files. Bump files are identified by checking if their `FULL_FILE_PATH` contains the `config.network` name (e.g., "Toonami"), as bump filenames conventionally include the network name. The resulting list of episode files is then used for further processing, typically by `CommercialBreaker` or for file relocation.
@@ -454,7 +759,12 @@ All table names are typically sourced from `config.TOONAMI_CONFIG` based on the 
 
 **Filtering Logic**:
 - An input table (e.g., `uncut_encoded_data` or `lineup_v8_uncut`) is read from the database. This table represents a lineup that includes both episode files and bump files.
-- The core filter `~df['FULL_FILE_PATH'].str.lower().str.contains(config.network.lower(), na=False)` is applied:
+- **Networkless Mode** (`config.network.lower() == "networkless"`):
+    - Uses folder-based filtering instead of network name matching.
+    - Filters out files with `/bump`, `\bump`, `/special`, or `\special` in their paths.
+    - This prevents issues with the network name "Networkless" appearing in file paths while still excluding bump files.
+- **Standard Mode** (any other network):
+    - The core filter `~df['FULL_FILE_PATH'].str.lower().str.contains(config.network.lower(), na=False)` is applied.
     - Bump files (e.g., "Toonami 3.0 Fullmetal Alchemist To Ads.mp4") will match `config.network.lower()` and thus be *excluded* by the `~` (NOT operator).
     - Episode files (e.g., "/path/to/Fullmetal Alchemist/Season 1/Fullmetal Alchemist - S01E01.mkv") typically will *not* match `config.network.lower()` in their path and thus be *included*.
 - The `Code` and `BLOCK_ID` columns are dropped from the filtered data, as the focus is on the episode file paths themselves.
@@ -478,7 +788,7 @@ All table names are typically sourced from `config.TOONAMI_CONFIG` based on the 
 **Key Features & Process**:
 -   **Initialization**:
     -   Takes Plex server URL (`plex_url`), Plex token (`plex_token`), the name of the Plex library to scan (`library_name`), and a directory to save the output (`save_dir`).
-    -   Connects to the Plex server using `plexapi.server.PlexServer`.
+    -   Connects to the Plex server using `SimplePlexServer` from `API.utils.PlexServer`.
 -   **Timestamp Extraction (`run` method)**:
     -   Retrieves all media items (shows/movies) from the specified Plex library section.
     -   For each media item, it iterates through its episodes.
@@ -527,7 +837,7 @@ The CommercialBreaker system is composed of several specialized components worki
   - **VideoPreprocessor**: Downscales only silent segments
   - **BlackFrameAnalyzer**: Analyzes frames for darkness
 - **TimestampManager.py** (`TimestampManager`): Handles timestamp file operations, two-stage filtering, Plex timestamp integration
-- **VirtualCut.py** (`VirtualCut`): Used only in Cutless Mode to create virtual references instead of physical cuts, outputting to the `commercial_injector_prep` table.
+- **VirtualCut.py** (`VirtualCut`): **Cutless Mode replacement for CommercialInjectorPrep** (step 12 in the pipeline). Instead of cataloging physical cut files, VirtualCut creates virtual segment references with precise timestamps. Outputs to the `commercial_injector_prep` table with the same schema as traditional mode, plus additional `startTime`, `endTime`, and `ORIGINAL_FILE_PATH` columns. This allows the rest of the pipeline (CommercialInjector, BlockMaker, Merger, etc.) to proceed identically regardless of cutting mode.
 
 
 #### Detection Method Priority & Mode Exclusivity
@@ -541,8 +851,8 @@ The CommercialBreaker system is composed of several specialized components worki
 #### Cutting Phase Components
 
 - **VideoCutter.py** (`VideoCutter`): Handles the actual file processing
-  - **Traditional Mode**: Physically cuts videos at detected timestamps, creates multiple files per episode (Part 1, Part 2, etc.)
-  - **Cutless Mode**: Uses `VirtualCut` to create virtual references, no physical files are created, only database entries
+  - **Traditional Mode**: Physically cuts videos at detected timestamps, creates multiple files per episode (Part 1, Part 2, etc.). After cutting, the `CommercialInjectorPrep` tool catalogs these cut files.
+  - **Cutless Mode**: Uses `VirtualCut` to create virtual references, no physical files are created, only database entries with timestamps. VirtualCut directly populates `commercial_injector_prep` table, **replacing the need for CommercialInjectorPrep** (step 12 in the pipeline).
 
 #### Progress Tracking System
 
@@ -590,6 +900,68 @@ The CommercialBreaker system is composed of several specialized components worki
 
 **Significance**: This tool allows for the dynamic enrichment of pre-generated Toonami lineups with additional content like special Toonami event bumps, music videos, or any other short video pieces the user wants to include, adding variety and customization to the final channel.
 
+### PostCutBumpFilter
+**File**: `ToonamiTools/PostCutBumpFilter.py`
+**Class**: `PostCutBumpFilter`
+**Purpose**: Filters multi-show bump data after the commercial cutting pipeline completes, ensuring that only bumps referencing shows with available episode blocks remain in the lineup tables.
+
+**Problem Solved**:
+When creating lineups with multi-show bumps (bumps that reference multiple different shows), some bumps may reference shows for which no episode data was cut or prepared. These orphaned bumps would cause errors or display issues in the final lineup. `PostCutBumpFilter` removes these problematic entries automatically.
+
+**Key Features & Process**:
+- **Initialization**:
+    - Connects to the database using `DatabaseManager`.
+    - Initializes the `ErrorManager` for warnings and errors.
+    - Loads the list of generic bump names from `config.generic_bumps` (these are show-agnostic bumps that should never be filtered).
+    - Normalizes all generic bump names using the `show_name_mapper` utility for consistent matching.
+
+- **Show Name Normalization**:
+    - Uses the `show_name_mapper` utility with `strategy='all'` and `mode='matching'` to ensure consistent show name matching.
+    - Handles variations in show naming across different data sources.
+    - Generic bumps (like "Toonami", "Adult Swim", etc.) are excluded from filtering.
+
+- **Available Shows Collection** (`_collect_allowed_shows` method):
+    - Reads the `commercial_injector_prep` table which contains all shows that were successfully processed through the commercial cutting pipeline.
+    - Extracts show names from multiple possible column names: `show_name`, `BLOCK_ID`, or `SHOW_NAME_1`.
+    - Normalizes each show name and builds a set of allowed shows.
+    - Raises an error if the episode table is missing or empty, as this indicates the pipeline didn't complete.
+
+- **Multi-Show Bump Filtering**:
+    - **Lineup Table Filtering** (`_filter_lineup_table` method):
+        - Reads the `lineup_prep_out` table containing prepared lineup entries.
+        - For each row, checks if any show references (in `SHOW_NAME_1`, `SHOW_NAME_2`, `SHOW_NAME_3` columns) point to shows not in the allowed set.
+        - Skips generic bumps during this check.
+        - Removes rows with missing show references.
+        - Creates a new table `lineup_prep_out_postcut` with only valid entries.
+    - **Multibump Tables Filtering** (`_filter_multibump_tables` method):
+        - Iterates through multibump tables (`multibumps_v0_data` through `multibumps_v9_data`).
+        - Applies the same filtering logic to each table.
+        - Creates `*_postcut` versions of each multibump table.
+        - Drops and resets the `*_reordered_postcut` tables so they can be rebuilt fresh.
+
+- **Reporting** (`run` method):
+    - Tracks which shows had bumps removed and how many.
+    - Sends a warning through `ErrorManager` listing the top 5 most impacted shows.
+    - Provides actionable suggestions: add episode cuts for missing shows or remove their multi-show bumps.
+
+- **Inputs**:
+    - `commercial_injector_prep` table (contains available episode blocks).
+    - `lineup_prep_out` table (contains prepared lineup with multi-show bumps).
+    - `multibumps_v*_data` tables (contains multi-show bump data).
+    - `config.generic_bumps` (list of show-agnostic bump names).
+
+- **Outputs**:
+    - `lineup_prep_out_postcut` table (filtered lineup).
+    - `multibumps_v*_data_postcut` tables (filtered multibump tables).
+    - Warning messages about removed bumps (via ErrorManager).
+
+**When to Use**:
+- Run automatically after the commercial cutting pipeline when using multi-show bumps.
+- Ensures clean lineup data for downstream tools like `PlexToDizqueTV`, `PlexToTunarr`, or `ComBreakToComBreakDirect`.
+- Can be skipped if not using multi-show bumps or if all referenced shows have episode data.
+
+**Significance**: This tool prevents runtime errors and display issues caused by bumps referencing non-existent show data, ensuring the final Toonami channel lineup is consistent and error-free.
+
 ## Plex Management Components
 
 ### PlexSplitter
@@ -603,7 +975,7 @@ Plex's automatic matching can sometimes incorrectly merge multiple video files (
 **Key Features & Process**:
 - **Initialization**:
     - Takes Plex URL, token, and a timeout value from `config.py`.
-    - Initializes a `PlexServer` instance from the `plexapi.server` library.
+    - Initializes a `SimplePlexServer` instance from `API.utils.PlexServer`.
     - Sets up a Selenium WebDriver (Chrome) with specific options (e.g., headless, disabling GPU, specific user agent).
 - **Library Iteration**:
     - The main method `split_plex_items_in_library(library_name, series_title=None, season_number=None, episode_number=None)` iterates through a specified Plex library.
@@ -626,7 +998,7 @@ Plex's automatic matching can sometimes incorrectly merge multiple video files (
     - `config.CHROME_DRIVER_PATH` specifies the path to the ChromeDriver executable.
 
 **Technical Approach**:
-- Combines `plexapi` for library navigation and item metadata retrieval.
+- Uses `SimplePlexServer` from `API.utils.PlexServer` for library navigation and item metadata retrieval.
 - Uses `selenium` for web browser automation to perform UI actions (clicking buttons) that are not directly available via the Plex API. This is necessary because the "Split Apart" functionality is primarily a Plex Web UI feature.
 
 **Usage**:
@@ -634,9 +1006,9 @@ Plex's automatic matching can sometimes incorrectly merge multiple video files (
 - Can be invoked programmatically by other scripts or run manually.
 
 **Dependencies**:
-- `plexapi`
 - `selenium`
 - Google Chrome browser and a compatible ChromeDriver.
+- Plex client utilities from `API.utils`
 
 **Limitations**:
 - Relies on the stability of Plex Web UI element selectors (XPaths). Changes in Plex's UI could break the splitting functionality.
@@ -651,7 +1023,7 @@ Plex's automatic matching can sometimes incorrectly merge multiple video files (
 **Key Features & Process**:
 -   **Initialization**:
     -   Takes Plex URL (`plex_url`), Plex token (`plex_token`), and the target `library_name`.
-    -   Initializes a `PlexServer` instance and gets the specified library section.
+    -   Initializes a `SimplePlexServer` instance from `API.utils.PlexServer` and gets the specified library section.
     -   Defines a regex pattern `self.pattern = r'\/([^\/]+)\.mp4$'` (or similar for other extensions if generalized) to extract the base filename (without extension and preceding path) from the full file path stored in Plex.
 -   **Title Updating (`update_titles` method)**:
     -   Iterates through all video items in the specified Plex library (`self.library.all()`).
@@ -671,7 +1043,7 @@ Plex's automatic matching can sometimes incorrectly merge multiple video files (
 -   **Actions**:
     -   Directly modifies the titles of items within the Plex library.
 -   **Dependencies**:
-    -   `plexapi` library.
+    -   Plex client utilities from `API.utils`
     -   A running Plex server with accessible credentials.
 
 **Significance**:
@@ -689,7 +1061,7 @@ Plex's automatic matching can sometimes incorrectly merge multiple video files (
 **Key Features & Process**:
 -   **Initialization**:
     -   Takes Plex URL/token, names of anime and Toonami Plex libraries, the database `table` name containing the lineup, DizqueTV URL, target `channel_number`, and a `cutless_mode` boolean flag.
-    -   Plex and DizqueTV API clients are initialized in the `run` method.
+    -   `SimplePlexServer` (from `API.utils.PlexServer`) and DizqueTV API clients are initialized in the `run` method.
 -   **Library Initialization (`_init_libraries` method)**:
     -   Caches media items from the specified Plex libraries (`anime_library` and `toonami_library`) into dictionaries (`self.anime_media`, `self.toonami_media`) mapping filenames to Plex item objects. This speeds up lookup.
     -   If `cutless_mode` is `False`, loading the `anime_library` is skipped (as cut content is expected to be in the `toonami_library`).
@@ -737,7 +1109,7 @@ Plex's automatic matching can sometimes incorrectly merge multiple video files (
 **Key Features & Process**:
 -   **Initialization**:
     -   Takes Plex URL/token, Plex `library_name` (typically the Toonami library), database `table` name for the lineup, Tunarr URL, target `channel_number`, `flex_duration`, and an optional `channel_name`.
-    -   Connects to Plex.
+    -   Connects to Plex using `SimplePlexServer` from `API.utils.PlexServer`.
     -   Loads lineup data from the specified SQLite `table` into a DataFrame.
     -   Initializes `plex_source_info` by calling `get_plex_source_info` to find or create the Plex media source ID in Tunarr.
 -   **Tunarr Media Source Management (`get_plex_source_info`, `get_plex_media_source_id`, `create_plex_media_source`)**:
@@ -828,6 +1200,608 @@ Plex's automatic matching can sometimes incorrectly merge multiple video files (
     -   Modifies the programming of an existing DizqueTV channel by inserting or updating flex/offline items.
 
 **Significance**: This tool provides a way to dynamically add simulated commercial breaks or transition fillers into a DizqueTV channel after its initial programming has been set up by `PlexToDizqueTV`. It allows for fine-tuning the pacing of the Toonami block.
+
+### ComBreakToComBreakDirect
+**File**: `ToonamiTools/ComBreakToComBreakDirect.py`
+**Class**: `ComBreakToComBreakDirect`
+**Purpose**: Pushes a curated cutless lineup from the database to the ComBreakDirect streaming server. This integration tool handles data transformation from the cutless database format to ComBreakDirect's expected API format.
+
+**Key Features & Process**:
+-   **Initialization**:
+    -   Takes database `table` name (cutless lineup table like `lineup_v8_cutless`), `channel_number`, `flex_duration` (commercial break length), `network` name, ComBreakDirect `base_url`, and `commercial_folder` path.
+    -   Validates that the specified cutless table exists in the database.
+    -   Automatically starts ComBreakDirect server if not already running.
+-   **Flex Duration Parsing (`_parse_flex_duration` method)**:
+    -   Accepts both string format ("MM:SS") and integer (milliseconds).
+    -   Converts "MM:SS" format to milliseconds for API compatibility.
+-   **Lineup Loading (`_load_lineup_from_database` method)**:
+    -   Reads the specified cutless table from the database.
+    -   Expected columns: `FULL_FILE_PATH`, `Code`, `startTime`, `endTime`, `duration` (optional), `BLOCK_ID`.
+    -   Converts all time values to milliseconds if needed.
+-   **Payload Construction (`_build_payload` method)**:
+    -   Transforms database rows into ComBreakDirect API format.
+    -   Each lineup item includes:
+        -   `file_path`: Full path to video file
+        -   `code`: Bump encoding code (from BumpEncoder)
+        -   `block_id`: Episode/show identifier (from BlockMaker)
+        -   `start_time`: Seek position in milliseconds
+        -   `end_time`: Stop position in milliseconds
+        -   `duration`: Total file duration in milliseconds
+    -   Constructs final payload with channel metadata:
+        -   `channel_number`, `network`, `lineup`, `flex_duration`, `commercial_folder`
+    -   When `infinite=True` (always set by `FrontEndLogic.create_toonami_channel` for ComBreakDirect), also includes:
+        -   `infinite`: `true` — tells LoadingDock to stash `_infinite_meta` on the channel
+        -   `infinite_meta`: `{toonami_version, cutless_enabled, commercial_folder}` — read by FactoryFloor's LineupExtender so it knows which `TOONAMI_CONFIG_CONT` row to use for future extensions
+-   **Episode Cursor Seeding (`_seed_episode_cursor` method)**:
+    -   Runs BEFORE `_push_lineup` when `self.infinite=True`.
+    -   Sweeps the loaded lineup rows for BLOCK_IDs (format `SHOW_NAME_S##E##`).
+    -   Derives each show key via `show_name_mapper.clean(show_name_mapper.map(name), mode='matching')` to exactly match ShowScheduler's internal cursor format — derive any other way and the cursor lookup silently misses.
+    -   Takes the max BLOCK_ID per show within the new lineup.
+    -   Merges with the existing `last_used_episode_block` table, taking the larger BLOCK_ID per show (never rolls a cursor backwards).
+    -   Without this seed step, the first extension treats every show as "no prior position" and picks whatever ShowScheduler's index has at position 0 — usually NOT the next episode the viewer expects after the initial lineup.
+-   **Module-level helper `load_lineup_rows(table, db_manager=None)`**:
+    -   Extracted from the original `_load_lineup` so both initial channel creation AND the infinite extension flow share the same row normalization.
+    -   `InfiniteChannelExtender` calls this directly with each per-extension table name.
+-   **Server Communication (`_push_to_server` method)**:
+    -   POSTs the payload to `{base_url}/channels` endpoint.
+    -   Handles HTTP errors and connection failures.
+    -   Logs the server response including playlist and guide URLs.
+-   **Health Check (`_check_server_health` method)**:
+    -   Queries `{base_url}/status` endpoint with retries.
+    -   Waits up to 30 seconds for server to become ready.
+    -   Raises exception if server doesn't respond.
+-   **Main Workflow (`run` method)**:
+    1.  Load lineup data from database
+    2.  Parse flex duration
+    3.  Build API payload
+    4.  Check server health
+    5.  Push lineup to server
+    6.  Log playlist and guide URLs
+-   **Inputs**:
+    -   Cutless lineup table name (e.g., `lineup_v8_cutless`)
+    -   Channel configuration (number, network, flex duration)
+    -   ComBreakDirect server URL
+    -   Commercial folder path
+-   **Outputs/Actions**:
+    -   Creates or updates a channel on ComBreakDirect server
+    -   Logs playlist URL and XMLTV guide URL for use with Plex
+
+**Significance**: This component is the bridge between CommercialBreaker's cutless pipeline and the ComBreakDirect streaming server. It eliminates the need for DizqueTV or Tunarr by pushing lineup data directly to a self-hosted streaming solution.
+
+### InfiniteChannelExtender
+**File**: `ToonamiTools/InfiniteChannelExtender.py`
+**Class**: `InfiniteChannelExtender`
+**Purpose**: One-shot orchestrator that builds a single extension chunk for an infinite ComBreakDirect channel. Invoked by `ComBreakDirect.docks.LineupExtender` whenever its `threading.Timer` fires.
+
+**Key Features & Process**:
+-   **Initialization**:
+    -   Takes no arguments; constructs its own `DatabaseManager` and `ErrorManager` references via the singleton accessors.
+-   **Main Method (`generate_chunk(channel_number, infinite_meta)`)**:
+    1.  Reads `toonami_version` from `infinite_meta` (raises if missing).
+    2.  Looks up `config.TOONAMI_CONFIG_CONT[toonami_version]` to get the encoder table name, bump-list table name, and `uncut` flag — same per-version configuration the manual Page-7 continuation uses.
+    3.  Computes a per-extension output table name: `{merger_out}_inf_ch{channel}_ext{seq}` where `seq` is `int(infinite_meta.get('extension_seq') or 0) + 1`. Example: `lineup_v9_cont_inf_ch61_ext3`. Per-chunk tables keep each extension debuggable in isolation and avoid clobbering the manual Page-7 `_cont` flow.
+    4.  Instantiates `ShowScheduler(reuse_episode_blocks=True, continue_from_last_used_episode_block=True, uncut=...)`. With `reuse=True` the scheduler cycles back to a show's first block if it ever exhausts the cursor, so generation is truly unbounded.
+    5.  Calls `merger.run(bump_list_table, encoder_table, output_table)` to produce the chunk. The scheduler advances the per-show cursor in `last_used_episode_block` as a side effect.
+    6.  If `cutless_enabled` (always true for ComBreakDirect), calls `CutlessFinalizer.run_for_table(output_table, output_table + "_cutless")` to produce the cutless companion.
+    7.  Loads the rows via the shared `load_lineup_rows` helper and returns `(rows, output_table)`.
+-   **Failure Modes**:
+    -   Missing `toonami_version` in `infinite_meta` → `RuntimeError`.
+    -   Missing `TOONAMI_CONFIG_CONT` entry → `RuntimeError`.
+    -   ShowScheduler doesn't produce the output table → `RuntimeError`.
+    -   `CutlessFinalizer.run_for_table` returns `False` → `RuntimeError`.
+    -   ShowScheduler produced an empty chunk → returns `([], output_table)` for the caller to treat as a soft failure (disables the LineupExtender after surfacing to S.A.R.A.).
+-   **Inputs**:
+    -   `channel_number` — used in the per-extension table name to avoid collisions across simultaneous channels.
+    -   `infinite_meta` — the channel's `_infinite_meta` dict; provides `toonami_version`, `cutless_enabled`, `extension_seq`.
+-   **Outputs**:
+    -   New SQLite tables `lineup_v{N}_cont_inf_ch{ch}_ext{seq}` and `lineup_v{N}_cont_inf_ch{ch}_ext{seq}_cutless`.
+    -   Returns `(rows, consumable_table_name)` for the caller. Rows are in `load_lineup_rows` shape: dicts of `block_id`, `file_path`, `code`, `start_time`, `end_time`, `duration`.
+    -   Advances per-show cursors in `last_used_episode_block`.
+
+**Significance**: This is the engine that makes ComBreakDirect channels infinite. Every time the LineupExtender's timer fires, this component runs the same ShowScheduler + CutlessFinalizer pipeline as the initial channel creation, but with the cursor already advanced — so chunk N+1 picks up exactly where chunk N left off for every show. No re-airing already-seen episodes, no jumping past episodes the viewer hasn't seen.
+
+### BumpCalculator
+**File**: `ToonamiTools/BumpCalculator.py`
+**Class**: `BumpCalculator`
+**Purpose**: Calculates and persists video durations for all bump files identified by LineupPrep. This ensures that duration information is available throughout the pipeline without requiring repeated ffprobe calls.
+
+**Key Features & Process**:
+-   **Initialization**:
+    -   Optionally takes a `status_callback` for progress updates.
+    -   Initializes `DurationManager` for efficient duration extraction.
+    -   Connects to database to access bump metadata.
+-   **Bump File Loading (`run` method)**:
+    -   Reads from the `nice_list` table (created by LineupPrep at step 4).
+    -   Extracts all unique `FULL_FILE_PATH` entries for bump files.
+    -   Deduplicates paths to avoid redundant processing.
+-   **Duration Calculation**:
+    -   Iterates through each unique bump file path.
+    -   Uses `DurationManager` to probe each video file with ffprobe.
+    -   Stores duration in milliseconds for each file.
+    -   Handles missing files gracefully with warnings.
+-   **Database Persistence**:
+    -   Creates a `bump_durations` table in the database.
+    -   Stores mapping of `FULL_FILE_PATH` to `duration` (in milliseconds).
+    -   Replaces existing table if present.
+-   **Progress Reporting**:
+    -   Calls `status_callback` after processing each file.
+    -   Reports progress as "[X/Total] Measuring duration for filename.mp4".
+    -   Provides user feedback during long-running operations.
+-   **Main Workflow (`run` method)**:
+    1.  Load bump file paths from `nice_list` table
+    2.  Deduplicate and normalize paths
+    3.  Calculate durations using DurationManager
+    4.  Store results in `bump_durations` table
+    5.  Report warnings for any missing files
+-   **Inputs**:
+    -   `nice_list` table from database (populated by LineupPrep)
+    -   Optional status callback function
+-   **Outputs**:
+    -   Creates `bump_durations` table with file paths and durations in milliseconds
+    -   Enables downstream tools to look up bump durations without probing files
+
+**Significance**: This tool runs during the `prepare_cut_anime()` workflow (step 16a, optional, when using cutless mode). By pre-calculating all bump durations once and storing them in the database, it provides fast duration lookups for CutlessFinalizer and other tools that need to know how long bumps are for timing calculations.
+
+### ComBreakDirect Server
+**Location**: `ComBreakDirect/` directory
+**Purpose**: Self-contained continuous MPEG-TS streaming server using Studio → FIFO → Broadcast FFmpeg → BroadcastTower architecture.
+
+**Modular Architecture**:
+```
+ComBreakDirect/
+├── ComBreakDirectServer.py    # Main Flask application
+├── docks/                      # Core processing modules
+│   ├── LoadingDock.py         # Lineup processing & ad injection
+│   ├── FactoryFloor.py        # Storage & M3U8/XMLTV generation
+│   ├── UnloadingDock.py       # Broadcast streaming & multi-client management
+│   └── LineupExtender.py      # Per-channel timer-based infinite-extension watchdog
+├── utilities/                  # Supporting modules
+│   ├── BroadcastTower.py      # Multi-client distribution engine
+│   ├── AudioTrackSelector.py  # Intelligent audio selection
+│   ├── CommercialBreakRenderer.py  # Pre-rendering system
+│   ├── CleanupManager.py      # Automatic file maintenance
+│   └── configuration.py       # Path resolution
+└── UI/                        # Web interface
+    └── WebUI.py              # Landing page
+```
+
+**Key Capabilities**:
+-   **Continuous MPEG-TS Streaming**: True broadcast-style streaming with seamless program transitions
+-   **BroadcastTower Architecture**: Multi-client support via Antenna pattern (one transcode, multiple viewers)
+-   **Broadcast FFmpeg Layer**: Uses `+genpts` to flatten program transitions and prevent Jellyfin/Plex freezing
+-   **WebUI**: Toonami-themed landing page with setup instructions
+-   **HDHomeRun Discovery**: Automatic Plex/Jellyfin integration via device discovery
+-   **Intelligent Audio Selection**: Configurable audio track selection (defaults to English for Toonami dubs)
+-   **Guide Generation**: XMLTV with full show metadata (season/episode/title)
+-   **Commercial Injection**: Server-side ad break pre-rendering and insertion
+-   **Auto Start/Stop**: Studio and broadcast FFmpeg only run when clients connected
+-   **Channel Timing**: Sophisticated timing algorithm for perfect sync across all clients
+-   **CommercialBreakRenderer Cache**: Predictively renders `_pre_rendered_breaks/*.ts` assets
+-   **Infinite Channel Extension**: Per-channel `LineupExtender` timer arms ahead of channel end and runs ShowScheduler+CutlessFinalizer to append fresh content — wall-clock based, fires independent of playback
+
+**Loading Dock Details**:
+- `process_lineup` maps incoming payloads (from `POST /channels`) into streaming-ready channel dictionaries.
+- Consecutive bumps trigger `_inject_commercials`, which reserves or renders commercial breaks through `CommercialBreakRenderer`.
+- `_format_for_streaming` normalizes timings, assigns `block_id` fallbacks, and produces the rolling channel timeline (`start`, `stop`, `duration`, seek offsets). The inner program-builder `_format_programs(lineup_data, anchor_time)` is extracted so `format_extension` can reuse it.
+- `format_extension(lineup_data, existing_channel_data)` reuses `_inject_commercials` + `_format_programs` with `anchor_time` set to the existing channel's tail `stop`, producing program dicts whose timestamps land contiguously after the existing timeline. Used by `LineupExtender` to splice extension chunks onto a running channel.
+- When the incoming payload has `infinite: true`, LoadingDock stashes a populated `channel_data['_infinite_meta']` block (with `enabled=True`) before handing to FactoryFloor.
+
+**Factory Floor Details**:
+- `store_channel` persists the channel data in `channels.json`, guarded by a threading lock. Calls `_maybe_spawn_extender(channel_data)` after persisting so infinite channels get a watchdog immediately.
+- `extend_channel(channel_number, new_programs)` is the append-only growth path used by `LineupExtender` — takes the factory lock, calls `programs.extend(new_programs)` (never replaces or reorders, which would race the Studio's live read), bumps `_infinite_meta.extension_seq`, stamps `last_extension_at`, resets `consecutive_failures`, and persists.
+- `_maybe_spawn_extender(channel_data)` spawns a `LineupExtender` for any channel with `_infinite_meta.enabled=True` and a LoadingDock back-reference. Idempotent — won't double-spawn. Called at `store_channel` and during `_load_channels` startup so channels persisted from a prior run get their watchdogs rearmed.
+- `_save_channels` strips ephemeral `_runtime` keys (Studio's `current_index` is re-derived from UTC on next startup) before writing to disk.
+- `generate_playlist` and `generate_xmltv` use helper methods (`_consolidate_programs_by_block_id`, `_extract_show_metadata_from_block_id`) to output user-facing metadata.
+- Storage location defaults to `CBDIRECT_DATA_ROOT` via `utilities.configuration.resolve_storage_path`.
+
+**Unloading Dock Details** (Broadcasting Architecture):
+-   **Studio Thread** (`build_stream`): Calculates current channel position, spawns FFmpeg per program with normalization (H.264 1080p 30fps, AAC stereo 48kHz, CBR 5.4 Mbps), writes MPEG-TS to FIFO
+-   **Broadcast FFmpeg** (`start_broadcast_ffmpeg`): Reads FIFO with `-fflags +genpts+discardcorrupt`, creates continuous stream, rate limits broadcasting (13ms per chunk)
+-   **BroadcastTower**: Receives continuous stream, distributes to all connected Antenna objects (one per client)
+-   **Antenna**: Per-client buffer (132 chunks, ~2 seconds) with rate-limited iteration to prevent buffering ahead
+-   **Lifecycle**: Auto start/stop - studio and broadcast FFmpeg only run when clients connected (detected via `broadcast_tower.has_antennas()`)
+-   **Output Wrapper**: Thin layer that calls FactoryFloor for playlists/guides (`get_master_playlist`, `get_xmltv_guide`, `get_lineup_json`)
+
+**API Endpoints**:
+-   **WebUI Routes**:
+    -   `GET /` - Landing page with setup instructions and copy-to-clipboard URLs
+-   **Continuous MPEG-TS Streaming**:
+    -   `GET /video/channel/{number}` - Continuous broadcast stream (HDHomeRun-compatible)
+-   **Channel Management**:
+    -   `POST /channels` - Create/update channel with lineup data
+    -   `GET /playlist.m3u8` - Master M3U8 playlist
+    -   `GET /api/xmltv.xml` - XMLTV guide
+-   **Plex/Jellyfin Discovery**:
+    -   `GET /discover.json` - HDHomeRun discovery
+    -   `GET /lineup.json` - Channel lineup
+    -   `GET /lineup_status.json` - Scan status
+    -   `GET /status` - Server health check
+    -   `POST /wipe` - Clear all data (channels, towers, pre-rendered breaks)
+
+**Technical Features**:
+-   **Studio → FIFO → Broadcast FFmpeg → BroadcastTower**: Four-layer architecture for continuous streaming
+-   **PTS Regeneration**: Broadcast FFmpeg's `+genpts` creates seamless transitions between programs
+-   **Multi-Client Distribution**: BroadcastTower broadcasts to multiple Antenna objects (one per client)
+-   **Rate Limiting**: 13ms per chunk (~5.4 Mbps CBR) prevents antenna buffer overflow
+-   **Auto Lifecycle**: Studio and broadcast FFmpeg start/stop based on client connections
+-   **Configurable Audio**: Automatic audio track selection based on DEFAULT_LANGUAGE config (defaults to English)
+-   **Commercial Pre-rendering**: Background thread maintains 1-hour window of pre-rendered breaks
+-   **Automatic Cleanup**: CleanupManager removes old pre-rendered breaks (4+ hours old)
+
+**Integration with Pipeline**:
+-   Called automatically by `LogicController._ensure_combreakdirect_server()`
+-   Receives lineup data via `ComBreakToComBreakDirect` REST API
+-   Provides playlist/guide URLs for Plex integration
+-   Runs in background during WebUI operation (Docker mode)
+-   WebUI accessible at `http://localhost:8083/` by default
+
+**For detailed ComBreakDirect documentation, see [ComBreakDirect.md](ComBreakDirect.md).**
+
+### LineupExtender
+**File**: `ComBreakDirect/docks/LineupExtender.py`
+**Class**: `LineupExtender`
+**Purpose**: Per-channel watchdog that schedules a single `threading.Timer` to fire ahead of the channel's natural end and append a fresh extension chunk. Spawned by `FactoryFloor._maybe_spawn_extender` for every channel that arrives with `_infinite_meta.enabled=True` (i.e., every ComBreakDirect channel).
+
+**Key Features & Process**:
+-   **Initialization**:
+    -   Takes the owning `FactoryFloor` (not LoadingDock — see "Lazy LoadingDock lookup" below) and a `channel_number`.
+    -   Reads tunables from `config` with class-default fallbacks: `INFINITE_EXTEND_LEAD_MS` (default 10 800 000 ms = 3 hours), `INFINITE_MIN_FREE_DISK_BYTES` (default 2 GiB).
+-   **Timer Lifecycle**:
+    -   `start()` calls `_schedule_next()` which computes a delay of `max(0, (last_program.stop_iso - now_utc) - lead_ms)` and arms a fresh `threading.Timer(delay_s, self._on_timer_fire)`. Channels shorter than the lead window (or already past their end) fire immediately.
+    -   `cancel()` cancels any pending timer; idempotent. Called when the channel is removed.
+    -   `is_active()` returns whether a future extension is still scheduled.
+-   **Timer Callback (`_on_timer_fire` → `_do_extension`)**:
+    1.  Race-check that the channel still exists in FactoryFloor; cancel watchdog if it doesn't.
+    2.  Check `_infinite_meta.enabled` (an external party may have disabled it); return without rescheduling if so.
+    3.  Check `_infinite_meta.consecutive_failures` against `MAX_CONSECUTIVE_FAILURES` (3); call `_disable` and surface to S.A.R.A. if exceeded.
+    4.  Disk-space gate via `_has_disk_space()`: skip if the storage partition has less than `min_free_disk_bytes` free; bump failures and retry in `RETRY_AFTER_FAILURE_MS` (5 min).
+    5.  Call `_build_extension(channel_data, meta)` which delegates to `ToonamiTools.InfiniteChannelExtender.generate_chunk` and then `loading_dock.format_extension` to anchor the new programs to the existing tail.
+    6.  If the channel was deleted during the long-running build, discard the new programs and cancel.
+    7.  Call `factory_floor.extend_channel(channel_number, new_programs)`.
+    8.  Recompute the new channel-end and arm a fresh timer via `_schedule_next()`.
+-   **Lazy LoadingDock Lookup**:
+    -   The extender stores only the `FactoryFloor` reference, accessing LoadingDock through a `@property` that resolves `self.factory_floor.loading_dock` on first use.
+    -   This sidesteps the bootstrap chicken-and-egg: `FactoryFloor.__init__` spawns watchdogs for any channels recovered from disk, but at that exact moment `LoadingDock.__init__` is still mid-assignment of `self.factory_floor = FactoryFloor(...)` — its `factory_floor` attribute doesn't yet exist. Deferring the lookup until the timer actually fires guarantees LoadingDock has finished constructing.
+-   **Wall-Clock vs Playback**:
+    -   The trigger condition `(last_program.stop - now) < lead_ms` is wall-clock based. The watchdog deliberately does NOT read Studio's `current_index`. If it did, channels would never extend while no client was streaming — and a returning viewer would land in the modulo loop fallback (replaying program 0) instead of finding fresh content.
+-   **Failure Modes & Backoff**:
+    -   Recoverable failure (disk pressure, single-pass build error) → bump `_infinite_meta.consecutive_failures`, surface a warning via `ErrorManager`, retry after `RETRY_AFTER_FAILURE_MS` (5 min).
+    -   Three consecutive failures → `_disable(channel_data, reason)`: set `_infinite_meta.enabled=False`, persist via `_save_channels`, surface an error to S.A.R.A., cancel the watchdog. The Studio's modulo loop keeps playing existing programs in the meantime, so the channel doesn't die — it just stops growing.
+    -   Hard failure (ShowScheduler produces zero programs — shouldn't happen with `reuse_episode_blocks=True`) → disable immediately.
+-   **Inputs**:
+    -   Constructor: owning `FactoryFloor`, channel number.
+    -   Per-tick read of `channel_data['_infinite_meta']` and `channel_data['programs'][-1]['stop']`.
+-   **Outputs**:
+    -   Mutates `channel_data['_infinite_meta']` (`extension_seq`, `last_extension_at`, `consecutive_failures`, occasionally `enabled`).
+    -   Calls `factory_floor.extend_channel` which appends to `channel_data['programs']` and persists `channels.json`.
+
+**Significance**: This is the difference between a channel that runs ~40 hours and quits, and a channel that runs forever. Everything else in the infinite-channel chain (cursor seeding, extension orchestration, append-only extension) only matters because LineupExtender keeps calling it on a sensible cadence. Without this component, a ComBreakDirect channel is just a one-shot lineup — no different from a DizqueTV channel.
+
+### BroadcastTower
+**File**: `ComBreakDirect/utilities/BroadcastTower.py`
+**Classes**: `BroadcastTower`, `Antenna`
+**Purpose**: Multi-client streaming distribution engine using the broadcast tower metaphor. Provides true broadcast-style streaming where a single source feeds multiple clients simultaneously.
+
+**Architecture Metaphor**:
+- **BroadcastTower**: Like a TV broadcast tower - receives signal from broadcast FFmpeg and transmits to all antennas
+- **Antenna**: Individual client receiver with minimal buffer for signal stability
+- **No Buffering at Tower**: Only transmits what's broadcasting RIGHT NOW (live signal only)
+
+**Key Features & Process**:
+
+**BroadcastTower Class**:
+-   **Initialization**: Creates empty antenna list, initializes stats tracking
+-   **`broadcast(chunk: bytes)`**: Sends MPEG-TS chunk to ALL connected antennas immediately
+    -   No buffering - chunk is immediately distributed and discarded
+    -   Calls `antenna.receive(chunk)` for each antenna
+    -   Updates broadcast statistics
+-   **`connect_antenna(client_id: str) -> Antenna`**: Creates new Antenna for connecting client
+    -   Antenna joins at LIVE position (no historical signal)
+    -   Returns Antenna object for client to iterate
+-   **`disconnect_antenna(antenna: Antenna)`**: Removes antenna from active list
+-   **`has_antennas() -> bool`**: Critical for lifecycle management
+    -   Broadcast FFmpeg checks this to determine if it should continue
+    -   When returns False, broadcast FFmpeg stops
+-   **`get_stats() -> dict`**: Returns active antenna count and broadcast totals
+
+**Antenna Class**:
+-   **Initialization**: Creates client-specific buffer (132 chunks, ~2 seconds at 66 chunks/sec)
+-   **`receive(chunk: bytes)`**: Called by BroadcastTower to add chunk to buffer
+    -   If buffer full, oldest chunk dropped (tracks as "signal lost")
+    -   Uses deque with maxlen for automatic overflow handling
+-   **`read_signal(timeout: float) -> Optional[bytes]`**: Blocking read with timeout
+    -   Waits for next chunk or timeout
+    -   Returns None on timeout or disconnect
+-   **`__iter__() -> Iterator[bytes]`**: Rate-limited iteration over signal
+    -   Yields chunks with 13ms interval (matches broadcast rate)
+    -   Prevents client from buffering ahead
+    -   Auto-disconnect detection via `active` flag
+-   **`disconnect()`**: Cleanup method
+    -   Sets `active = False` to stop iteration
+    -   Removes self from BroadcastTower
+    -   Logs statistics (chunks received, signal lost count)
+
+**Threading & Synchronization**:
+-   **BroadcastTower**: Uses `threading.Lock` and `threading.Condition` for thread-safe antenna management
+-   **Antenna**: Individual lock and condition per client for independent buffering
+-   **No Race Conditions**: Lock protects antenna list modifications, condition signals new chunks
+
+**Rate Limiting**:
+-   **Antenna Iteration**: 13ms per chunk (~75 chunks/second, ~5.4 Mbps for 9400-byte chunks)
+-   **Purpose**: Prevents clients from draining buffer faster than broadcast rate
+-   **Result**: Clients forced to consume at real-time rate, can't buffer way ahead
+
+**Signal Stability**:
+-   **Buffer Size**: 132 chunks (~2 seconds) provides network jitter tolerance
+-   **Signal Lost Tracking**: Counts when client can't keep up with broadcast rate
+-   **Auto-Disconnect**: Iteration stops cleanly when `active = False`
+
+**Integration with UnloadingDock**:
+-   Created by `UnloadingDock.create_broadcast_tower(channel_number)`
+-   Fed by broadcast FFmpeg via `broadcast(chunk)` calls
+-   Clients connect via `UnloadingDock.connect_client()` which returns Antenna
+-   Flask generator iterates Antenna: `for chunk in antenna: yield chunk`
+
+**Why This Architecture Works**:
+-   **Single Source**: Broadcast FFmpeg creates one continuous stream per channel
+-   **Unlimited Clients**: BroadcastTower distributes to unlimited antennas with minimal overhead
+-   **No Tower Buffering**: Prevents clients from reading ahead (only live signal broadcast)
+-   **Small Antenna Buffer**: Just enough for network stability (~2 seconds)
+-   **Rate Limiting**: Forces real-time consumption via 13ms iteration interval
+-   **Resource Efficient**: No per-client transcoding - single transcode distributed to all
+
+**Statistics & Monitoring**:
+-   **BroadcastTower**: Tracks total chunks broadcast, total MB broadcast, active antenna count
+-   **Antenna**: Tracks chunks received, signal lost count (buffer overflows)
+-   **Logging**: `[BROADCAST_TOWER]` and `[ANTENNA]` prefixes for debugging
+
+**Critical Role in Multi-Client Support**:
+The BroadcastTower is what enables multiple clients (VLC, Plex, Jellyfin) to watch the same channel simultaneously without conflicts or per-client transcoding overhead. Combined with broadcast FFmpeg's `+genpts` flag, it creates the truly continuous multi-client streaming experience.
+
+### AudioTrackSelector
+**File**: `ComBreakDirect/utilities/AudioTrackSelector.py`
+**Class**: `AudioTrackSelector`
+**Purpose**: Intelligent audio track selection for multi-audio video files. Automatically selects the appropriate audio track based on user preferences during streaming.
+
+**Problem Solved**:
+Anime often contains multiple audio tracks (Japanese original, English dubs, director commentary, etc.). Without intelligent selection, FFmpeg would default to the first track, which might not be the desired language. AudioTrackSelector analyzes available tracks and selects the best match based on configuration.
+
+**Configuration**:
+-   **DEFAULT_LANGUAGE**: Set in `config.py` (defaults to `'english'` for Toonami's English dub focus)
+-   **LANGUAGE_VARIATIONS**: Dictionary defining language tag variations
+    -   Example: `'english': ['eng', 'english', 'en', 'en-us', 'en-gb']`
+    -   Supports multiple languages: English, Japanese, Spanish, French, German, etc.
+
+**Key Methods**:
+-   **`find_best_audio_track(file_path, preferred_language)`**: Main selection method
+    -   Analyzes file using FFprobe to enumerate audio tracks
+    -   Searches for tracks matching preferred language
+    -   Returns audio track index (0-based)
+    -   Fallback: Returns 0 (first track) if no language match found
+-   **`get_audio_tracks(file_path)`**: Uses FFprobe to enumerate available audio tracks
+    -   Returns list of dicts with track metadata (index, language, title, codec)
+-   **`get_ffmpeg_audio_mapping(file_path)`**: Generates FFmpeg arguments for audio selection
+    -   Returns list like `['-map', '0:a:2']` to select specific audio track
+    -   Used by Studio thread when spawning FFmpeg for programs
+
+**Selection Logic**:
+1. **Configured Language Match**: Searches all audio tracks for configured DEFAULT_LANGUAGE
+2. **Language Tag Variations**: Checks all variations (e.g., 'eng', 'en', 'english')
+3. **Case Insensitive**: Matches regardless of capitalization
+4. **First Track Fallback**: If no language match, defaults to first audio track
+5. **Consistency**: Maintains same audio selection across all segments of an episode
+
+**Usage in ComBreakDirect**:
+-   Called by `UnloadingDock` Studio thread during program FFmpeg spawning
+-   Integrated with `CommercialBreakRenderer` for break rendering
+-   Respects user's language preference from config.py
+-   Ensures consistent audio across all content
+
+**Example Configuration**:
+```python
+# In config.py
+DEFAULT_LANGUAGE = 'english'  # or 'japanese', 'spanish', etc.
+LANGUAGE_VARIATIONS = {
+    'english': ['eng', 'english', 'en', 'en-us', 'en-gb'],
+    'japanese': ['jpn', 'japanese', 'jp', 'ja'],
+    'spanish': ['spa', 'spanish', 'es', 'es-es', 'es-mx']
+}
+```
+
+**Error Handling**:
+-   Gracefully handles files with missing audio metadata
+-   Returns first track (index 0) on any FFprobe errors
+-   Logs warnings for problematic files
+
+**Significance**: This component eliminates the need for manual audio track specification and ensures viewers always get the correct language track (English for Toonami dubs by default), even when source files contain multiple audio streams.
+
+### CommercialBreakRenderer
+**File**: `ComBreakDirect/utilities/CommercialBreakRenderer.py`
+**Class**: `CommercialBreakRenderer`
+**Purpose**: Pre-rendering system for commercial breaks. Eliminates startup delays by rendering commercial breaks ahead of time and maintaining a cache of ready-to-stream break files.
+
+**The Problem**:
+Originally, commercial breaks were rendered on-demand during streaming, causing:
+-   30+ second delays when starting channels
+-   Timeout issues with Plex/Jellyfin
+-   Poor user experience during first playback
+-   CPU spikes during streaming
+
+**The Solution**:
+Pre-rendering system that:
+-   Renders breaks ahead of time (1 hour window by default)
+-   Stores rendered breaks in `_pre_rendered_breaks/` folder
+-   Background thread maintains the break library
+-   Instant playback when commercial slots are needed
+
+**Key Methods**:
+-   **`plan_break(break_id, duration_ms)`**: Creates break plan without rendering
+    -   Generates unique break ID based on BLOCK_ID, network, marker, and duration
+    -   Reserves output file path: `_pre_rendered_breaks/<break_id>.ts`
+    -   Selects random commercials that fit duration (with tolerance)
+    -   Stores break plan in cache for later rendering
+-   **`get_or_build_break(break_id, duration_ms)`**: Gets cached break or renders it
+    -   Checks if break already rendered and cached
+    -   If missing, renders immediately using FFmpeg
+    -   Returns file path to rendered break
+-   **`pre_render_window(breaks, window_ms)`**: Renders breaks for upcoming time window
+    -   Takes list of all breaks in channel
+    -   Filters to breaks within window (e.g., next 1 hour)
+    -   Renders each break if not already cached
+    -   Called by LoadingDock after channel creation
+-   **`pre_render_upcoming_breaks(channel_data, hours_ahead)`**: Proactive rendering for channel
+    -   Analyzes channel timeline to find upcoming breaks
+    -   Renders breaks for specified hours ahead (default 1.0)
+    -   Used for initial pre-rendering when channel created
+-   **`start_background_renderer(channels_callback)`**: Continuous background maintenance
+    -   Spawns daemon thread that monitors all channels
+    -   Periodically scans for upcoming breaks (every 10 minutes)
+    -   Pre-renders breaks staying 1 hour ahead
+    -   Runs until server shutdown
+
+**Rendering Process**:
+1. **Commercial Selection**: Randomly selects commercials from folder that fit duration
+2. **FFmpeg Concatenation**: Uses concat demuxer to stitch commercials
+3. **Audio Track Selection**: Integrates with `AudioTrackSelector` for correct language
+4. **Normalization**: Renders to standard format (H.264 1080p 30fps, AAC stereo 48kHz)
+5. **Output**: Saves as MPEG-TS file in `_pre_rendered_breaks/`
+
+**Break Cache Structure**:
+-   **Key**: Break ID (unique per BLOCK_ID + network + marker + duration)
+-   **Value**: Dict with `id`, `path`, `duration_ms`, and `commercials` list
+-   **Persistence**: Cache maintained in memory (files on disk)
+
+**Integration Points**:
+-   **LoadingDock**: Calls `plan_break()` when injecting commercials, then `pre_render_window()` for initial rendering
+-   **UnloadingDock**: Studio thread plays pre-rendered breaks like any other program
+-   **Background Thread**: Started by ComBreakDirectServer on initialization
+
+**Performance Benefits**:
+-   **Cold Start**: First channel creation takes ~25-30s for pre-rendering (acceptable one-time cost)
+-   **Warm Start**: Subsequent breaks are instant (already rendered)
+-   **Background Rendering**: Maintains cache invisibly while channel running
+-   **No Stream Delays**: All breaks ready before they're needed
+
+**Configuration**:
+-   `commercial_folder`: Path to commercial library
+-   `temp_folder`: Location for `_pre_rendered_breaks/` (defaults to `CBDIRECT_DATA_ROOT`)
+-   `hours_ahead`: How far ahead to pre-render (default 1.0 hour)
+
+**Cleanup**:
+Rendered breaks are cleaned up by `CleanupManager` when older than 4 hours.
+
+**Significance**: This component is critical for providing a smooth, TV-like experience. Without pre-rendering, every commercial break would cause a 5-10 second pause while FFmpeg renders the break on-the-fly, destroying the illusion of watching live TV.
+
+### CleanupManager
+**File**: `ComBreakDirect/utilities/CleanupManager.py`
+**Class**: `CleanupManager`
+**Purpose**: Automatic maintenance system for temporary files. Periodically removes old pre-rendered commercial breaks to prevent disk space accumulation.
+
+**The Problem**:
+-   Pre-rendered commercial breaks accumulate in `_pre_rendered_breaks/` folder
+-   Each break is 50-150 MB depending on duration
+-   Without cleanup, disk space fills up over time
+-   Old breaks for past time slots are never needed again
+
+**The Solution**:
+Background cleanup thread that:
+-   Runs every 5 minutes by default
+-   Removes pre-rendered breaks older than 4 hours
+-   Minimal CPU/IO impact
+-   Fully automatic (no user intervention needed)
+
+**Key Methods**:
+-   **`__init__(temp_folder)`**: Initializes with path to `_pre_rendered_breaks/` folder
+-   **`start_cleanup_thread(break_max_age_hours, cleanup_interval_minutes)`**: Starts background cleanup
+    -   Spawns daemon thread for automatic cleanup
+    -   `break_max_age_hours`: How old breaks must be before deletion (default 4 hours)
+    -   `cleanup_interval_minutes`: How often to run cleanup (default 5 minutes)
+    -   Returns thread object
+-   **`_cleanup_old_breaks(max_age_hours)`**: Performs actual cleanup
+    -   Scans `_pre_rendered_breaks/` folder for `.ts` files
+    -   Checks file modification time
+    -   Deletes files older than threshold
+    -   Logs cleanup actions
+
+**Cleanup Logic**:
+1. **File Discovery**: Lists all `.ts` files in temp folder
+2. **Age Check**: Compares file modification time to current time
+3. **Threshold Comparison**: If `(now - mtime) > max_age_hours`, delete
+4. **Safe Deletion**: Catches and logs exceptions for locked/missing files
+
+**Integration**:
+-   **Started by**: `FactoryFloor` during initialization
+-   **Runs alongside**: CommercialBreakRenderer background thread
+-   **Coordinates with**: Pre-rendering system (cleans up after renderer)
+
+**Configuration**:
+```python
+# Default values
+break_max_age_hours = 4.0        # Delete breaks older than 4 hours
+cleanup_interval_minutes = 5.0   # Run cleanup every 5 minutes
+```
+
+**Performance Characteristics**:
+-   **CPU Impact**: Minimal (simple file stat checks)
+-   **IO Impact**: Low (only scans one folder)
+-   **Disk Space Savings**: Prevents unbounded growth
+-   **Frequency**: 5-minute interval balances cleanup vs overhead
+
+**Why 4 Hours?**:
+-   Pre-renderer maintains 1-hour ahead cache
+-   Provides 3-hour safety margin for already-rendered breaks
+-   Breaks older than 4 hours are guaranteed to be in the past
+-   Never deletes breaks that might still be needed
+
+**Thread Safety**:
+-   Daemon thread (dies with parent process)
+-   No coordination needed (file deletion is atomic)
+-   Cleanup runs independently of rendering
+
+**Logging**:
+-   Logs each cleanup run
+-   Reports number of files deleted
+-   Warns on deletion errors (file locked, permissions, etc.)
+
+**Significance**: CleanupManager is the "janitor" that keeps the server running smoothly long-term. Without it, a server running 24/7 would fill its disk with thousands of old commercial break files. With it, the system maintains a steady state with only recent/upcoming breaks stored.
+
+## Core System Components
+
+### DurationManager
+**File**: `ComBreak/DurationManager.py`
+**Class**: `DurationManager`
+**Purpose**: Centralized singleton manager for video duration extraction using ffprobe. Provides caching to avoid redundant file probing operations.
+
+**Key Features & Process**:
+-   **Singleton Pattern**:
+    -   Only one instance exists per application
+    -   Accessed via `get_duration_manager()` function
+    -   Thread-safe implementation
+-   **Duration Extraction (`get_duration` method)**:
+    -   Takes a file path and returns duration in seconds (float)
+    -   Uses ffprobe to query video metadata
+    -   Command: `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1`
+-   **Caching System**:
+    -   Internal cache stores `{file_path: duration}` mappings
+    -   Cache key includes file modification time to detect changes
+    -   Subsequent calls for same file return cached value
+    -   Significantly improves performance for repeated queries
+-   **Error Handling**:
+    -   Returns `0.0` if file doesn't exist
+    -   Returns `0.0` if ffprobe fails
+    -   Logs errors for debugging
+-   **Cache Management**:
+    -   `clear_cache()` - Clears all cached durations
+    -   Automatic invalidation on file modification
+-   **Usage Pattern**:
+```python
+from ComBreak.DurationManager import get_duration_manager
+
+duration_mgr = get_duration_manager()
+duration_seconds = duration_mgr.get_duration("/path/to/video.mkv")
+```
+
+**Significance**: Centralizes all duration queries throughout the application, preventing redundant ffprobe calls and improving performance. Used by BumpCalculator, CutlessFinalization, and other components that need video duration information.
 
 ## Extra Tools and Utilities
 

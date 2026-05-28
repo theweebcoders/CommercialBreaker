@@ -1,4 +1,3 @@
-import pandas as pd
 import os
 import shutil
 from API.utils.DatabaseManager import get_db_manager
@@ -16,8 +15,7 @@ class FilterAndMove:
             print("Data loaded successfully.")
             # Load the data
             try:
-                with self.db_manager.transaction() as conn:
-                    df = pd.read_sql_query("SELECT * FROM lineup_v8_uncut", conn)
+                data = self.db_manager.fetchall_as_dicts("SELECT * FROM lineup_v8_uncut")
             except Exception as e:
                 self.error_manager.send_critical(
                     source="EpisodeFilter",
@@ -27,8 +25,8 @@ class FilterAndMove:
                     suggestion="Something went wrong accessing your lineup. Try running Prepare Content again"
                 )
                 raise
-                
-            if df.empty:
+
+            if len(data) == 0:
                 self.error_manager.send_error_level(
                     source="EpisodeFilter",
                     operation="filter_and_write",
@@ -37,11 +35,31 @@ class FilterAndMove:
                     suggestion="Your lineup appears to be empty. Check that your episode and bump processing completed successfully"
                 )
                 raise Exception("No lineup data to filter")
-                
-            # Filter out the rows
-            df_filtered = df[~df['FULL_FILE_PATH'].str.lower().str.contains(config.network.lower(), na=False)]
-            
-            if df_filtered.empty:
+
+            # Filter out bump files
+            # In Networkless mode, use folder-based filtering instead of network name matching
+            if config.network.lower() == "networkless":
+                # Networkless mode: Filter by detecting bump folder paths
+                # Bumps are typically in folders containing "bump" or "special" in the path
+                data_filtered = [
+                    row for row in data
+                    if row.get('FULL_FILE_PATH') and
+                    '/bump' not in row['FULL_FILE_PATH'].lower() and
+                    '\\bump' not in row['FULL_FILE_PATH'].lower() and
+                    '/special' not in row['FULL_FILE_PATH'].lower() and
+                    '\\special' not in row['FULL_FILE_PATH'].lower()
+                ]
+                print("Networkless mode: Filtered bumps using folder-based detection")
+            else:
+                # Normal mode: Filter by network name in path (traditional method)
+                network_lower = config.network.lower()
+                data_filtered = [
+                    row for row in data
+                    if row.get('FULL_FILE_PATH') and
+                    network_lower not in row['FULL_FILE_PATH'].lower()
+                ]
+
+            if len(data_filtered) == 0:
                 self.error_manager.send_error_level(
                     source="EpisodeFilter",
                     operation="filter_and_write",
@@ -52,12 +70,13 @@ class FilterAndMove:
                 raise Exception("No episodes found after filtering")
 
             # Drop the 'Code' and 'BLOCK_ID' columns
-            df_filtered = df_filtered.drop(columns=['Code', 'BLOCK_ID'])
+            for row in data_filtered:
+                row.pop('Code', None)
+                row.pop('BLOCK_ID', None)
 
-            # Write the filtered data back to an database
+            # Write the filtered data back to database
             try:
-                with self.db_manager.transaction() as conn:
-                    df_filtered.to_sql('lineup_v8_uncut_filtered', conn, index=False, if_exists='replace')
+                self.db_manager.replace_table_data('lineup_v8_uncut_filtered', data_filtered)
                 print("Data filtered and saved.")
             except Exception as e:
                 self.error_manager.send_error_level(
@@ -89,7 +108,7 @@ class FilterAndMove:
                         suggestion="Check that you have permission to create folders in the selected location"
                     )
                     raise
-                    
+
             if not os.access(self.target_directory, os.W_OK):
                 self.error_manager.send_error_level(
                     source="EpisodeFilter",
@@ -99,11 +118,10 @@ class FilterAndMove:
                     suggestion="Check that you have write permissions for the selected folder"
                 )
                 raise PermissionError(f"No write access to: {self.target_directory}")
-            
-            # Load the DataFrame
+
+            # Load the data
             try:
-                with self.db_manager.transaction() as conn:
-                    df = pd.read_sql_query("SELECT * FROM lineup_v8_uncut_filtered", conn)
+                data = self.db_manager.fetchall_as_dicts("SELECT * FROM lineup_v8_uncut_filtered")
             except Exception as e:
                 self.error_manager.send_critical(
                     source="EpisodeFilter",
@@ -118,8 +136,9 @@ class FilterAndMove:
             print("Identifying unique show directories.")
             unique_show_dirs = set()
             missing_files = []
-            
-            for file_path in df['FULL_FILE_PATH']:
+
+            for row in data:
+                file_path = row.get('FULL_FILE_PATH')
                 if file_path is None:
                     print("Warning: Encountered a None value for file_path. Skipping this row.")
                     continue
@@ -127,12 +146,12 @@ class FilterAndMove:
                 try:
                     # Normalize the path to handle inconsistencies in slash usage
                     file_path = os.path.normpath(file_path)
-                    
+
                     # Check if the file actually exists
                     if not os.path.exists(file_path):
                         missing_files.append(file_path)
                         continue
-                        
+
                     # Go up two levels from the file path to get the show directory
                     season_dir = os.path.dirname(file_path)
                     show_dir = os.path.dirname(season_dir)
@@ -151,7 +170,7 @@ class FilterAndMove:
                 )
 
             print("Unique show directories successfully identified.")
-            
+
             if not unique_show_dirs:
                 self.error_manager.send_error_level(
                     source="EpisodeFilter",
@@ -166,7 +185,7 @@ class FilterAndMove:
             print("Initiating process to move show directories.")
             moved_count = 0
             failed_moves = []
-            
+
             for show_dir in unique_show_dirs:
                 show_name = os.path.basename(show_dir)
                 dest_dir = os.path.join(self.target_directory, show_name)
@@ -190,7 +209,7 @@ class FilterAndMove:
                     details=f"Successfully moved {moved_count} out of {len(unique_show_dirs)} directories",
                     suggestion="Check that the source files aren't in use or that you have proper permissions"
                 )
-                
+
             if moved_count == 0:
                 self.error_manager.send_error_level(
                     source="EpisodeFilter",
@@ -211,14 +230,13 @@ class FilterAndMove:
         def collect_file_paths(self):
             """
             Collects unique paths to filtered files without moving them.
-            
+
             Returns:
                 list: A list of unique paths to all files that passed the filter
             """
-            # Load the filtered DataFrame
+            # Load the filtered data
             try:
-                with self.db_manager.transaction() as conn:
-                    df = pd.read_sql_query("SELECT * FROM lineup_v8_uncut_filtered", conn)
+                data = self.db_manager.fetchall_as_dicts("SELECT * FROM lineup_v8_uncut_filtered")
             except Exception as e:
                 self.error_manager.send_critical(
                     source="EpisodeFilter",
@@ -228,8 +246,8 @@ class FilterAndMove:
                     suggestion="Something went wrong accessing the filtered data. Try running Prepare Content again"
                 )
                 raise
-            
-            if df.empty:
+
+            if len(data) == 0:
                 self.error_manager.send_error_level(
                     source="EpisodeFilter",
                     operation="collect_file_paths",
@@ -238,14 +256,15 @@ class FilterAndMove:
                     suggestion="No episodes were identified for processing. Check your lineup generation"
                 )
                 raise Exception("No filtered episodes to collect")
-            
-            # Extract file paths from the DataFrame
-            filtered_paths = set()  # Use a set instead of list to ensure uniqueness
+
+            # Extract file paths from the data
+            filtered_paths = set()  # Use a set to ensure uniqueness
             duplicate_count = 0
             skipped_count = 0
             missing_count = 0
-            
-            for file_path in df['FULL_FILE_PATH']:
+
+            for row in data:
+                file_path = row.get('FULL_FILE_PATH')
                 if file_path is None:
                     print("Warning: Encountered a None value for file_path. Skipping this row.")
                     skipped_count += 1
@@ -268,17 +287,17 @@ class FilterAndMove:
                     print(f"An error occurred: {e}. Skipping this row.")
                     skipped_count += 1
                     continue
-            
+
             # Convert set back to list for return value
             unique_paths = list(filtered_paths)
-            
-            print(f"Found {len(df)} total entries in filtered data")
+
+            print(f"Found {len(data)} total entries in filtered data")
             print(f"Collected {len(unique_paths)} unique filtered file paths")
             if duplicate_count > 0:
                 print(f"Removed {duplicate_count} duplicate file paths")
             if skipped_count > 0:
                 print(f"Skipped {skipped_count} invalid or missing file paths")
-                
+
             if missing_count > 0:
                 self.error_manager.send_warning(
                     source="EpisodeFilter",
@@ -287,7 +306,7 @@ class FilterAndMove:
                     details="Some episodes in the lineup no longer exist at their original locations",
                     suggestion="These files may have been moved or deleted. Available files will still be processed"
                 )
-                
+
             if not unique_paths:
                 self.error_manager.send_error_level(
                     source="EpisodeFilter",
@@ -297,7 +316,7 @@ class FilterAndMove:
                     suggestion="Check that your episode files haven't been moved or deleted since the lineup was created"
                 )
                 raise Exception("No valid episode files to process")
-                
+
             return unique_paths
 
     def __init__(self):
@@ -306,29 +325,29 @@ class FilterAndMove:
     def run(self, target_directory=None, prepopulate=False):
         """
         Filter episodes and either move them to a target directory or return paths without moving.
-        
+
         Args:
             target_directory (str, optional): Directory to move filtered files to. Required if prepopulate=False.
             prepopulate (bool, optional): If True, don't move files but return paths for selection. Default is False.
-            
+
         Returns:
             list: If prepopulate=True, returns a list of filtered file paths. Otherwise returns None.
         """
         # Connect to the SQLite database
         self.db_manager = get_db_manager()
-        
+
         # Validate parameters based on mode
         if not prepopulate and not target_directory:
             raise ValueError("target_directory must be specified when prepopulate is False")
-        
+
         # Log the operation mode
         mode_msg = "filter and collect" if prepopulate else "filter and move"
         print(f"Starting {mode_msg} process.")
-        
+
         # Create an instance of DataFrameFilter and run it (needed for both modes)
         df_filter = self.DataFrameFilter()
         df_filter.filter_and_write()
-        
+
         # Process based on mode - either collect paths or move files
         if prepopulate:
             file_collector = self.FilteredFileCollector()

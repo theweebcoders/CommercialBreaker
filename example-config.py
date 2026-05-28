@@ -12,7 +12,40 @@ ffplay_path = tools_dir + "ffplay.exe"
 fpcalc_path = tools_dir + "fpcalc.exe"
 mkvmerge_path = tools_dir + "mkvmerge.exe"
 ENGLISH_VARIATIONS = ['eng', 'english', 'english dub', 'inglês', 'en', 'en-us', '英語', 'anglais']
+
+# Default language for audio track selection (can be 'english', 'japanese', 'spanish', etc.)
+DEFAULT_LANGUAGE = 'english'
+
+# Language variations for automatic audio track detection
+LANGUAGE_VARIATIONS = {
+    'english': ['eng', 'english', 'english dub', 'inglês', 'en', 'en-us', 'en-gb', '英語', 'anglais', 'en_US', 'en_GB'],
+    'japanese': ['jpn', 'japanese', 'jap', 'jp', 'ja', '日本語', 'japonais', 'japonês', 'ja_JP'],
+    'spanish': ['spa', 'spanish', 'español', 'esp', 'es', 'es-es', 'es-mx', 'espagnol', 'es_ES', 'es_MX'],
+    'french': ['fra', 'french', 'français', 'fre', 'fr', 'fr-fr', 'francês', 'fr_FR'],
+    'german': ['deu', 'german', 'deutsch', 'ger', 'de', 'de-de', 'allemand', 'alemão', 'de_DE'],
+    'portuguese': ['por', 'portuguese', 'português', 'pt', 'pt-pt', 'pt-br', 'portugais', 'pt_PT', 'pt_BR'],
+    'italian': ['ita', 'italian', 'italiano', 'it', 'it-it', 'italien', 'it_IT'],
+    'russian': ['rus', 'russian', 'русский', 'ru', 'ru-ru', 'russe', 'russo', 'ru_RU'],
+    'chinese': ['chi', 'chinese', '中文', 'zh', 'zh-cn', 'zh-tw', 'chinois', 'chinês', 'zh_CN', 'zh_TW'],
+    'korean': ['kor', 'korean', '한국어', 'ko', 'ko-kr', 'coréen', 'coreano', 'ko_KR']
+}
+
 cutless_mode = True
+
+CBDIRECT_HOST = os.environ.get("CBDIRECT_HOST", "0.0.0.0")
+CBDIRECT_PORT = int(os.environ.get("CBDIRECT_PORT", "8083"))
+CBDIRECT_BASE_URL = os.environ.get("CBDIRECT_BASE_URL", f"http://127.0.0.1:{CBDIRECT_PORT}")
+CBDIRECT_DATA_ROOT = os.environ.get("CBDIRECT_DATA_ROOT") or os.path.join(os.path.dirname(__file__), "combreak_direct_data")
+CBDIRECT_STORAGE_PATH = os.environ.get("CBDIRECT_STORAGE_PATH") or os.path.join(CBDIRECT_DATA_ROOT, "channels.json")
+
+# Infinite-channel LineupExtender tuning.
+# The extender arms a one-shot ``threading.Timer`` per channel that fires
+# ``INFINITE_EXTEND_LEAD_MS`` before the last program's stop time. Default
+# 3 hours of lead — enough headroom for ShowScheduler + CutlessFinalizer +
+# pre-rendering to finish before a viewer would actually hit the seam, with
+# room for a retry on transient failure. Channels shorter than the lead
+# window fire immediately.
+INFINITE_EXTEND_LEAD_MS = int(os.environ.get("INFINITE_EXTEND_LEAD_MS", str(3 * 60 * 60 * 1000)))
 
 DATABASE_DIR = os.environ.get("DB_DIR") or os.path.dirname(__file__)
 DATABASE_PATH = os.environ.get("DB_PATH") or os.path.join(DATABASE_DIR, f'{network}.db')
@@ -26,6 +59,11 @@ plex_internal_path="/mnt/user/Media/Plex/"
 dizquetv_container_name = "dizquetv-1"
 dizquetv_channel_number = "1"
 
+# Plex connection settings
+PLEX_RETRY_ATTEMPTS = 3
+PLEX_RETRY_DELAY = 2  # seconds between retries
+PLEX_SERVER_CONNECTION_TIMEOUT = 30  # seconds
+PLEX_LIBRARY_FETCH_TIMEOUT = 120  # seconds (larger libraries need more time)
 
 START_BUFFER = 60
 END_BUFFER = 30  # Filter out timestamps within last 30 seconds of video
@@ -54,10 +92,10 @@ AUTO_RUN_DEFAULT_CONFIG = {
 }
 
 TOONAMI_CONFIG = {
-    "OG": {"table": "lineup_v9", "merger_bump_list": "multibumps_v9_data_reordered", "merger_out": "lineup_v9", "encoder_in": "commercial_injector_final", "uncut": False},
-    "2": {"table": "lineup_v2", "merger_bump_list": "multibumps_v2_data_reordered", "merger_out": "lineup_v2", "encoder_in": "commercial_injector_final", "uncut": False},
-    "3": {"table": "lineup_v3", "merger_bump_list": "multibumps_v3_data_reordered", "merger_out": "lineup_v3", "encoder_in": "commercial_injector_final", "uncut": False},
-    "Mixed": {"table": "lineup_v8", "merger_bump_list": "multibumps_v8_data_reordered", "merger_out": "lineup_v8", "encoder_in": "commercial_injector_final", "uncut": False},
+    "OG": {"table": "lineup_v9", "merger_bump_list": "multibumps_v9_data_reordered_postcut", "merger_out": "lineup_v9", "encoder_in": "commercial_injector_final", "uncut": False},
+    "2": {"table": "lineup_v2", "merger_bump_list": "multibumps_v2_data_reordered_postcut", "merger_out": "lineup_v2", "encoder_in": "commercial_injector_final", "uncut": False},
+    "3": {"table": "lineup_v3", "merger_bump_list": "multibumps_v3_data_reordered_postcut", "merger_out": "lineup_v3", "encoder_in": "commercial_injector_final", "uncut": False},
+    "Mixed": {"table": "lineup_v8", "merger_bump_list": "multibumps_v8_data_reordered_postcut", "merger_out": "lineup_v8", "encoder_in": "commercial_injector_final", "uncut": False},
     "Uncut OG": {"table": "lineup_v9_uncut", "merger_bump_list": "multibumps_v9_data_reordered", "merger_out": "lineup_v9_uncut", "encoder_in": "uncut_encoded_data", "uncut": True},
     "Uncut 2": {"table": "lineup_v2_uncut", "merger_bump_list": "multibumps_v2_data_reordered", "merger_out": "lineup_v2_uncut", "encoder_in": "uncut_encoded_data", "uncut": True},
     "Uncut 3": {"table": "lineup_v3_uncut", "merger_bump_list": "multibumps_v3_data_reordered", "merger_out": "lineup_v3_uncut", "encoder_in": "uncut_encoded_data", "uncut": True},
@@ -65,10 +103,10 @@ TOONAMI_CONFIG = {
 }
 
 TOONAMI_CONFIG_CONT = {
-    "OG": {"table": "lineup_v9", "merger_bump_list": "multibumps_v9_data_reordered", "merger_out": "lineup_v9_cont", "encoder_in": "commercial_injector_final", "uncut": False},
-    "2": {"table": "lineup_v2", "merger_bump_list": "multibumps_v2_data_reordered", "merger_out": "lineup_v2_cont", "encoder_in": "commercial_injector_final", "uncut": False},
-    "3": {"table": "lineup_v3", "merger_bump_list": "multibumps_v3_data_reordered", "merger_out": "lineup_v3_cont", "encoder_in": "commercial_injector_final", "uncut": False},
-    "Mixed": {"table": "lineup_v8", "merger_bump_list": "multibumps_v8_data_reordered", "merger_out": "lineup_v8_cont", "encoder_in": "commercial_injector_final", "uncut": False},
+    "OG": {"table": "lineup_v9", "merger_bump_list": "multibumps_v9_data_reordered_postcut", "merger_out": "lineup_v9_cont", "encoder_in": "commercial_injector_final", "uncut": False},
+    "2": {"table": "lineup_v2", "merger_bump_list": "multibumps_v2_data_reordered_postcut", "merger_out": "lineup_v2_cont", "encoder_in": "commercial_injector_final", "uncut": False},
+    "3": {"table": "lineup_v3", "merger_bump_list": "multibumps_v3_data_reordered_postcut", "merger_out": "lineup_v3_cont", "encoder_in": "commercial_injector_final", "uncut": False},
+    "Mixed": {"table": "lineup_v8", "merger_bump_list": "multibumps_v8_data_reordered_postcut", "merger_out": "lineup_v8_cont", "encoder_in": "commercial_injector_final", "uncut": False},
     "Uncut OG": {"table": "lineup_v9_uncut", "merger_bump_list": "multibumps_v9_data_reordered", "merger_out": "lineup_v9_uncut_cont", "encoder_in": "uncut_encoded_data", "uncut": True},
     "Uncut 2": {"table": "lineup_v2_uncut", "merger_bump_list": "multibumps_v2_data_reordered", "merger_out": "lineup_v2_uncut_cont", "encoder_in": "uncut_encoded_data", "uncut": True},
     "Uncut 3": {"table": "lineup_v3_uncut", "merger_bump_list": "multibumps_v3_data_reordered", "merger_out": "lineup_v3_uncut_cont", "encoder_in": "uncut_encoded_data", "uncut": True},
@@ -102,6 +140,19 @@ keywords = [
 
 colors = [
     "Blue", "Red", "Green", "Orange", "blue", "red", "green", "orange"
+]
+
+# Video quality terms to remove from episode titles (only at the very end)
+VIDEO_QUALITY_TERMS = [
+    'Bluray', 'BluRay', 'BD', 'BDRip', 'BDMV',
+    'WebDL', 'WEB-DL', 'WebRip', 'WEBRip', 'WEB',
+    'HDTV', 'SDTV', 'DVDRip', 'DVD', 'DVDR',
+    'HDDVD', 'HD-DVD', 'UHD', '4K',
+    'Remux', 'REMUX',
+    '2160p', '1080p', '1080i', '720p', '576p', '480p', '360p',
+    'x264', 'x265', 'h264', 'h265', 'HEVC', 'AVC',
+    'DTS', 'DTS-HD', 'TrueHD', 'Atmos', 'AC3', 'AAC',
+    'v2', 'v3', 'REPACK', 'PROPER', 'INTERNAL'
 ]
 
 show_name_mapping = {

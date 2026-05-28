@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 import subprocess
 import config
@@ -19,38 +20,19 @@ class VideoCutter:
                 if filename.endswith('.txt'):
                     Path(dirpath, filename).unlink()
 
+    _PART_SUFFIX_RE = re.compile(r' (\d{3})$')
+
     def rename_files(self, output_dir):
-        """Rename .mp4 files in the specified directory."""
+        """Rename .mp4 files from ffmpeg's zero-padded `Part NNN` to `Part N+1` (1-indexed)."""
         output_path = Path(output_dir)
-        files = list(output_path.iterdir())
-        mp4_files = [f for f in files if f.suffix == '.mp4']
-        # Sort based on part number found at the end of the filename
-        mp4_files.sort(key=lambda x: int(x.stem.split(' ')[-1]) if ' ' in x.stem else 0)
+        mp4_files = [f for f in output_path.iterdir() if f.suffix == '.mp4']
+        # Sort by trailing part number so renames apply in deterministic order
+        mp4_files.sort(key=lambda x: int(self._PART_SUFFIX_RE.search(x.stem).group(1)) if self._PART_SUFFIX_RE.search(x.stem) else 0)
 
         for f in mp4_files:
-            new_name = (
-                f.name.replace(' 000', ' 1')
-                      .replace(' 001', ' 2')
-                      .replace(' 002', ' 3')
-                      .replace(' 003', ' 4')
-                      .replace(' 004', ' 5')
-                      .replace(' 005', ' 6')
-                      .replace(' 006', ' 7')
-                      .replace(' 007', ' 8')
-                      .replace(' 008', ' 9')
-                      .replace(' 009', ' 10')
-                      .replace(' 010', ' 11')
-                      .replace(' 011', ' 12')
-                      .replace(' 012', ' 13')
-                      .replace(' 013', ' 14')
-                      .replace(' 014', ' 15')
-                      .replace(' 015', ' 16')
-                      .replace(' 016', ' 17')
-                      .replace(' 017', ' 18')
-                      .replace(' 018', ' 19')
-                      .replace(' 019', ' 20')
-            )
-            f.rename(output_path / new_name)
+            new_stem = self._PART_SUFFIX_RE.sub(lambda m: f' {int(m.group(1)) + 1}', f.stem)
+            if new_stem != f.stem:
+                f.rename(output_path / (new_stem + f.suffix))
 
     def cut_videos(self, input_path, output_path, progress_callback=None, status_callback=None, destructive_mode=False, cutless_mode=False):
         # Handle both legacy folder mode and enhanced input mode
@@ -195,7 +177,9 @@ class VideoCutter:
                 '-of', 'default=noprint_wrappers=1:nokey=1',
                 input_file
             ]
-            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if result.returncode != 0:
+                raise RuntimeError(f"ffprobe failed for {input_file} (exit {result.returncode}): {result.stderr.decode('utf-8', errors='ignore').strip()}")
             end_time = float(result.stdout)
             self.video_durations[input_file] = end_time
         return end_time

@@ -1,10 +1,5 @@
 import os
 from pathlib import Path
-import cv2
-import numpy as np
-import subprocess
-import json
-from ComBreak.VideoLoader import VideoLoader
 from ComBreak.VideoFileManager import VideoFilesManager
 from ComBreak.EnhancedInputHandler import EnhancedInputHandler
 from ComBreak.VirtualCut import VirtualCut
@@ -12,7 +7,6 @@ from ComBreak.SilentBlackFrameDetector import SilentBlackFrameDetector
 from ComBreak.ChapterExtractor import ChapterExtractor
 from ComBreak.VideoCutter import VideoCutter
 from ComBreak.TimestampManager import TimestampManager
-from bisect import bisect_left
 import config
 
 
@@ -34,11 +28,6 @@ class CommercialBreakerLogic:
     # ------------------ Orchestrating All Timestamp Methods ------------------
     def detect_commercials(self, input_path, output_path, progress_callback=None, status_callback=None,
                            low_power_mode=False, fast_mode=False, reset_callback=None):
-        total_frames = 0
-        total_videos = 0
-        file_counter = 0
-        video_files_data = [] # This might be redundant now as detection logic is separate
-
         # Clear the unprocessed files manager
         unprocessed_files_manager = VideoFilesManager()
         unprocessed_files_manager.clear_files()  # Ensure we start with a clean state
@@ -91,38 +80,31 @@ class CommercialBreakerLogic:
         if low_power_mode:
             if status_callback:
                 status_callback("Low Power Mode Enabled: Skipping black frame detection")
-            # Delegate to the TimestampManager instance
             self.timestamp_manager.read_timestamps(
-                input_path, output_path, total_frames, video_files_data, total_videos,
-                file_counter, unprocessed_files_manager, progress_callback, status_callback
+                input_path, output_path, unprocessed_files_manager,
+                progress_callback, status_callback
             )
         elif fast_mode:
             # Check for timestamps in plex_timestamps.txt first
-            # Delegate to the TimestampManager instance
             self.timestamp_manager.read_timestamps(
-                input_path, output_path, total_frames, video_files_data, total_videos,
-                file_counter, unprocessed_files_manager, progress_callback, status_callback
+                input_path, output_path, unprocessed_files_manager,
+                progress_callback, status_callback
             )
             # Then detect silent black frames for files not found in plex_timestamps.txt
-            # Delegate to the SilentBlackFrameDetector instance
             self.silent_black_frame_detector.detect_silent_black_frames(
-                input_path, output_path, total_frames, video_files_data, total_videos,
-                file_counter, unprocessed_files_manager, progress_callback, status_callback,
-                reset_callback
+                input_path, output_path, unprocessed_files_manager,
+                progress_callback, status_callback, reset_callback
             )
         else:
             # Detect silent black frames first
-            # Delegate to the SilentBlackFrameDetector instance
             self.silent_black_frame_detector.detect_silent_black_frames(
-                input_path, output_path, total_frames, video_files_data, total_videos,
-                file_counter, unprocessed_files_manager, progress_callback, status_callback,
-                reset_callback
+                input_path, output_path, unprocessed_files_manager,
+                progress_callback, status_callback, reset_callback
             )
             # Then read timestamps for any remaining files
-            # Delegate to the TimestampManager instance
             self.timestamp_manager.read_timestamps(
-                input_path, output_path, total_frames, video_files_data, total_videos,
-                file_counter, unprocessed_files_manager, progress_callback, status_callback
+                input_path, output_path, unprocessed_files_manager,
+                progress_callback, status_callback
             )
 
         # Final step: Clean up timestamps by reducing points that are too close together

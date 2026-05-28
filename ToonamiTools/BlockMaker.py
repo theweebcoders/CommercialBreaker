@@ -1,8 +1,8 @@
-import pandas as pd
 import os
 import re
 from API.utils.DatabaseManager import get_db_manager
 from API.utils.ErrorManager import get_error_manager
+from ToonamiTools.utils.FilenameParser import FilenameParser
 import config
 
 
@@ -16,8 +16,7 @@ class BlockIDCreator:
     def load_data(self):
         # Load data from SQLite database
         try:
-            with self.db_manager.transaction() as conn:
-                self.df = pd.read_sql('SELECT * FROM commercial_injector', conn)
+            self.data = self.db_manager.fetchall_as_dicts('SELECT * FROM commercial_injector')
         except Exception as e:
             self.error_manager.send_critical(
                 source="BlockMaker",
@@ -27,8 +26,8 @@ class BlockIDCreator:
                 suggestion="This is unexpected - the lineup was just created. Please report this issue on our Discord"
             )
             raise
-            
-        if self.df.empty:
+
+        if len(self.data) == 0:
             # This should never happen since CommercialInjector just ran
             self.error_manager.send_critical(
                 source="BlockMaker",
@@ -38,9 +37,9 @@ class BlockIDCreator:
                 suggestion="This shouldn't happen - CommercialInjector just ran. Please report this issue on our Discord"
             )
             raise Exception("No data to process")
-            
+
         # Check if expected columns exist
-        if 'FULL_FILE_PATH' not in self.df.columns:
+        if self.data and 'FULL_FILE_PATH' not in self.data[0]:
             self.error_manager.send_critical(
                 source="BlockMaker",
                 operation="load_data",
@@ -49,48 +48,58 @@ class BlockIDCreator:
                 suggestion="The data structure is wrong. This is a bug - please report it on our Discord"
             )
             raise Exception(f"Invalid table structure")
-            
+
         print("Data loaded successfully from the SQLite database.")
 
     @staticmethod
     def create_block_id(path):
+        """
+        Create BLOCK_ID from file path using centralized filename parser.
+
+        Extracts show name and season/episode, then formats as uppercase with underscores.
+        Automatically handles release years in parentheses (e.g., "Show (2002)").
+
+        Returns:
+            str: BLOCK_ID in format "SHOW_NAME-S##E##" or None if parsing fails
+        """
         # Extract filename from path
         filename = os.path.basename(path)
-        
-        # Search for season and episode pattern in filename
-        season_episode_match = re.search(r'S\d{2}E\d{2}', filename)
-        if not season_episode_match:
+
+        # Parse filename using centralized parser (handles years automatically)
+        parsed = FilenameParser.parse_episode_filename(filename)
+        if not parsed:
             return None
-            
-        season_episode = season_episode_match.group(0)
-        
-        # Extract series name by taking everything before the season/episode pattern
-        series_part = filename[:season_episode_match.start()].strip()
-        
-        # Remove trailing separators like " - "
-        series_name = re.sub(r'\s*-\s*$', '', series_part).strip()
-        
+
+        series_name = parsed['show_name']
+        season_episode = parsed['season_episode']
+
         # Create block ID
         block_id = f'{series_name}-{season_episode}'
-        
+
         # Replace spaces and special characters with underscore and make all letters uppercase
         return re.sub(r'\W+', '_', block_id).upper()
 
     def assign_block_ids(self):
-        # Create a new column 'BLOCK_ID'
-        self.df['BLOCK_ID'] = self.df['FULL_FILE_PATH'].apply(self.create_block_id)
+        # Create BLOCK_ID for each row
+        for row in self.data:
+            row['BLOCK_ID'] = self.create_block_id(row['FULL_FILE_PATH'])
+
         print("Block IDs have been assigned.")
-        
+
         # Count how many rows got valid block IDs vs None
-        valid_ids = self.df['BLOCK_ID'].notna().sum()
-        total_rows = len(self.df)
-        episode_files = self.df[self.df['FULL_FILE_PATH'].str.contains(r'Part \d+', na=False)].shape[0]
-        
+        valid_ids = sum(1 for row in self.data if row.get('BLOCK_ID') is not None)
+        total_rows = len(self.data)
+        episode_files = sum(1 for row in self.data
+                           if row.get('FULL_FILE_PATH') and
+                           re.search(r'Part \d+', row['FULL_FILE_PATH']))
+
         print(f"Created block IDs for {valid_ids} out of {total_rows} files")
-        
+
         if episode_files > 0 and valid_ids == 0:
             # This is the weird case - we have episode parts but can't create ANY block IDs
-            sample_files = self.df[self.df['FULL_FILE_PATH'].str.contains(r'Part \d+', na=False)]['FULL_FILE_PATH'].head(3).tolist()
+            sample_files = [row['FULL_FILE_PATH'] for row in self.data
+                          if row.get('FULL_FILE_PATH') and
+                          re.search(r'Part \d+', row['FULL_FILE_PATH'])][:3]
             self.error_manager.send_error_level(
                 source="BlockMaker",
                 operation="assign_block_ids",
@@ -100,26 +109,36 @@ class BlockIDCreator:
             )
             print(f"Example files that couldn't be processed: {sample_files}")
             raise Exception("No valid block IDs could be created")
-    
+
         # Use backward fill to propagate block IDs from the next valid value
-        self.df['BLOCK_ID'] = self.df['BLOCK_ID'].bfill()
-        
+        # Start from the end and propagate values backward
+        next_valid_id = None
+        for row in reversed(self.data):
+            if row.get('BLOCK_ID') is not None:
+                next_valid_id = row['BLOCK_ID']
+            elif next_valid_id is not None:
+                row['BLOCK_ID'] = next_valid_id
+
         # If there are still None values at the end, use the last valid block ID
-        if self.df['BLOCK_ID'].isnull().any() and self.last_block_id is not None:
-            self.df['BLOCK_ID'].fillna(self.last_block_id, inplace=True)
-        
+        remaining_nulls = sum(1 for row in self.data if row.get('BLOCK_ID') is None)
+        if remaining_nulls > 0 and self.last_block_id is not None:
+            for row in self.data:
+                if row.get('BLOCK_ID') is None:
+                    row['BLOCK_ID'] = self.last_block_id
+
         # Update last_block_id
-        last_non_null = self.df[self.df['BLOCK_ID'].notna()].tail(1)
-        if not last_non_null.empty:
-            self.last_block_id = last_non_null.iloc[0]['BLOCK_ID']
-            
+        for row in reversed(self.data):
+            if row.get('BLOCK_ID') is not None:
+                self.last_block_id = row['BLOCK_ID']
+                break
+
         # Final check - if we still have nulls, something unusual happened
-        remaining_nulls = self.df['BLOCK_ID'].isnull().sum()
+        remaining_nulls = sum(1 for row in self.data if row.get('BLOCK_ID') is None)
         if remaining_nulls == total_rows:
             # Everything is null - this means NO files could be assigned IDs
             self.error_manager.send_error_level(
                 source="BlockMaker",
-                operation="assign_block_ids", 
+                operation="assign_block_ids",
                 message="Failed to organize any content into episode blocks",
                 details="Could not determine which files belong together as episodes",
                 suggestion="This may happen if your lineup contains only bumps and no actual episodes. Check that episode files were included"
@@ -138,15 +157,15 @@ class BlockIDCreator:
     def save_data(self):
         # Drop 'SHOW_NAME_1', 'Season and Episode', and 'Part Number' columns
         columns_to_drop = ['SHOW_NAME_1', 'Season and Episode']
-        existing_columns_to_drop = [col for col in columns_to_drop if col in self.df.columns]
-        
-        if existing_columns_to_drop:
-            self.df.drop(columns=existing_columns_to_drop, inplace=True)
-            
+
+        # Remove specified columns from all rows
+        for row in self.data:
+            for col in columns_to_drop:
+                row.pop(col, None)
+
         print("Saving data to database...")
         try:
-            with self.db_manager.transaction() as conn:
-                self.df.to_sql('commercial_injector_final', conn, index=False, if_exists='replace')
+            self.db_manager.replace_table_data('commercial_injector_final', self.data)
         except Exception as e:
             self.error_manager.send_error_level(
                 source="BlockMaker",
@@ -156,12 +175,12 @@ class BlockIDCreator:
                 suggestion="There was an issue saving the final lineup structure. Try running 'Prepare Cut Anime for Lineup' again"
             )
             raise
-            
+
         print("Data saved successfully to the SQLite database.")
 
     def run(self):
         print("Running the BlockIDCreator...")
-        
+
         # This should ALWAYS exist because CommercialInjector just created it
         if not self.db_manager.table_exists('commercial_injector'):
             self.error_manager.send_critical(
@@ -172,7 +191,7 @@ class BlockIDCreator:
                 suggestion="This indicates a serious issue with the pipeline. Please report this on our Discord"
             )
             raise Exception("Required table not found")
-            
+
         self.load_data()
         self.assign_block_ids()
         self.save_data()

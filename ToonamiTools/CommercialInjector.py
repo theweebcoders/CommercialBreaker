@@ -1,4 +1,4 @@
-import pandas as pd
+from collections import defaultdict
 from itertools import cycle
 import random
 from API.utils.DatabaseManager import get_db_manager
@@ -16,11 +16,10 @@ class LineupLogic:
 
     def generate_lineup(self):
         print("Fetching and preparing data...")
-        
+
         try:
-            with self.db_manager.transaction() as conn:
-                df_parts = pd.read_sql('SELECT * FROM commercial_injector_prep', conn)
-                df_bumps = pd.read_sql('SELECT * FROM singles_data', conn)
+            parts_data = self.db_manager.fetchall_as_dicts('SELECT * FROM commercial_injector_prep')
+            bumps_data = self.db_manager.fetchall_as_dicts('SELECT * FROM singles_data')
         except Exception as e:
             self.error_manager.send_critical(
                 source="CommercialInjector",
@@ -30,9 +29,9 @@ class LineupLogic:
                 suggestion="Something went wrong accessing your data. Try running Prepare Content again"
             )
             raise
-            
+
         # Check if we have any cut parts to work with
-        if df_parts.empty:
+        if len(parts_data) == 0:
             self.error_manager.send_error_level(
                 source="CommercialInjector",
                 operation="generate_lineup",
@@ -41,9 +40,9 @@ class LineupLogic:
                 suggestion="You need to run CommercialBreaker first to cut your episodes into parts"
             )
             raise Exception("No cut episode parts available")
-            
+
         # Check if we have any bumps
-        if df_bumps.empty:
+        if len(bumps_data) == 0:
             self.error_manager.send_error_level(
                 source="CommercialInjector",
                 operation="generate_lineup",
@@ -52,22 +51,31 @@ class LineupLogic:
                 suggestion="You need at least some single-show bumps (intro, to ads, back) for the cut lineup"
             )
             raise Exception("No bumps available for commercial injection")
-            
-        # Create a sanitized DataFrame for comparisons
-        df_bumps_sanitized = df_bumps.copy()
-        df_bumps_sanitized['FULL_FILE_PATH'] = df_bumps_sanitized['FULL_FILE_PATH'].apply(lambda x: x.split('Θ')[0])
+
+        # Create sanitized bumps data for comparisons (split on Θ)
+        bumps_data_sanitized = [
+            {**row, 'FULL_FILE_PATH': row['FULL_FILE_PATH'].split('Θ')[0]}
+            for row in bumps_data
+        ]
 
         # Map to canonical values first
-        df_parts['SHOW_NAME_1'] = df_parts['SHOW_NAME_1'].apply(lambda x: show_name_mapper.map(x, strategy='all'))
-        df_bumps['SHOW_NAME_1'] = df_bumps['SHOW_NAME_1'].apply(lambda x: show_name_mapper.map(x, strategy='all'))
-        df_bumps_sanitized['SHOW_NAME_1'] = df_bumps_sanitized['SHOW_NAME_1'].apply(lambda x: show_name_mapper.map(x, strategy='all'))
+        for row in parts_data:
+            row['SHOW_NAME_1'] = show_name_mapper.map(row['SHOW_NAME_1'], strategy='all')
+        for row in bumps_data:
+            row['SHOW_NAME_1'] = show_name_mapper.map(row['SHOW_NAME_1'], strategy='all')
+        for row in bumps_data_sanitized:
+            row['SHOW_NAME_1'] = show_name_mapper.map(row['SHOW_NAME_1'], strategy='all')
 
         # Then clean with 'matching' so ampersands/apostrophes/etc. align across sources
-        df_parts['SHOW_NAME_1'] = df_parts['SHOW_NAME_1'].apply(lambda x: show_name_mapper.clean(x, mode='matching'))
-        df_bumps['SHOW_NAME_1'] = df_bumps['SHOW_NAME_1'].apply(lambda x: show_name_mapper.clean(x, mode='matching'))
-        df_bumps_sanitized['SHOW_NAME_1'] = df_bumps_sanitized['SHOW_NAME_1'].apply(lambda x: show_name_mapper.clean(x, mode='matching'))
+        for row in parts_data:
+            row['SHOW_NAME_1'] = show_name_mapper.clean(row['SHOW_NAME_1'], mode='matching')
+        for row in bumps_data:
+            row['SHOW_NAME_1'] = show_name_mapper.clean(row['SHOW_NAME_1'], mode='matching')
+        for row in bumps_data_sanitized:
+            row['SHOW_NAME_1'] = show_name_mapper.clean(row['SHOW_NAME_1'], mode='matching')
 
-        df_parts.sort_values(by=['SHOW_NAME_1', 'Season and Episode', 'Part Number'], inplace=True)
+        # Sort parts by show name, season/episode, and part number
+        parts_data.sort(key=lambda x: (x['SHOW_NAME_1'], x['Season and Episode'], x['Part Number']))
 
         print("Data preparation complete.")
 
@@ -78,13 +86,11 @@ class LineupLogic:
         print("Generating lineup...")
 
         # Check for default/fallback bumps
-        default_bumps = list(
-            df_bumps_sanitized[
-                (df_bumps_sanitized['SHOW_NAME_1'] == 'clydes')
-                | (df_bumps_sanitized['SHOW_NAME_1'] == 'robot')
-            ]['FULL_FILE_PATH']
-        )
-        
+        default_bumps = [
+            row['FULL_FILE_PATH'] for row in bumps_data_sanitized
+            if row['SHOW_NAME_1'] == 'clydes' or row['SHOW_NAME_1'] == 'robot'
+        ]
+
         if not default_bumps:
             self.error_manager.send_warning(
                 source="CommercialInjector",
@@ -94,34 +100,39 @@ class LineupLogic:
                 suggestion="Consider adding some generic Toonami bumps as fallbacks for shows without specific bumps"
             )
 
-        for (show_name, season_and_episode), group in df_parts.groupby(['SHOW_NAME_1', 'Season and Episode']):
+        # Group parts by show and episode
+        grouped_parts = defaultdict(list)
+        for row in parts_data:
+            key = (row['SHOW_NAME_1'], row['Season and Episode'])
+            grouped_parts[key].append(row)
+
+        for (show_name, season_and_episode), group in grouped_parts.items():
             # show_name is already mapped+cleaned; keep consistency
             mapped_show_name = show_name
             # Display name is not required for lineup logic; keep SHOW_NAME_1 only
 
-            parts = list(group['FULL_FILE_PATH'])
-            bumps = df_bumps_sanitized[df_bumps_sanitized['SHOW_NAME_1'] == mapped_show_name].sort_values('PLACEMENT_2')
+            parts = [row['FULL_FILE_PATH'] for row in group]
 
-            to_ads_bumps = list(
-                bumps[bumps['PLACEMENT_2'].str.contains('to ads', case=False)][
-                    'FULL_FILE_PATH'
-                ]
-            )
-            back_bumps = list(
-                bumps[bumps['PLACEMENT_2'].str.contains('back', case=False)][
-                    'FULL_FILE_PATH'
-                ]
-            )
-            intro_bumps = list(
-                bumps[bumps['PLACEMENT_2'].str.contains('intro', case=False)][
-                    'FULL_FILE_PATH'
-                ]
-            )
-            generic_bumps = list(
-                bumps[bumps['PLACEMENT_2'].str.contains('generic', case=False)][
-                    'FULL_FILE_PATH'
-                ]
-            )
+            # Filter bumps for this show and sort by PLACEMENT_2
+            bumps = [row for row in bumps_data_sanitized if row['SHOW_NAME_1'] == mapped_show_name]
+            bumps.sort(key=lambda x: x.get('PLACEMENT_2', ''))
+
+            to_ads_bumps = [
+                row['FULL_FILE_PATH'] for row in bumps
+                if row.get('PLACEMENT_2') and 'to ads' in row['PLACEMENT_2'].lower()
+            ]
+            back_bumps = [
+                row['FULL_FILE_PATH'] for row in bumps
+                if row.get('PLACEMENT_2') and 'back' in row['PLACEMENT_2'].lower()
+            ]
+            intro_bumps = [
+                row['FULL_FILE_PATH'] for row in bumps
+                if row.get('PLACEMENT_2') and 'intro' in row['PLACEMENT_2'].lower()
+            ]
+            generic_bumps = [
+                row['FULL_FILE_PATH'] for row in bumps
+                if row.get('PLACEMENT_2') and 'generic' in row['PLACEMENT_2'].lower()
+            ]
 
             random.shuffle(default_bumps)
 
@@ -179,8 +190,9 @@ class LineupLogic:
             )
             
         # Report specific missing bump types
+        unique_shows = set(row['SHOW_NAME_1'] for row in parts_data)
         for bump_type, shows in shows_without_specific_bumps.items():
-            if shows and len(shows) > len(df_parts['SHOW_NAME_1'].unique()) * 0.3:  # More than 30% of shows
+            if shows and len(shows) > len(unique_shows) * 0.3:  # More than 30% of shows
                 self.error_manager.send_info(
                     source="CommercialInjector",
                     operation="generate_lineup",
@@ -190,7 +202,7 @@ class LineupLogic:
                 )
 
         print("Lineup generated. Proceeding to database writing.")
-        
+
         if not rows:
             self.error_manager.send_error_level(
                 source="CommercialInjector",
@@ -202,9 +214,7 @@ class LineupLogic:
             raise Exception("Empty lineup generated")
 
         try:
-            df_lineup = pd.DataFrame(rows, columns=['SHOW_NAME_1', 'Season and Episode', 'FULL_FILE_PATH'])
-            with self.db_manager.transaction() as conn:
-                df_lineup.to_sql('commercial_injector', conn, index=False, if_exists='replace')
+            self.db_manager.replace_table_data('commercial_injector', rows)
         except Exception as e:
             self.error_manager.send_error_level(
                 source="CommercialInjector",
